@@ -57,6 +57,8 @@ private val SelectionGradientBottom = Color(0xFFB13123)
 @Composable
 fun MainScreen(
     onProjectDetailClick: (String) -> Unit,
+    onProjectStatsClick: (String) -> Unit,
+    onNetworkDebugClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableStateOf(0) }
@@ -66,6 +68,8 @@ fun MainScreen(
 
     MainScreenContent(
         onProjectDetailClick = onProjectDetailClick,
+        onProjectStatsClick = onProjectStatsClick,
+        onNetworkDebugClick = onNetworkDebugClick,
         modifier = modifier,
         isAuthorized = isAuthorized,
         selectedTab = selectedTab,
@@ -81,6 +85,8 @@ fun MainScreen(
 @Composable
 private fun MainScreenContent(
     onProjectDetailClick: (String) -> Unit,
+    onProjectStatsClick: (String) -> Unit,
+    onNetworkDebugClick: () -> Unit,
     modifier: Modifier = Modifier,
     isAuthorized: Boolean,
     selectedTab: Int,
@@ -214,7 +220,10 @@ private fun MainScreenContent(
                                 title = "Мой проект",
                                 showBackButton = false,
                                 showMyProjectMenu = true,
-                                onMyProjectBackToProjects = { onMyProjectOpenChange(false) }
+                                onMyProjectBackToProjects = { onMyProjectOpenChange(false) },
+                                onMyProjectOpenStats = {
+                                    onProjectStatsClick(project.slug ?: project.id)
+                                }
                             )
                         } else {
                             val projectId = project.slug ?: project.id
@@ -229,7 +238,7 @@ private fun MainScreenContent(
                                 showMyProjectMenu = true,
                                 onMyProjectBackToProjects = { onMyProjectOpenChange(false) },
                                 onMyProjectOpenStats = {
-                                    AppLog.d("MyProject", "Статистика проекта: TODO")
+                                    onProjectStatsClick(projectId)
                                 }
                             )
                         }
@@ -247,8 +256,12 @@ private fun MainScreenContent(
                     }
                 }
 
-                1 -> RankingScreen()
-                2 -> InfoScreen()
+                1 -> RankingScreen(
+                    onProjectClick = onProjectStatsClick
+                )
+                2 -> InfoScreen(
+                    onNetworkDebugClick = onNetworkDebugClick
+                )
             }
 
             // Алерт "Предложить проект"
@@ -546,6 +559,8 @@ private fun TabItem(
 private fun MainScreenPreview_Unauthorized() {
     MainScreenContent(
         onProjectDetailClick = {},
+        onProjectStatsClick = {},
+        onNetworkDebugClick = {},
         modifier = Modifier,
         isAuthorized = false,
         selectedTab = 0,
@@ -562,6 +577,8 @@ private fun MainScreenPreview_Unauthorized() {
 private fun MainScreenPreview_Authorized() {
     MainScreenContent(
         onProjectDetailClick = {},
+        onProjectStatsClick = {},
+        onNetworkDebugClick = {},
         modifier = Modifier,
         isAuthorized = true,
         selectedTab = 0,
@@ -590,6 +607,8 @@ private fun MainScreenPreview_MyProject() {
 
     MainScreenContent(
         onProjectDetailClick = {},
+        onProjectStatsClick = {},
+        onNetworkDebugClick = {},
         modifier = Modifier,
         isAuthorized = true,
         selectedTab = 0,
@@ -607,6 +626,8 @@ private fun MainScreenPreview_MyProject() {
 private fun MainScreenPreview_MyProjectEmpty() {
     MainScreenContent(
         onProjectDetailClick = {},
+        onProjectStatsClick = {},
+        onNetworkDebugClick = {},
         modifier = Modifier,
         isAuthorized = true,
         selectedTab = 0,

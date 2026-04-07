@@ -2,12 +2,13 @@ package com.spbu.projecttrack.projects.presentation.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.projects.data.model.*
 import com.spbu.projecttrack.projects.data.repository.ProjectsRepository
-import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.todayIn
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -117,7 +118,10 @@ private fun resolveProjectStatusText(project: ProjectDetail, teams: List<Team>):
 private fun computeProjectStage(project: ProjectDetail, teams: List<Team>): ProjectStage? {
     val dateEnd = project.dateEnd?.take(10)?.trim().orEmpty()
     val parsedEndDate = parseLocalDate(dateEnd) ?: return null
-    val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+    val today = Instant
+        .fromEpochMilliseconds(PlatformTime.currentTimeMillis())
+        .toLocalDateTime(TimeZone.currentSystemDefault())
+        .date
     if (parsedEndDate < today) return ProjectStage.Completed
 
     val teamLimit = project.teamLimit ?: return null

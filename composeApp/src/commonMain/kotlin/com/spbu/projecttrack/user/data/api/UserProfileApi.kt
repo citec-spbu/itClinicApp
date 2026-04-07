@@ -14,7 +14,6 @@ import kotlinx.serialization.json.Json
 
 class UserProfileApi(private val client: HttpClient) {
 
-    private val baseUrl = ApiConfig.baseUrl
     private val logTag = "UserProfileApi"
     private val json = Json {
         ignoreUnknownKeys = true
@@ -28,7 +27,7 @@ class UserProfileApi(private val client: HttpClient) {
     suspend fun getProfile(): Result<UserProfileResponse> {
         return try {
             val endpoint = ApiConfig.AuthRequired.USER_PROFILE
-            val url = "$baseUrl$endpoint"
+            val url = "${ApiConfig.baseUrl}$endpoint"
 
             AppLog.d(logTag, "GET $url")
 
