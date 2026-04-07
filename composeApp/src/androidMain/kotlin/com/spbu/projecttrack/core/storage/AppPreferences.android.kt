@@ -32,11 +32,24 @@ class AppPreferencesImpl(context: Context) : AppPreferences {
             .remove(KEY_REFRESH_TOKEN)
             .apply()
     }
+
+    override fun getCustomHostIP(): String? {
+        return prefs.getString(KEY_CUSTOM_HOST_IP, null)
+    }
+
+    override fun saveCustomHostIP(ip: String) {
+        prefs.edit().putString(KEY_CUSTOM_HOST_IP, ip).apply()
+    }
+
+    override fun clearCustomHostIP() {
+        prefs.edit().remove(KEY_CUSTOM_HOST_IP).apply()
+    }
     
     companion object {
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
+        private const val KEY_CUSTOM_HOST_IP = "custom_host_ip"
     }
 }
 
@@ -55,4 +68,3 @@ fun initAppPreferences(context: Context) {
         instance = AppPreferencesImpl(context.applicationContext)
     }
 }
-

@@ -13,7 +13,6 @@ import io.ktor.http.*
 
 class ProjectsApi(private val client: HttpClient) {
 
-    private val baseUrl = ApiConfig.baseUrl
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -31,7 +30,7 @@ class ProjectsApi(private val client: HttpClient) {
     suspend fun getProjects(page: Int = 1): Result<ProjectsResponse> {
         return try {
             val endpoint = ApiConfig.Public.PROJECT_FINDMANY
-            val url = "$baseUrl$endpoint"
+            val url = "${ApiConfig.baseUrl}$endpoint"
             println("📡 Запрос к API: POST $url")
             println("📦 Тело запроса: page=$page")
 
@@ -61,13 +60,13 @@ class ProjectsApi(private val client: HttpClient) {
     suspend fun getAllProjects(): Result<ProjectsResponse> {
         return try {
             val endpoint = ApiConfig.Public.PROJECT_FINDMANY
-            // Загружаем несколько страниц, так как каждая страница возвращает только 5 проектов
+            // Загружаем все страницы, так как каждая страница возвращает только 5 проектов
             val allProjects = mutableListOf<com.spbu.projecttrack.projects.data.model.Project>()
             val allTags = mutableSetOf<com.spbu.projecttrack.projects.data.model.Tag>()
 
-            // Загружаем первые 4 страницы (до 20 проектов)
-            for (page in 1..4) {
-                val response = client.post("$baseUrl$endpoint") {
+            var page = 1
+            while (true) {
+                val response = client.post("${ApiConfig.baseUrl}$endpoint") {
                     accept(ContentType.Application.Json)
                     header(HttpHeaders.ContentType, ContentType.Application.Json)
                     setBody(FindManyRequest(filters = emptyMap(), page = page))
@@ -83,6 +82,8 @@ class ProjectsApi(private val client: HttpClient) {
 
                 // Если проектов меньше 5, значит это последняя страница
                 if (pageData.projects.size < 5) break
+
+                page += 1
             }
 
             Result.success(ProjectsResponse(
@@ -97,7 +98,7 @@ class ProjectsApi(private val client: HttpClient) {
     suspend fun getActiveProjects(): Result<ProjectsResponse> {
         return try {
             val endpoint = ApiConfig.Public.PROJECT_ACTIVE
-            val response = client.get("$baseUrl$endpoint") {
+            val response = client.get("${ApiConfig.baseUrl}$endpoint") {
                 accept(ContentType.Application.Json)
             }
             val bodyText = response.bodyAsText()
@@ -113,7 +114,7 @@ class ProjectsApi(private val client: HttpClient) {
     suspend fun getNewProjects(): Result<ProjectsResponse> {
         return try {
             val endpoint = ApiConfig.Public.PROJECT_NEW
-            val response = client.get("$baseUrl$endpoint") {
+            val response = client.get("${ApiConfig.baseUrl}$endpoint") {
                 accept(ContentType.Application.Json)
             }
             val bodyText = response.bodyAsText()
@@ -129,7 +130,7 @@ class ProjectsApi(private val client: HttpClient) {
     suspend fun getProjectById(id: String): Result<ProjectDetailResponse> {
         return try {
             val endpoint = ApiConfig.Public.PROJECT_DETAIL.replace("{slug}", id)
-            val url = "$baseUrl$endpoint"
+            val url = "${ApiConfig.baseUrl}$endpoint"
 
             println("📡 Запрос к API: GET $url")
             println("📦 Параметр (id/slug): $id")

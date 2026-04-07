@@ -26,11 +26,24 @@ class AppPreferencesImpl : AppPreferences {
         userDefaults.removeObjectForKey(KEY_ACCESS_TOKEN)
         userDefaults.removeObjectForKey(KEY_REFRESH_TOKEN)
     }
+
+    override fun getCustomHostIP(): String? {
+        return userDefaults.stringForKey(KEY_CUSTOM_HOST_IP)
+    }
+
+    override fun saveCustomHostIP(ip: String) {
+        userDefaults.setObject(ip, KEY_CUSTOM_HOST_IP)
+    }
+
+    override fun clearCustomHostIP() {
+        userDefaults.removeObjectForKey(KEY_CUSTOM_HOST_IP)
+    }
     
     companion object {
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
+        private const val KEY_CUSTOM_HOST_IP = "custom_host_ip"
     }
 }
 
@@ -40,4 +53,3 @@ private val instance: AppPreferences by lazy { AppPreferencesImpl() }
 actual fun createAppPreferences(): AppPreferences {
     return instance
 }
-

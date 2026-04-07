@@ -31,10 +31,11 @@ import projecttrack.composeapp.generated.resources.*
 fun SearchBar(
     searchText: String,
     onSearchTextChange: (String) -> Unit,
-    onFilterClick: () -> Unit,
-    hasActiveFilters: Boolean,
+    onFilterClick: () -> Unit = {},
+    hasActiveFilters: Boolean = false,
     modifier: Modifier = Modifier,
-    onFocusChange: (Boolean) -> Unit = {}
+    onFocusChange: (Boolean) -> Unit = {},
+    showFilters: Boolean = true
 ) {
     val focusManager = LocalFocusManager.current
     
@@ -105,29 +106,31 @@ fun SearchBar(
                 }
             )
             
-            // Лого фильтров с индикатором (цвет 2)
-            Box(modifier = Modifier.size(24.dp)) {
-                Image(
-                    painter = painterResource(Res.drawable.filter_icon),
-                    contentDescription = "Фильтры",
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clickable(onClick = onFilterClick),
-                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(AppColors.Color2)
-                )
-                
-                // Индикатор активных фильтров
-                if (hasActiveFilters) {
-                    Box(
+            if (showFilters) {
+                // Лого фильтров с индикатором (цвет 2)
+                Box(modifier = Modifier.size(24.dp)) {
+                    Image(
+                        painter = painterResource(Res.drawable.filter_icon),
+                        contentDescription = "Фильтры",
                         modifier = Modifier
-                            .size(10.dp)
-                            .background(
-                                color = AppColors.Color3,
-                                shape = CircleShape
-                            )
-                            .align(Alignment.TopEnd)
-                            .offset(x = 2.dp, y = (-2).dp)
+                            .size(24.dp)
+                            .clickable(onClick = onFilterClick),
+                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(AppColors.Color2)
                     )
+
+                    // Индикатор активных фильтров
+                    if (hasActiveFilters) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(
+                                    color = AppColors.Color3,
+                                    shape = CircleShape
+                                )
+                                .align(Alignment.TopEnd)
+                                .offset(x = 2.dp, y = (-2).dp)
+                        )
+                    }
                 }
             }
         }

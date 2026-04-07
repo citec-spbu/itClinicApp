@@ -7,6 +7,11 @@ import com.spbu.projecttrack.user.data.api.UserProfileApi
 import com.spbu.projecttrack.projects.data.repository.ProjectsRepository
 import com.spbu.projecttrack.projects.presentation.ProjectsViewModel
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailViewModel
+import com.spbu.projecttrack.rating.data.api.MetricApi
+import com.spbu.projecttrack.rating.data.repository.ProjectStatsRepository
+import com.spbu.projecttrack.rating.data.repository.RankingRepository
+import com.spbu.projecttrack.rating.presentation.RankingViewModel
+import com.spbu.projecttrack.rating.presentation.projectstats.ProjectStatsViewModel
 
 object DependencyContainer {
     
@@ -15,8 +20,23 @@ object DependencyContainer {
     private val projectsApi by lazy { ProjectsApi(httpClient) }
     private val contactRequestApi by lazy { ContactRequestApi(httpClient) }
     private val userProfileApi by lazy { UserProfileApi(httpClient) }
+    private val metricApi by lazy { MetricApi(httpClient) }
     
     private val projectsRepository by lazy { ProjectsRepository(projectsApi) }
+    private val rankingRepository by lazy {
+        RankingRepository(
+            api = metricApi,
+            projectsApi = projectsApi,
+            userProfileApi = userProfileApi
+        )
+    }
+    private val projectStatsRepository by lazy {
+        ProjectStatsRepository(
+            metricApi = metricApi,
+            projectsApi = projectsApi,
+            userProfileApi = userProfileApi
+        )
+    }
     
     fun provideProjectsViewModel(): ProjectsViewModel {
         return ProjectsViewModel(projectsRepository)
@@ -32,5 +52,16 @@ object DependencyContainer {
 
     fun provideUserProfileApi(): UserProfileApi {
         return userProfileApi
+    }
+
+    fun provideRankingViewModel(): RankingViewModel {
+        return RankingViewModel(rankingRepository)
+    }
+
+    fun provideProjectStatsViewModel(projectId: String): ProjectStatsViewModel {
+        return ProjectStatsViewModel(
+            repository = projectStatsRepository,
+            projectId = projectId
+        )
     }
 }

@@ -31,6 +31,16 @@ object BuildConfigExample {
      * Порт локального API
      */
     const val LOCAL_PORT = 8000
+
+    /**
+     * URL продакшн API для метрик
+     */
+    const val METRIC_PRODUCTION_BASE_URL = "https://metrics.example.com"
+
+    /**
+     * Порт локального API для метрик
+     */
+    const val METRIC_LOCAL_PORT = 4173
     
     /**
      * GitHub OAuth Client ID (если используется)

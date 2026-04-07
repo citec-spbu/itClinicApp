@@ -16,7 +16,6 @@ import io.ktor.http.isSuccess
 
 class ContactRequestApi(private val client: HttpClient) {
 
-    private val baseUrl = ApiConfig.baseUrl
     private val logTag = "ContactRequestApi"
 
     private fun buildHttpError(status: HttpStatusCode): Exception {
@@ -26,7 +25,7 @@ class ContactRequestApi(private val client: HttpClient) {
     suspend fun sendRequest(name: String, email: String): Result<Unit> {
         return try {
             val endpoint = ApiConfig.Public.EMAIL_SEND_REQUEST
-            val url = "$baseUrl$endpoint"
+            val url = "${ApiConfig.baseUrl}$endpoint"
 
             AppLog.d(logTag, "POST $url")
             AppLog.d(logTag, "Body: name=$name, email=$email")
