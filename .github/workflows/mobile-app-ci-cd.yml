@@ -7,6 +7,12 @@ on:
     tags:
       - "v*"
   pull_request:
+  workflow_dispatch:
+    inputs:
+      rollback_tag:
+        description: "Existing image tag to promote back to latest"
+        required: false
+        type: string
 
 concurrency:
   group: mobile-app-${{ github.workflow }}-${{ github.ref }}
@@ -167,3 +173,32 @@ jobs:
           file: docker/app-showcase/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+
+  rollback_app_showcase:
+    name: Roll Back App Showcase Image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_tag != ''
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote selected tag to latest
+        shell: bash
+        run: |
+          OWNER_LC="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/${OWNER_LC}/itclinicapp-showcase"
+
+          docker buildx imagetools create \
+            --tag "${IMAGE}:latest" \
+            "${IMAGE}:${{ github.event.inputs.rollback_tag }}"
