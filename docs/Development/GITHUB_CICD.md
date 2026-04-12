@@ -2,132 +2,161 @@
 
 ## Scope
 
-Этот workflow настроен только для мобильного приложения в этом репозитории.
+This workflow is configured only for the mobile application in this repository.
 
-- backend не требуется
-- CI проверяет Android/Compose слой
-- CD публикует не backend-контейнер, а showcase-образ с документацией проекта
+- no backend is required
+- CI validates the Android/Compose application layer
+- CD publishes a documentation/showcase image instead of a backend container
 
-Основной workflow: `.github/workflows/mobile-app-ci-cd.yml`
+Primary workflow: `.github/workflows/mobile-app-ci-cd.yml`
 
-## Что делает workflow
+## What the workflow does
 
 ### CI
 
-Выполняются два job:
+The workflow runs two jobs:
 
 - `Android Lint`
-  - команда: `./gradlew :composeApp:lintDebug --stacktrace`
+  - command: `./gradlew :composeApp:lintDebug --stacktrace`
 - `Android Unit Tests`
-  - команда: `./gradlew :composeApp:testDebugUnitTest --stacktrace`
+  - command: `./gradlew :composeApp:testDebugUnitTest --stacktrace`
 
-Перед запуском workflow автоматически создаёт временные файлы:
+Before Gradle starts, the workflow generates temporary config files:
 
 - `composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt`
 - `composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt`
 
-Они генерируются из:
+They are created from:
 
 - `BuildConfig.example.kt`
 - `MailConfig.example.kt`
 
-Это нужно потому, что реальные локальные конфиги не коммитятся в Git.
+This is required because real local config files are intentionally not committed to Git.
 
 ### CD
 
-При `push` в default branch или при push тега workflow публикует Docker-образ:
+On `push` to the default branch or on a git tag push, the workflow publishes a Docker image:
 
 - `ghcr.io/<owner>/itclinicapp-showcase`
 
-В образ попадают:
+The image contains:
 
-- статическая стартовая страница
-- `README.md`
-- папка `docs/`
+- a static entry page
+- the `docs/` folder
 
-Контейнер использует `nginx`.
+The container runs on top of `nginx`.
+The publish job builds a multi-architecture image for:
 
-## Теги образов
+- `linux/amd64`
+- `linux/arm64`
 
-При публикации создаются immutable tags:
+## Image tags
 
-- короткий SHA коммита
-- tag ветки
-- git tag, если публикация идёт по release tag
+Each publish creates immutable tags:
 
-Дополнительно:
+- short commit SHA
+- branch tag
+- git tag, when the publish is triggered by a release tag
 
-- `latest` обновляется только для default branch
+Additionally:
 
-Идея простая: `latest` это лишь указатель, а не единственный источник правды.
+- `latest` is updated only for the default branch
 
-## Стратегия отката
+The idea is simple: `latest` is just a pointer, not the only source of truth.
 
-Откат делается без новой сборки.
+## Rollback strategy
 
-1. Откройте `Actions`
-2. Выберите workflow `Mobile App CI/CD`
-3. Нажмите `Run workflow`
-4. Укажите `rollback_tag`
-5. Запустите workflow вручную
+Rollback is performed without rebuilding the image.
 
-Rollback job выполнит promotion уже существующего образа:
+1. Open `Actions`
+2. Select the `Mobile App CI/CD` workflow
+3. Click `Run workflow`
+4. Provide `rollback_tag`
+5. Run the workflow manually
 
-- из `ghcr.io/<owner>/itclinicapp-showcase:<rollback_tag>`
-- в `ghcr.io/<owner>/itclinicapp-showcase:latest`
+The rollback job promotes an existing image:
 
-То есть откат меняет только указатель `latest`.
+- from `ghcr.io/<owner>/itclinicapp-showcase:<rollback_tag>`
+- to `ghcr.io/<owner>/itclinicapp-showcase:latest`
 
-## Почему `docker pull ghcr.io/...:latest` может вернуть `unauthorized`
+So rollback changes only the `latest` pointer.
 
-Обычно причина одна из двух:
+## Why `docker pull ghcr.io/...:latest` may return `unauthorized`
 
-1. образ ещё не был опубликован
-2. пакет в GHCR приватный, а клиент не залогинен
+There are usually two possible reasons:
 
-### Сценарий 1: образ не опубликован
+1. the image has not been published yet
+2. the GHCR package is private and the client is not authenticated
 
-Если `Android Lint` или `Android Unit Tests` падают, publish job не запускается.
+### Scenario 1: the image was not published
 
-Тогда:
+If `Android Lint` or `Android Unit Tests` fail, the publish job does not start.
 
-- `latest` не создаётся
-- `docker pull` не сможет получить образ
+In that case:
 
-Сначала нужно добиться зелёного workflow.
+- `latest` is not created
+- `docker pull` cannot fetch the image
 
-### Сценарий 2: GHCR package приватный
+The first step is to get a green workflow run.
 
-По умолчанию package в GitHub Container Registry часто приватный.
+### Scenario 2: the GHCR package is private
 
-Тогда для pull нужен логин:
+By default, a package in GitHub Container Registry is often private.
+
+In that case, you need to log in before pulling:
 
 ```bash
 echo <PAT> | docker login ghcr.io -u <github_username> --password-stdin
 docker pull ghcr.io/<owner>/itclinicapp-showcase:latest
 ```
 
-Для `PAT` нужен scope:
+The `PAT` must include:
 
 - `read:packages`
 
-Если pull должен работать без логина:
+If you want anonymous pulls without `docker login`:
 
-1. откройте package в GitHub
-2. переключите visibility на `public`
+1. open the package page in GitHub
+2. switch package visibility to `public`
 
-## Что проверить после push
+## Why `no matching manifest for linux/arm64/v8` may happen
 
-1. Во вкладке `Actions` должен появиться workflow `Mobile App CI/CD`
-2. Должны пройти:
+This means the image exists, but the published manifest does not include an ARM64 variant.
+
+This usually happens when the image was built only for:
+
+- `linux/amd64`
+
+On Apple Silicon, Docker tries to pull:
+
+- `linux/arm64/v8`
+
+If that platform is missing, pull fails with:
+
+- `no matching manifest for linux/arm64/v8`
+
+Temporary workaround:
+
+```bash
+docker pull --platform linux/amd64 ghcr.io/<owner>/itclinicapp-showcase:<tag>
+```
+
+Proper fix:
+
+- publish the image as multi-arch
+- include both `linux/amd64` and `linux/arm64`
+
+## What to verify after push
+
+1. The `Mobile App CI/CD` workflow appears in the `Actions` tab
+2. These jobs pass:
    - `Android Lint`
    - `Android Unit Tests`
-3. Для default branch или тега должен стартовать:
+3. On the default branch or on a tag, this job also runs:
    - `Publish App Showcase Image`
-4. В `Packages` должен появиться пакет:
-   - `itclinicapp-showcase`
+4. A package named `itclinicapp-showcase` appears in `Packages`
 
-## EN Summary
+## Short summary
 
 This repository uses an app-only GitHub Actions workflow.
 
