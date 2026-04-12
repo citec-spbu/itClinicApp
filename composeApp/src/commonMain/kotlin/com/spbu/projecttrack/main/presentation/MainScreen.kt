@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -42,7 +43,7 @@ import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreenCon
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailUiState
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.backhandler.BackHandler
 import projecttrack.composeapp.generated.resources.*
 
 // Custom TabBar colors
@@ -53,40 +54,53 @@ private val SelectedTabColor = Color.White
 private val SelectionGradientTop = Color(0xFFCF3F2F)
 private val SelectionGradientBottom = Color(0xFFB13123)
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun MainScreen(
     onProjectDetailClick: (String) -> Unit,
     onProjectStatsClick: (String) -> Unit,
-    onNetworkDebugClick: () -> Unit,
+    onUserStatsClick: (String, String, String?) -> Unit,
+    selectedTab: Int,
+    onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember { mutableStateOf(0) }
     var showSuggestProject by remember { mutableStateOf(false) }
     var showMyProject by remember { mutableStateOf(false) }
+    var isRankingRoot by remember { mutableStateOf(true) }
+    var isSettingsRoot by remember { mutableStateOf(true) }
     val isAuthorized by AuthManager.isAuthorized.collectAsState(initial = false)
+    val showTabBar = when (selectedTab) {
+        0 -> !showMyProject
+        1 -> isRankingRoot
+        2 -> isSettingsRoot
+        else -> true
+    }
 
     MainScreenContent(
         onProjectDetailClick = onProjectDetailClick,
         onProjectStatsClick = onProjectStatsClick,
-        onNetworkDebugClick = onNetworkDebugClick,
+        onUserStatsClick = onUserStatsClick,
         modifier = modifier,
         isAuthorized = isAuthorized,
         selectedTab = selectedTab,
-        onTabSelected = { selectedTab = it },
+        onTabSelected = onTabSelected,
         showSuggestProject = showSuggestProject,
         onShowSuggestProjectChange = { showSuggestProject = it },
         isMyProjectOpen = showMyProject,
-        onMyProjectOpenChange = { showMyProject = it }
+        onMyProjectOpenChange = { showMyProject = it },
+        onRankingRootChange = { isRankingRoot = it },
+        isSettingsRoot = isSettingsRoot,
+        onSettingsRootChange = { isSettingsRoot = it },
+        showTabBar = showTabBar,
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 private fun MainScreenContent(
     onProjectDetailClick: (String) -> Unit,
     onProjectStatsClick: (String) -> Unit,
-    onNetworkDebugClick: () -> Unit,
+    onUserStatsClick: (String, String, String?) -> Unit,
     modifier: Modifier = Modifier,
     isAuthorized: Boolean,
     selectedTab: Int,
@@ -95,6 +109,10 @@ private fun MainScreenContent(
     onShowSuggestProjectChange: (Boolean) -> Unit,
     isMyProjectOpen: Boolean,
     onMyProjectOpenChange: (Boolean) -> Unit,
+    onRankingRootChange: (Boolean) -> Unit,
+    isSettingsRoot: Boolean,
+    onSettingsRootChange: (Boolean) -> Unit,
+    showTabBar: Boolean,
     initialMyProject: Project? = null
 ) {
     val contactRequestApi = remember { DependencyContainer.provideContactRequestApi() }
@@ -131,69 +149,73 @@ private fun MainScreenContent(
         }
     }
 
+    BackHandler(enabled = isMyProjectOpen) {
+        onMyProjectOpenChange(false)
+    }
+
+    val rootTopInsetModifier = if (showTabBar) {
+        Modifier.windowInsetsPadding(
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+        )
+    } else {
+        Modifier
+    }
+
     Scaffold(
         containerColor = Color.White, // Белый фон для Scaffold
         bottomBar = {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                // Таббар
-                CustomTabBar(
-                    selectedTab = selectedTab,
-                    onTabSelected = { onTabSelected(it) }
-                )
+            if (showTabBar) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CustomTabBar(
+                        selectedTab = selectedTab,
+                        onTabSelected = { onTabSelected(it) }
+                    )
 
-                // Кнопки над таббаром по оси Y, привязаны к правому краю таббара.
-                // Важно: "Предложить проект" всегда в одном месте; "Мой проект" при появлении рисуем выше,
-                // не влияя на позицию кнопки ниже.
-                if (selectedTab == 0 && !isMyProjectOpen) {
-                    val density = LocalDensity.current
-                    var suggestBtnHeightPx by remember { mutableStateOf(0) }
-                    val suggestBtnHeightDp = if (suggestBtnHeightPx == 0) {
-                        46.dp // fallback, если высота ещё не измерена
-                    } else {
-                        with(density) { suggestBtnHeightPx.toDp() }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .width(380.dp) // Ширина таббара
-                            .offset(y = (-95).dp), // Фиксированная позиция для кнопки "Предложить проект"
-                        contentAlignment = Alignment.TopEnd
-                    ) {
-                        // Кнопка "Предложить проект" — всегда на одном месте
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .onSizeChanged { suggestBtnHeightPx = it.height }
-                        ) {
-                            com.spbu.projecttrack.projects.presentation.components.SuggestProjectButton(
-                                onClick = { onShowSuggestProjectChange(true) }
-                            )
+                    if (selectedTab == 0 && !isMyProjectOpen) {
+                        val density = LocalDensity.current
+                        var suggestBtnHeightPx by remember { mutableStateOf(0) }
+                        val suggestBtnHeightDp = if (suggestBtnHeightPx == 0) {
+                            46.dp
+                        } else {
+                            with(density) { suggestBtnHeightPx.toDp() }
                         }
 
-                        // Кнопка "Мой проект" (если авторизован) — просто выше
-                        if (isAuthorized) {
-                            com.spbu.projecttrack.projects.presentation.components.MyProjectButton(
-                                onClick = { onMyProjectOpenChange(true) },
+                        Box(
+                            modifier = Modifier
+                                .width(380.dp)
+                                .offset(y = (-95).dp),
+                            contentAlignment = Alignment.TopEnd
+                        ) {
+                            Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .offset(y = -(suggestBtnHeightDp + 10.dp))
-                            )
+                                    .onSizeChanged { suggestBtnHeightPx = it.height }
+                            ) {
+                                com.spbu.projecttrack.projects.presentation.components.SuggestProjectButton(
+                                    onClick = { onShowSuggestProjectChange(true) }
+                                )
+                            }
+
+                            if (isAuthorized) {
+                                com.spbu.projecttrack.projects.presentation.components.MyProjectButton(
+                                    onClick = { onMyProjectOpenChange(true) },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(y = -(suggestBtnHeightDp + 10.dp))
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-    ) { paddingValues ->
-        val contentModifier = if (isMyProjectOpen) {
-            modifier.fillMaxSize()
-        } else {
-            modifier
-                .fillMaxSize()
-                .padding(top = paddingValues.calculateTopPadding())
-        }
+    ) {
+        val contentModifier = modifier
+            .fillMaxSize()
+            .then(rootTopInsetModifier)
         Box(
             modifier = contentModifier
         ) {
@@ -257,10 +279,12 @@ private fun MainScreenContent(
                 }
 
                 1 -> RankingScreen(
-                    onProjectClick = onProjectStatsClick
+                    onProjectClick = onProjectStatsClick,
+                    onStudentClick = onUserStatsClick,
+                    onRootDestinationChange = onRankingRootChange,
                 )
-                2 -> InfoScreen(
-                    onNetworkDebugClick = onNetworkDebugClick
+                2 -> SettingsTabScreen(
+                    onRootDestinationChange = onSettingsRootChange
                 )
             }
 
@@ -331,11 +355,13 @@ private fun MyProjectEmptyState(
         Scaffold(
             containerColor = Color.Transparent,
             contentColor = AppColors.Black
-        ) { paddingValues ->
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+                    )
             ) {
                 Box(
                     modifier = Modifier
@@ -345,8 +371,7 @@ private fun MyProjectEmptyState(
                 ) {
                     Text(
                         text = "Мой проект",
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Bold,
+                        fontFamily = AppFonts.OpenSansBold,
                         fontSize = 40.sp,
                         color = AppColors.Color3,
                         modifier = Modifier.align(Alignment.Center)
@@ -359,8 +384,7 @@ private fun MyProjectEmptyState(
                 ) {
                     Text(
                         text = "У вас еще нет личного проекта",
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Normal,
+                        fontFamily = AppFonts.OpenSansRegular,
                         fontSize = 20.sp,
                         color = AppColors.Color2,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -552,90 +576,4 @@ private fun TabItem(
             )
         )
     }
-}
-
-@Preview(showBackground = true, name = "Main (Unauthorized)")
-@Composable
-private fun MainScreenPreview_Unauthorized() {
-    MainScreenContent(
-        onProjectDetailClick = {},
-        onProjectStatsClick = {},
-        onNetworkDebugClick = {},
-        modifier = Modifier,
-        isAuthorized = false,
-        selectedTab = 0,
-        onTabSelected = {},
-        showSuggestProject = false,
-        onShowSuggestProjectChange = {},
-        isMyProjectOpen = false,
-        onMyProjectOpenChange = {}
-    )
-}
-
-@Preview(showBackground = true, name = "Main (Authorized)")
-@Composable
-private fun MainScreenPreview_Authorized() {
-    MainScreenContent(
-        onProjectDetailClick = {},
-        onProjectStatsClick = {},
-        onNetworkDebugClick = {},
-        modifier = Modifier,
-        isAuthorized = true,
-        selectedTab = 0,
-        onTabSelected = {},
-        showSuggestProject = false,
-        onShowSuggestProjectChange = {},
-        isMyProjectOpen = false,
-        onMyProjectOpenChange = {}
-    )
-}
-
-@Preview(showBackground = true, name = "Main (My Project)")
-@Composable
-private fun MainScreenPreview_MyProject() {
-    val sampleProject = Project(
-        id = "preview-id",
-        name = "Система мониторинга качества воздуха",
-        description = "Сбор и визуализация данных с датчиков, формирование отчётов и предупреждений.",
-        shortDescription = "Мониторинг экологии в реальном времени.",
-        dateStart = "2025-09-01",
-        dateEnd = "2025-12-15",
-        slug = "air-quality-monitoring",
-        tags = listOf(1, 2, 3),
-        client = "СПбГУ"
-    )
-
-    MainScreenContent(
-        onProjectDetailClick = {},
-        onProjectStatsClick = {},
-        onNetworkDebugClick = {},
-        modifier = Modifier,
-        isAuthorized = true,
-        selectedTab = 0,
-        onTabSelected = {},
-        showSuggestProject = false,
-        onShowSuggestProjectChange = {},
-        isMyProjectOpen = true,
-        onMyProjectOpenChange = {},
-        initialMyProject = sampleProject
-    )
-}
-
-@Preview(showBackground = true, name = "Main (My Project Empty)")
-@Composable
-private fun MainScreenPreview_MyProjectEmpty() {
-    MainScreenContent(
-        onProjectDetailClick = {},
-        onProjectStatsClick = {},
-        onNetworkDebugClick = {},
-        modifier = Modifier,
-        isAuthorized = true,
-        selectedTab = 0,
-        onTabSelected = {},
-        showSuggestProject = false,
-        onShowSuggestProjectChange = {},
-        isMyProjectOpen = true,
-        onMyProjectOpenChange = {},
-        initialMyProject = null
-    )
 }

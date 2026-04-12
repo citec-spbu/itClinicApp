@@ -31,7 +31,6 @@ import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.core.logging.AppLog
 import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.ui.tooling.preview.Preview
 import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.close_icon
 import projecttrack.composeapp.generated.resources.spbu_logo
@@ -104,8 +103,7 @@ fun SuggestProjectAlert(
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Заказчикам",
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Bold,
+                        fontFamily = AppFonts.OpenSansBold,
                         fontSize = 24.sp,
                         color = AppColors.Color2,
                         modifier = Modifier.align(Alignment.Center)
@@ -125,8 +123,7 @@ fun SuggestProjectAlert(
 
                 Text(
                     text = "Если у Вас есть запрос на сотрудничество и создание проекта, заполните онлайн-заявку. Наш представитель свяжется с вами в ближайшее время",
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Normal,
+                    fontFamily = AppFonts.OpenSansRegular,
                     fontSize = 12.sp,
                     lineHeight = 13.sp,
                     color = AppColors.Color1,
@@ -184,56 +181,13 @@ fun SuggestProjectAlert(
                 ) {
                     Text(
                         text = "Отправить",
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = AppFonts.OpenSansSemiBold,
                         fontSize = 12.sp,
                         color = AppColors.White
                     )
                 }
             }
         }
-    }
-}
-
-@Preview
-@Composable
-private fun SuggestProjectAlertPreview() {
-    SuggestProjectAlert(
-        isVisible = true,
-        onDismiss = {},
-        onSubmit = { _, _ -> }
-    )
-}
-
-@Preview
-@Composable
-private fun CenteredTextFieldPlaceholderPreview() {
-    Box(
-        modifier = Modifier
-            .background(AppColors.White)
-            .padding(16.dp)
-    ) {
-        CenteredTextField(
-            value = "",
-            onValueChange = {},
-            placeholder = "Имя"
-        )
-    }
-}
-
-@Preview
-@Composable
-private fun CenteredTextFieldFilledPreview() {
-    Box(
-        modifier = Modifier
-            .background(AppColors.White)
-            .padding(16.dp)
-    ) {
-        CenteredTextField(
-            value = "Иван Иванов",
-            onValueChange = {},
-            placeholder = "Имя"
-        )
     }
 }
 
@@ -253,8 +207,7 @@ private fun CenteredTextField(
                 .fillMaxWidth(),
             singleLine = true,
             textStyle = TextStyle(
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Normal,
+                fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 12.sp,
                 color = if (value.isEmpty()) AppColors.Color1 else AppColors.Color2,
                 textAlign = TextAlign.Center
@@ -269,8 +222,7 @@ private fun CenteredTextField(
                     if (value.isEmpty()) {
                         Text(
                             text = placeholder,
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.Normal,
+                            fontFamily = AppFonts.OpenSansRegular,
                             fontSize = 12.sp,
                             color = AppColors.Color1,
                             textAlign = TextAlign.Center,

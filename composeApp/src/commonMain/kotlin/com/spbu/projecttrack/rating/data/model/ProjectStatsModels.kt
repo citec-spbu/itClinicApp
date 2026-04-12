@@ -15,11 +15,14 @@ data class ProjectStatsUiModel(
     val codeChurn: ProjectStatsCodeChurnSectionUi,
     val codeOwnership: ProjectStatsOwnershipSectionUi,
     val dominantWeekDay: ProjectStatsWeekDaySectionUi,
+    val details: StatsDetailDataUi,
     val rapidThreshold: ProjectStatsThresholdUi,
     val showOverallRatingButton: Boolean = false
 )
 
 data class ProjectStatsMemberUi(
+    val userId: String? = null,
+    val login: String? = null,
     val name: String,
     val role: String,
     val isCurrentUser: Boolean = false
@@ -50,6 +53,8 @@ data class ProjectStatsMetricSectionUi(
     val score: Double?,
     val primaryValue: String,
     val primaryCaption: String,
+    val supplementaryValue: String? = null,
+    val supplementaryCaption: String? = null,
     val rank: Int?,
     val rankCaption: String,
     val chartTitle: String,

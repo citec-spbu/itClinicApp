@@ -44,12 +44,39 @@ class AppPreferencesImpl(context: Context) : AppPreferences {
     override fun clearCustomHostIP() {
         prefs.edit().remove(KEY_CUSTOM_HOST_IP).apply()
     }
+
+    override fun getAppLanguage(): String? {
+        return prefs.getString(KEY_APP_LANGUAGE, null)
+    }
+
+    override fun saveAppLanguage(language: String) {
+        prefs.edit().putString(KEY_APP_LANGUAGE, language).apply()
+    }
+
+    override fun getAppThemeMode(): String? {
+        return prefs.getString(KEY_APP_THEME_MODE, null)
+    }
+
+    override fun saveAppThemeMode(themeMode: String) {
+        prefs.edit().putString(KEY_APP_THEME_MODE, themeMode).apply()
+    }
+
+    override fun isProjectStatusNotificationsEnabled(): Boolean {
+        return prefs.getBoolean(KEY_PROJECT_STATUS_NOTIFICATIONS, true)
+    }
+
+    override fun setProjectStatusNotificationsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_PROJECT_STATUS_NOTIFICATIONS, enabled).apply()
+    }
     
     companion object {
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_CUSTOM_HOST_IP = "custom_host_ip"
+        private const val KEY_APP_LANGUAGE = "app_language"
+        private const val KEY_APP_THEME_MODE = "app_theme_mode"
+        private const val KEY_PROJECT_STATUS_NOTIFICATIONS = "project_status_notifications"
     }
 }
 

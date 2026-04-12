@@ -90,35 +90,42 @@ private fun buildMinimalPdf(lines: List<String>): String {
     val topMargin = 72
     val leftMargin = 48
     val lineHeight = 16
-
-    val contentLines = buildList {
-        add("BT")
-        add("/F1 12 Tf")
-        add("${leftMargin} ${pageHeight - topMargin} Td")
-        lines.forEachIndexed { index, rawLine ->
-            val line = escapePdfText(rawLine)
-            if (index == 0) {
-                add("($line) Tj")
-            } else {
-                add("0 -$lineHeight Td")
-                add("($line) Tj")
-            }
-        }
-        add("ET")
-    }
-
-    val streamContent = contentLines.joinToString("\n")
+    val titleLineHeight = 22
+    val linesPerPage = 44
+    val wrappedLines = lines
+        .flatMap { wrapPdfLine(it, 82) }
+        .ifEmpty { listOf("Статистика проекта") }
+    val pages = wrappedLines.chunked(linesPerPage)
     val objects = mutableListOf<String>()
     objects += "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj"
-    objects += "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj"
-    objects += buildString {
-        append("3 0 obj << /Type /Page /Parent 2 0 R ")
-        append("/MediaBox [0 0 $pageWidth $pageHeight] ")
-        append("/Contents 4 0 R ")
-        append("/Resources << /Font << /F1 5 0 R >> >> >> endobj")
+    val firstPageObjectId = 3
+    val fontObjectId = firstPageObjectId + pages.size * 2
+    val pageObjectIds = pages.indices.map { index -> firstPageObjectId + index * 2 }
+    objects += "2 0 obj << /Type /Pages /Kids [${pageObjectIds.joinToString(" ") { "$it 0 R" }}] /Count ${pages.size} >> endobj"
+
+    pages.forEachIndexed { index, pageLines ->
+        val pageObjectId = firstPageObjectId + index * 2
+        val contentObjectId = pageObjectId + 1
+        val streamContent = buildPageStream(
+            lines = pageLines,
+            leftMargin = leftMargin,
+            pageHeight = pageHeight,
+            topMargin = topMargin,
+            lineHeight = lineHeight,
+            titleLineHeight = titleLineHeight,
+            isFirstPage = index == 0,
+        )
+
+        objects += buildString {
+            append("$pageObjectId 0 obj << /Type /Page /Parent 2 0 R ")
+            append("/MediaBox [0 0 $pageWidth $pageHeight] ")
+            append("/Contents $contentObjectId 0 R ")
+            append("/Resources << /Font << /F1 $fontObjectId 0 R >> >> >> endobj")
+        }
+        objects += "$contentObjectId 0 obj << /Length ${streamContent.encodeToByteArray().size} >> stream\n$streamContent\nendstream endobj"
     }
-    objects += "4 0 obj << /Length ${streamContent.encodeToByteArray().size} >> stream\n$streamContent\nendstream endobj"
-    objects += "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj"
+
+    objects += "$fontObjectId 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj"
 
     val header = "%PDF-1.4\n"
     val builder = StringBuilder(header)
@@ -148,6 +155,77 @@ private fun buildMinimalPdf(lines: List<String>): String {
     }
 
     return builder.append(xref).toString()
+}
+
+private fun buildPageStream(
+    lines: List<String>,
+    leftMargin: Int,
+    pageHeight: Int,
+    topMargin: Int,
+    lineHeight: Int,
+    titleLineHeight: Int,
+    isFirstPage: Boolean,
+): String {
+    val contentLines = mutableListOf<String>()
+    contentLines += "BT"
+
+    if (isFirstPage && lines.isNotEmpty()) {
+        contentLines += "/F1 18 Tf"
+        contentLines += "$leftMargin ${pageHeight - topMargin} Td"
+        contentLines += "(${escapePdfText(lines.first())}) Tj"
+        if (lines.size > 1) {
+            contentLines += "0 -$titleLineHeight Td"
+            contentLines += "/F1 12 Tf"
+            lines.drop(1).forEachIndexed { index, rawLine ->
+                if (index > 0) {
+                    contentLines += "0 -$lineHeight Td"
+                }
+                rawLine.takeIf { it.isNotBlank() }?.let {
+                    contentLines += "(${escapePdfText(it)}) Tj"
+                }
+            }
+        }
+    } else {
+        contentLines += "/F1 12 Tf"
+        contentLines += "$leftMargin ${pageHeight - topMargin} Td"
+        lines.forEachIndexed { index, rawLine ->
+            if (index > 0) {
+                contentLines += "0 -$lineHeight Td"
+            }
+            rawLine.takeIf { it.isNotBlank() }?.let {
+                contentLines += "(${escapePdfText(it)}) Tj"
+            }
+        }
+    }
+
+    contentLines += "ET"
+    return contentLines.joinToString("\n")
+}
+
+private fun wrapPdfLine(value: String, maxChars: Int): List<String> {
+    if (value.length <= maxChars) return listOf(value)
+    if (value.isBlank()) return listOf("")
+
+    val lines = mutableListOf<String>()
+    var current = ""
+
+    value.split(Regex("\\s+")).forEach { word ->
+        val candidate = if (current.isBlank()) word else "$current $word"
+        if (candidate.length <= maxChars) {
+            current = candidate
+        } else {
+            if (current.isNotBlank()) {
+                lines += current
+            }
+            current = word
+        }
+    }
+
+    if (current.isNotBlank()) {
+        lines += current
+    }
+
+    return lines.ifEmpty { listOf(value) }
 }
 
 private fun escapePdfText(value: String): String {

@@ -65,6 +65,17 @@ class ProjectStatsViewModel(
         request(forceRefresh = true, preservePreviousSuccessOnFailure = false)
     }
 
+    fun selectDateRange(startIsoDate: String, endIsoDate: String) {
+        if (startIsoDate <= endIsoDate) {
+            selectedStartDate = startIsoDate
+            selectedEndDate = endIsoDate
+        } else {
+            selectedStartDate = endIsoDate
+            selectedEndDate = startIsoDate
+        }
+        request(forceRefresh = true, preservePreviousSuccessOnFailure = false)
+    }
+
     fun updateRapidThreshold(days: Int, hours: Int, minutes: Int) {
         rapidThresholdMinutes = (days.coerceAtLeast(0) * 24 * 60) +
             (hours.coerceIn(0, 23) * 60) +

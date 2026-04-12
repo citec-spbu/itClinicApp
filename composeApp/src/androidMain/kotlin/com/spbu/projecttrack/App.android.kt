@@ -1,19 +1,29 @@
 package com.spbu.projecttrack
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.di.DependencyContainer
 import com.spbu.projecttrack.core.network.NetworkSettings
+import com.spbu.projecttrack.core.platform.isDebugBuild
+import com.spbu.projecttrack.core.settings.AppLanguage
+import com.spbu.projecttrack.core.settings.AppThemeMode
+import com.spbu.projecttrack.core.settings.AppUiSettingsController
+import com.spbu.projecttrack.core.settings.ITClinicTheme
+import com.spbu.projecttrack.core.settings.appStrings
 import com.spbu.projecttrack.core.storage.createAppPreferences
-import com.spbu.projecttrack.debug.NetworkDebugScreen
 import com.spbu.projecttrack.main.presentation.MainScreen
 import com.spbu.projecttrack.onboarding.presentation.OnboardingScreen
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreen
 import com.spbu.projecttrack.rating.presentation.projectstats.ProjectStatsScreen
+import com.spbu.projecttrack.rating.presentation.userstats.UserStatsScreen
 import kotlinx.coroutines.launch
 
 sealed class Screen {
@@ -21,118 +31,198 @@ sealed class Screen {
     data object Main : Screen()
     data class ProjectDetail(val projectId: String) : Screen()
     data class ProjectStats(val projectId: String) : Screen()
-    data object NetworkDebug : Screen()
+    data class UserStats(
+        val userId: String,
+        val userName: String,
+        val preferredProjectName: String?,
+    ) : Screen()
 }
 
 @Composable
 actual fun App() {
-    MaterialTheme {
-        val preferences = remember { createAppPreferences() }
-        val snackbarHostState = remember { SnackbarHostState() }
-        val scope = rememberCoroutineScope()
-        val customHostIp by NetworkSettings.customHostIP.collectAsState()
-        val storedCustomHostIp = remember { preferences.getCustomHostIP() }
-        
-        // Логируем конфигурацию API при запуске
-        LaunchedEffect(Unit) {
-            println(com.spbu.projecttrack.core.network.ApiConfig.getDebugInfo())
-        }
+    val preferences = remember { createAppPreferences() }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val debugBuild = isDebugBuild()
+    val customHostIp by NetworkSettings.customHostIP.collectAsState()
+    val authToken by AuthManager.authToken.collectAsState()
+    val storedCustomHostIp = remember { preferences.getCustomHostIP() }
+    var appLanguage by remember {
+        mutableStateOf(AppLanguage.fromStorage(preferences.getAppLanguage()))
+    }
+    var appThemeMode by remember {
+        mutableStateOf(AppThemeMode.fromStorage(preferences.getAppThemeMode()))
+    }
 
-        LaunchedEffect(storedCustomHostIp) {
-            NetworkSettings.setCustomHostIP(storedCustomHostIp)
+    LaunchedEffect(Unit) {
+        println(com.spbu.projecttrack.core.network.ApiConfig.getDebugInfo())
+        if (debugBuild) {
+            AuthManager.clearToken()
+            preferences.clearTokens()
+        } else {
+            preferences.getAccessToken()
+                ?.takeIf { it.isNotBlank() }
+                ?.let(AuthManager::setToken)
         }
+    }
 
-        LaunchedEffect(customHostIp) {
-            if (customHostIp.isNullOrBlank()) {
-                preferences.clearCustomHostIP()
-            } else {
-                preferences.saveCustomHostIP(customHostIp!!)
-            }
+    LaunchedEffect(storedCustomHostIp) {
+        NetworkSettings.setCustomHostIP(storedCustomHostIp)
+    }
+
+    LaunchedEffect(customHostIp) {
+        if (customHostIp.isNullOrBlank()) {
+            preferences.clearCustomHostIP()
+        } else {
+            preferences.saveCustomHostIP(customHostIp!!)
         }
-        
-        var currentScreen by remember {
-            mutableStateOf<Screen>(
-                // TODO: Для тестов - всегда показываем onboarding
-                Screen.Onboarding
-                // if (preferences.isOnboardingCompleted()) Screen.Main else Screen.Onboarding
-            )
+    }
+
+    LaunchedEffect(authToken) {
+        if (authToken.isNullOrBlank()) {
+            preferences.clearTokens()
+        } else {
+            preferences.saveAccessToken(authToken!!)
         }
-        
-        // BackHandler для обработки системного жеста "назад"
-        BackHandler(enabled = currentScreen !is Screen.Onboarding) {
-            when (currentScreen) {
-                is Screen.ProjectDetail -> currentScreen = Screen.Main
-                is Screen.ProjectStats -> currentScreen = Screen.Main
-                is Screen.NetworkDebug -> currentScreen = Screen.Main
-                is Screen.Main -> currentScreen = Screen.Onboarding
-                else -> { /* На Onboarding ничего не делаем */ }
-            }
+    }
+
+    LaunchedEffect(appLanguage) {
+        preferences.saveAppLanguage(appLanguage.storageValue)
+    }
+
+    LaunchedEffect(appThemeMode) {
+        preferences.saveAppThemeMode(appThemeMode.storageValue)
+    }
+
+    var isOnboardingVisible by remember {
+        mutableStateOf(debugBuild || !preferences.isOnboardingCompleted())
+    }
+    var mainSelectedTab by rememberSaveable { mutableStateOf(0) }
+    val screenStack = remember { mutableStateListOf<Screen>() }
+
+    fun openScreen(screen: Screen) {
+        screenStack.add(screen)
+    }
+
+    fun popScreen() {
+        if (screenStack.isNotEmpty()) {
+            screenStack.removeAt(screenStack.lastIndex)
         }
-        
-        when (val screen = currentScreen) {
-            is Screen.Onboarding -> {
-                OnboardingScreen(
-                    onGitHubAuth = {
-                        // Тестовая логика: устанавливаем токен для работы с локальным бэкендом
-                        com.spbu.projecttrack.core.auth.AuthManager.setTestToken()
-                        preferences.setOnboardingCompleted()
-                        currentScreen = Screen.Main
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Авторизация выполнена (тестовый режим)")
-                        }
-                    },
-                    onContinueWithoutAuth = {
-                        // Без авторизации - работаем с публичными эндпоинтами
-                        preferences.setOnboardingCompleted()
-                        currentScreen = Screen.Main
+    }
+
+    BackHandler(
+        enabled = screenStack.isNotEmpty()
+    ) {
+        popScreen()
+    }
+
+    ITClinicTheme(
+        language = appLanguage,
+        themeMode = appThemeMode,
+        settingsController = AppUiSettingsController(
+            language = appLanguage,
+            themeMode = appThemeMode,
+            onLanguageChange = { appLanguage = it },
+            onThemeModeChange = { appThemeMode = it },
+        ),
+    ) {
+        if (isOnboardingVisible) {
+            OnboardingScreen(
+                onGitHubAuth = {
+                    AuthManager.setTestToken()
+                    preferences.setOnboardingCompleted()
+                    isOnboardingVisible = false
+                    scope.launch {
+                        snackbarHostState.showSnackbar(appStrings(appLanguage).loginSuccessMessage)
                     }
-                )
-            }
-            is Screen.Main -> {
+                },
+                onContinueWithoutAuth = {
+                    preferences.setOnboardingCompleted()
+                    isOnboardingVisible = false
+                }
+            )
+        } else {
+            Box(modifier = Modifier.fillMaxSize()) {
                 MainScreen(
                     onProjectDetailClick = { projectId ->
-                        currentScreen = Screen.ProjectDetail(projectId)
+                        openScreen(Screen.ProjectDetail(projectId))
                     },
                     onProjectStatsClick = { projectId ->
-                        currentScreen = Screen.ProjectStats(projectId)
+                        openScreen(Screen.ProjectStats(projectId))
                     },
-                    onNetworkDebugClick = {
-                        currentScreen = Screen.NetworkDebug
-                    }
+                    onUserStatsClick = { userId, userName, preferredProjectName ->
+                        openScreen(
+                            Screen.UserStats(
+                                userId = userId,
+                                userName = userName,
+                                preferredProjectName = preferredProjectName
+                            )
+                        )
+                    },
+                    selectedTab = mainSelectedTab,
+                    onTabSelected = { mainSelectedTab = it },
                 )
-            }
-            is Screen.ProjectDetail -> {
-                val detailViewModel = remember(screen.projectId) {
-                    DependencyContainer.provideProjectDetailViewModel(screen.projectId)
+
+                when (val screen = screenStack.lastOrNull()) {
+                    is Screen.ProjectDetail -> {
+                        val detailViewModel = remember(screen.projectId) {
+                            DependencyContainer.provideProjectDetailViewModel(screen.projectId)
+                        }
+                        ProjectDetailScreen(
+                            viewModel = detailViewModel,
+                            onBackClick = ::popScreen
+                        )
+                    }
+
+                    is Screen.ProjectStats -> {
+                        val statsViewModel = remember(screen.projectId) {
+                            DependencyContainer.provideProjectStatsViewModel(screen.projectId)
+                        }
+                        ProjectStatsScreen(
+                            viewModel = statsViewModel,
+                            onBackClick = ::popScreen,
+                            onOverallRatingClick = {
+                                mainSelectedTab = 1
+                                screenStack.clear()
+                            },
+                            onMemberStatsClick = { member ->
+                                openScreen(
+                                    Screen.UserStats(
+                                        userId = member.userId ?: member.login ?: member.name,
+                                        userName = member.name,
+                                        preferredProjectName = screen.projectId,
+                                    )
+                                )
+                            },
+                        )
+                    }
+
+                    is Screen.UserStats -> {
+                        val statsViewModel = remember(screen.userId, screen.userName, screen.preferredProjectName) {
+                            DependencyContainer.provideUserStatsViewModel(
+                                userId = screen.userId,
+                                userName = screen.userName,
+                                preferredProjectName = screen.preferredProjectName
+                            )
+                        }
+                        UserStatsScreen(
+                            viewModel = statsViewModel,
+                            onBackClick = ::popScreen,
+                            onProjectClick = { projectId ->
+                                openScreen(Screen.ProjectStats(projectId))
+                            },
+                            onOverallRatingClick = {
+                                mainSelectedTab = 1
+                                screenStack.clear()
+                            }
+                        )
+                    }
+
+                    else -> Unit
                 }
-                ProjectDetailScreen(
-                    viewModel = detailViewModel,
-                    onBackClick = {
-                        currentScreen = Screen.Main
-                    }
-                )
-            }
-            is Screen.ProjectStats -> {
-                val statsViewModel = remember(screen.projectId) {
-                    DependencyContainer.provideProjectStatsViewModel(screen.projectId)
-                }
-                ProjectStatsScreen(
-                    viewModel = statsViewModel,
-                    onBackClick = {
-                        currentScreen = Screen.Main
-                    }
-                )
-            }
-            is Screen.NetworkDebug -> {
-                NetworkDebugScreen(
-                    onBack = {
-                        currentScreen = Screen.Main
-                    }
-                )
             }
         }
-        
-        // Snackbar для уведомлений
+
         SnackbarHost(hostState = snackbarHostState)
     }
 }

@@ -33,6 +33,12 @@ object BuildConfigExample {
     const val LOCAL_PORT = 8000
 
     /**
+     * IP адрес машины разработчика в локальной сети для реальных устройств.
+     * Оставьте пустым, если хотите полагаться только на ручную настройку через NetworkDebugScreen.
+     */
+    const val LOCAL_HOST_IP = ""
+
+    /**
      * URL продакшн API для метрик
      */
     const val METRIC_PRODUCTION_BASE_URL = "https://metrics.example.com"

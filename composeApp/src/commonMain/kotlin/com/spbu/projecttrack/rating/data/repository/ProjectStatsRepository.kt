@@ -27,6 +27,12 @@ import com.spbu.projecttrack.rating.data.model.ProjectStatsRepositoryUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsThresholdUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsUiModel
 import com.spbu.projecttrack.rating.data.model.ProjectStatsWeekDaySectionUi
+import com.spbu.projecttrack.rating.data.model.StatsDetailCommitFileUi
+import com.spbu.projecttrack.rating.data.model.StatsDetailCommitUi
+import com.spbu.projecttrack.rating.data.model.StatsDetailDataUi
+import com.spbu.projecttrack.rating.data.model.StatsDetailIssueUi
+import com.spbu.projecttrack.rating.data.model.StatsDetailParticipantUi
+import com.spbu.projecttrack.rating.data.model.StatsDetailPullRequestUi
 import com.spbu.projecttrack.user.data.api.UserProfileApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -131,6 +137,13 @@ class ProjectStatsRepository(
                     selectedEndDate = selectedEndDate,
                     rapidThresholdMinutes = resolvedRapidThresholdMinutes,
                 )
+                val members = buildMembers(
+                    members = projectResponse?.members.orEmpty(),
+                    users = projectResponse?.users.orEmpty(),
+                    metricUsers = resolvedMetricDetail.users,
+                    currentUserName = currentUserName,
+                    currentUserLogin = currentUserLogin,
+                )
 
                 val model = ProjectStatsUiModel(
                     projectId = resolvedProject.id,
@@ -142,13 +155,7 @@ class ProjectStatsRepository(
                         ?.trim()
                         ?.takeIf { it.isNotBlank() }
                         ?: "—",
-                    members = buildMembers(
-                        members = projectResponse?.members.orEmpty(),
-                        users = projectResponse?.users.orEmpty(),
-                        metricUsers = resolvedMetricDetail.users,
-                        currentUserName = currentUserName,
-                        currentUserLogin = currentUserLogin,
-                    ),
+                    members = members,
                     repositories = buildRepositories(resolvedMetricDetail.resources),
                     selectedRepositoryId = primaryResource?.id.orEmpty(),
                     visibleRange = buildVisibleRange(
@@ -167,8 +174,13 @@ class ProjectStatsRepository(
                     codeChurn = buildCodeChurnSection(currentSnapshot, peerSnapshots),
                     codeOwnership = buildCodeOwnershipSection(currentSnapshot, peerSnapshots),
                     dominantWeekDay = buildWeekDaySection(currentSnapshot, peerSnapshots),
+                    details = buildDetails(
+                        snapshot = currentSnapshot,
+                        members = members,
+                        userNameLookup = userNameLookup,
+                    ),
                     rapidThreshold = buildRapidThreshold(resolvedRapidThresholdMinutes),
-                    showOverallRatingButton = false,
+                    showOverallRatingButton = true,
                 )
 
                 cachedKey = requestKey
@@ -274,7 +286,7 @@ class ProjectStatsRepository(
             tableRows = snapshot.issueContributors.map {
                 ProjectStatsMetricRowUi(
                     name = it.name,
-                    value = it.value.toString(),
+                    value = it.displayValue ?: it.value.toString(),
                     highlight = it.isCurrentUser,
                 )
             },
@@ -291,6 +303,10 @@ class ProjectStatsRepository(
             score = snapshot.pullRequestScore,
             primaryValue = snapshot.pullRequestCount.toString(),
             primaryCaption = "всего Pull Request",
+            supplementaryValue = formatAveragePullRequestLifetime(
+                pullRequests = snapshot.pullRequests,
+            ),
+            supplementaryCaption = "среднее время жизни Pull Request",
             rank = rank,
             rankCaption = "место в рейтинге",
             chartTitle = "График Pull Requests",
@@ -421,8 +437,9 @@ class ProjectStatsRepository(
         val metricsByName = resource.metrics.associateBy { it.name }
         val commitsRaw = extractSnapshots<ProjectCommitSnapshot>(metricsByName[METRIC_COMMITS])
         val issuesRaw = extractSnapshots<ProjectIssueSnapshot>(metricsByName[METRIC_ISSUES])
-        val pullRequestsRaw = extractSnapshots<ProjectPullRequestSnapshot>(metricsByName[METRIC_PULL_REQUESTS])
-
+        val pullRequestsRaw = deduplicatePullRequests(
+            extractSnapshots<ProjectPullRequestSnapshot>(metricsByName[METRIC_PULL_REQUESTS])
+        )
         val eventDates = buildList {
             addAll(commitsRaw.mapNotNull { parseInstant(it.commit?.author?.date) })
             addAll(issuesRaw.mapNotNull { parseInstant(it.created_at) })
@@ -445,15 +462,13 @@ class ProjectStatsRepository(
                 isInWindow(parseInstant(issue.closed_at), window)
         }
         val pullRequests = pullRequestsRaw.filter { pullRequest ->
-            isInWindow(parseInstant(pullRequest.created_at), window) ||
-                isInWindow(parseInstant(pullRequest.closed_at), window)
+            isInWindow(parseInstant(pullRequest.created_at), window)
         }
         val closedPullRequests = pullRequests.filter { pullRequest ->
-            !pullRequest.closed_at.isNullOrBlank() &&
-                isInWindow(parseInstant(pullRequest.closed_at), window)
+            !pullRequest.closed_at.isNullOrBlank()
         }
         val rapidPullRequests = closedPullRequests.filter { pullRequest ->
-            isRapidPullRequest(pullRequest, rapidThresholdMinutes.toLong())
+            isRapidPullRequest(pullRequest, rapidThresholdMinutes.toLong() * MILLIS_PER_MINUTE)
         }
 
         val commitCount = commits.size
@@ -471,7 +486,7 @@ class ProjectStatsRepository(
         )
         val pullRequestChart = buildChartPoints(
             dates = pullRequests.mapNotNull { parseInstant(it.created_at) },
-            hintFormatter = { count -> "$count PR" },
+            hintFormatter = { count -> "$count ${openedPullRequestsLabel(count)}" },
         )
         val rapidPullRequestChart = buildChartPoints(
             dates = rapidPullRequests.mapNotNull { parseInstant(it.closed_at) },
@@ -487,13 +502,8 @@ class ProjectStatsRepository(
             currentUserLogin = currentUserLogin,
             displayNameResolver = contributorNameResolver,
         )
-        val issueContributors = buildContributors(
-            logins = issues.flatMap { issue ->
-                buildList {
-                    issue.user?.login?.let(::add)
-                    addAll(issue.assignees.mapNotNull { it.login })
-                }
-            },
+        val issueContributors = buildIssueContributors(
+            issues = issues,
             currentUserLogin = currentUserLogin,
             displayNameResolver = contributorNameResolver,
         )
@@ -543,7 +553,160 @@ class ProjectStatsRepository(
             visibleStart = window?.first ?: eventDates.minOrNull(),
             visibleEnd = window?.second ?: eventDates.maxOrNull(),
             rapidThresholdMinutes = rapidThresholdMinutes,
+            commits = commits,
+            issues = issues,
+            pullRequests = pullRequests,
         )
+    }
+
+    private fun buildDetails(
+        snapshot: ProjectStatsResourceSnapshot,
+        members: List<ProjectStatsMemberUi>,
+        userNameLookup: Map<String, String>,
+    ): StatsDetailDataUi {
+        return StatsDetailDataUi(
+            participants = buildDetailParticipants(
+                members = members,
+                userNameLookup = userNameLookup,
+                commits = snapshot.commits,
+                issues = snapshot.issues,
+                pullRequests = snapshot.pullRequests,
+            ),
+            commits = snapshot.commits.map { commit ->
+                StatsDetailCommitUi(
+                    authorId = normalizeLogin(commit.author?.login),
+                    authorName = resolveUserDisplayName(commit.author?.login, userNameLookup),
+                    message = commit.commit?.message?.trim().takeUnless { it.isNullOrBlank() }
+                        ?: commit.sha?.take(7)?.let { "Commit $it" }
+                        ?: "Commit",
+                    committedAtIso = commit.commit?.author?.date,
+                    committedAtLabel = formatDateTimeLabel(commit.commit?.author?.date),
+                    url = commit.html_url,
+                    sha = commit.sha,
+                    additions = commit.files.sumOf { it.additions ?: 0 },
+                    deletions = commit.files.sumOf { it.deletions ?: 0 },
+                    changes = commit.files.sumOf { it.changes ?: 0 },
+                    files = commit.files.map { file ->
+                        StatsDetailCommitFileUi(
+                            fileName = file.filename?.trim().orEmpty(),
+                            additions = file.additions ?: 0,
+                            deletions = file.deletions ?: 0,
+                            changes = file.changes ?: 0,
+                            status = file.status,
+                        )
+                    }.filter { it.fileName.isNotBlank() }
+                )
+            },
+            issues = snapshot.issues.map { issue ->
+                StatsDetailIssueUi(
+                    creatorId = normalizeLogin(issue.user?.login),
+                    creatorName = resolveUserDisplayName(issue.user?.login, userNameLookup),
+                    assigneeIds = issue.assignees.mapNotNull { normalizeLogin(it.login) },
+                    assigneeNames = issue.assignees.map {
+                        resolveUserDisplayName(it.login, userNameLookup)
+                    }.filter { it.isNotBlank() },
+                    createdAtIso = issue.created_at,
+                    createdAtLabel = formatDateTimeLabel(issue.created_at),
+                    closedAtIso = issue.closed_at,
+                    closedAtLabel = formatDateTimeLabel(issue.closed_at),
+                    title = issue.title?.trim().takeUnless { it.isNullOrBlank() }
+                        ?: issue.number?.let { "Issue #$it" }
+                        ?: "Issue",
+                    number = issue.number,
+                    state = issue.state,
+                    labels = issue.labels.mapNotNull { it.name?.trim()?.takeIf(String::isNotBlank) },
+                    comments = issue.comments,
+                    url = issue.html_url,
+                )
+            },
+            pullRequests = snapshot.pullRequests.map { pullRequest ->
+                StatsDetailPullRequestUi(
+                    authorId = normalizeLogin(pullRequest.user?.login),
+                    authorName = resolveUserDisplayName(pullRequest.user?.login, userNameLookup),
+                    assigneeIds = pullRequest.assignees.mapNotNull { normalizeLogin(it.login) },
+                    assigneeNames = pullRequest.assignees.map {
+                        resolveUserDisplayName(it.login, userNameLookup)
+                    }.filter { it.isNotBlank() },
+                    createdAtIso = pullRequest.created_at,
+                    createdAtLabel = formatDateTimeLabel(pullRequest.created_at),
+                    closedAtIso = pullRequest.closed_at,
+                    closedAtLabel = formatDateTimeLabel(pullRequest.closed_at),
+                    title = pullRequest.title?.trim().takeUnless { it.isNullOrBlank() }
+                        ?: pullRequest.number?.let { "Pull Request #$it" }
+                        ?: "Pull Request",
+                    number = pullRequest.number,
+                    state = pullRequest.state,
+                    comments = pullRequest.comments,
+                    commitsCount = pullRequest.commits,
+                    additions = pullRequest.additions,
+                    deletions = pullRequest.deletions,
+                    changedFiles = pullRequest.changed_files,
+                    url = pullRequest.html_url,
+                )
+            },
+        )
+    }
+
+    private fun buildDetailParticipants(
+        members: List<ProjectStatsMemberUi>,
+        userNameLookup: Map<String, String>,
+        commits: List<ProjectCommitSnapshot>,
+        issues: List<ProjectIssueSnapshot>,
+        pullRequests: List<ProjectPullRequestSnapshot>,
+    ): List<StatsDetailParticipantUi> {
+        val loginByName = userNameLookup.entries.associateBy(
+            keySelector = { personNameKey(it.value) },
+            valueTransform = { it.key },
+        )
+        val participants = linkedMapOf<String, StatsDetailParticipantUi>()
+
+        members.forEach { member ->
+            val participantId = loginByName[personNameKey(member.name)] ?: return@forEach
+            participants[participantId] = StatsDetailParticipantUi(
+                id = participantId,
+                name = member.name,
+                subtitle = member.role,
+                isCurrentUser = member.isCurrentUser,
+            )
+        }
+
+        fun ensureParticipant(login: String?) {
+            val participantId = normalizeLogin(login) ?: return
+            if (participants.containsKey(participantId)) return
+            val name = resolveUserDisplayName(login, userNameLookup)
+            participants[participantId] = StatsDetailParticipantUi(
+                id = participantId,
+                name = name,
+                subtitle = "Участник",
+            )
+        }
+
+        commits.forEach { ensureParticipant(it.author?.login) }
+        issues.forEach { issue ->
+            ensureParticipant(issue.user?.login)
+            issue.assignees.forEach { ensureParticipant(it.login) }
+        }
+        pullRequests.forEach { pullRequest ->
+            ensureParticipant(pullRequest.user?.login)
+            pullRequest.assignees.forEach { ensureParticipant(it.login) }
+        }
+
+        return participants.values.sortedWith(
+            compareByDescending<StatsDetailParticipantUi> { it.isCurrentUser }
+                .thenBy { it.name.lowercase() }
+        )
+    }
+
+    private fun normalizeLogin(login: String?): String? {
+        return login?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun resolveUserDisplayName(
+        login: String?,
+        userNameLookup: Map<String, String>,
+    ): String {
+        val normalized = normalizeLogin(login)
+        return normalized?.let { userNameLookup[it] } ?: login?.trim().orEmpty().ifBlank { "Участник" }
     }
 
     private fun buildContributors(
@@ -569,6 +732,115 @@ class ProjectStatsRepository(
                     isCurrentUser = currentUserLogin?.equals(login, ignoreCase = true) == true,
                 )
             }
+    }
+
+    private fun buildIssueContributors(
+        issues: List<ProjectIssueSnapshot>,
+        currentUserLogin: String?,
+        displayNameResolver: (String) -> String,
+    ): List<ProjectStatsContributorStat> {
+        data class IssueStateCounts(
+            var open: Int = 0,
+            var closed: Int = 0,
+        )
+
+        val counts = linkedMapOf<String, IssueStateCounts>()
+
+        fun increment(login: String?, isClosed: Boolean) {
+            val normalized = login?.trim().orEmpty()
+            if (normalized.isBlank()) return
+            val entry = counts.getOrPut(normalized) { IssueStateCounts() }
+            if (isClosed) {
+                entry.closed += 1
+            } else {
+                entry.open += 1
+            }
+        }
+
+        issues.forEach { issue ->
+            val isClosed = !issue.closed_at.isNullOrBlank()
+            increment(issue.user?.login, isClosed)
+            issue.assignees.forEach { assignee ->
+                increment(assignee.login, isClosed)
+            }
+        }
+
+        return counts.entries
+            .sortedWith(
+                compareByDescending<Map.Entry<String, IssueStateCounts>> { it.value.open + it.value.closed }
+                    .thenBy { it.key.lowercase() }
+            )
+            .map { (login, count) ->
+                ProjectStatsContributorStat(
+                    login = login,
+                    name = displayNameResolver(login),
+                    value = count.open + count.closed,
+                    displayValue = "${count.open}/${count.closed}",
+                    isCurrentUser = currentUserLogin?.equals(login, ignoreCase = true) == true,
+                )
+            }
+    }
+
+    private fun deduplicatePullRequests(
+        pullRequests: List<ProjectPullRequestSnapshot>,
+    ): List<ProjectPullRequestSnapshot> {
+        return pullRequests
+            .groupBy(::pullRequestIdentityKey)
+            .values
+            .map { duplicates ->
+                duplicates.reduce(::preferPullRequestSnapshot)
+            }
+    }
+
+    private fun pullRequestIdentityKey(
+        pullRequest: ProjectPullRequestSnapshot,
+    ): String {
+        val number = pullRequest.number
+        if (number != null) return "number:$number"
+
+        val url = pullRequest.html_url?.trim()?.lowercase()
+        if (!url.isNullOrBlank()) return "url:$url"
+
+        val author = pullRequest.user?.login?.trim()?.lowercase().orEmpty()
+        val title = pullRequest.title?.trim()?.lowercase().orEmpty()
+        val createdAt = pullRequest.created_at?.trim().orEmpty()
+        return "fallback:$author|$title|$createdAt"
+    }
+
+    private fun preferPullRequestSnapshot(
+        current: ProjectPullRequestSnapshot,
+        candidate: ProjectPullRequestSnapshot,
+    ): ProjectPullRequestSnapshot {
+        val currentScore = pullRequestSnapshotScore(current)
+        val candidateScore = pullRequestSnapshotScore(candidate)
+        return when {
+            candidateScore > currentScore -> candidate
+            candidateScore < currentScore -> current
+            else -> {
+                val currentClosed = parseInstant(current.closed_at)?.toEpochMilliseconds() ?: Long.MIN_VALUE
+                val candidateClosed = parseInstant(candidate.closed_at)?.toEpochMilliseconds() ?: Long.MIN_VALUE
+                if (candidateClosed >= currentClosed) candidate else current
+            }
+        }
+    }
+
+    private fun pullRequestSnapshotScore(
+        pullRequest: ProjectPullRequestSnapshot,
+    ): Int {
+        return listOf(
+            pullRequest.closed_at,
+            pullRequest.title,
+            pullRequest.state,
+            pullRequest.html_url,
+        ).count { !it.isNullOrBlank() } +
+            listOf(
+                pullRequest.number,
+                pullRequest.comments,
+                pullRequest.commits,
+                pullRequest.additions,
+                pullRequest.deletions,
+                pullRequest.changed_files,
+            ).count { it != null }
     }
 
     private fun buildCodeOwnershipContributors(
@@ -727,6 +999,10 @@ class ProjectStatsRepository(
         val usersById = users.associateBy { it.id }
         val metricFallback = metricUsers.map { metricUser ->
             ProjectStatsMemberUi(
+                userId = users.firstOrNull { user ->
+                    personNameMatches(user.name, metricUser.name)
+                }?.id,
+                login = metricUser.githubLogin(),
                 name = metricUser.name.trim(),
                 role = metricUser.roles.joinToString(", ").trim().ifBlank { "Участник" },
                 isCurrentUser = isCurrentUser(
@@ -751,17 +1027,20 @@ class ProjectStatsRepository(
                 ?: metricUsers.firstOrNull { metricUser ->
                     metricUser.name.trim().equals(resolvedName, ignoreCase = true)
                 }?.roles?.joinToString(", ").orEmpty().ifBlank { "Участник" }
+            val metricUser = metricUsers.firstOrNull { candidate ->
+                candidate.name.trim().equals(resolvedName, ignoreCase = true)
+            }
 
             ProjectStatsMemberUi(
+                userId = member.user?.toString(),
+                login = metricUser?.githubLogin(),
                 name = resolvedName,
                 role = role,
                 isCurrentUser = isCurrentUser(
                     displayName = resolvedName,
                     currentUserName = currentUserName,
                     currentUserLogin = currentUserLogin,
-                    metricUser = metricUsers.firstOrNull { metricUser ->
-                        metricUser.name.trim().equals(resolvedName, ignoreCase = true)
-                    },
+                    metricUser = metricUser,
                 ),
             )
         }
@@ -772,11 +1051,56 @@ class ProjectStatsRepository(
         return if (combined.isNotEmpty()) combined else metricFallback
     }
 
+    private fun formatAveragePullRequestLifetime(
+        pullRequests: List<ProjectPullRequestSnapshot>,
+    ): String? {
+        val durations = pullRequests.mapNotNull { request ->
+            val created = parseInstant(request.created_at)?.toEpochMilliseconds() ?: return@mapNotNull null
+            val closed = parseInstant(request.closed_at)?.toEpochMilliseconds()
+                ?: return@mapNotNull null
+            if (closed <= created) return@mapNotNull null
+            closed - created
+        }
+        if (durations.isEmpty()) return null
+
+        val averageMinutes = (durations.average() / MILLIS_PER_MINUTE.toDouble()).roundToInt()
+        return when {
+            averageMinutes < 60 -> "$averageMinutes мин"
+            averageMinutes < MINUTES_PER_DAY -> {
+                val hours = averageMinutes / 60
+                val minutes = averageMinutes % 60
+                if (minutes == 0) "$hours ч" else "$hours ч $minutes мин"
+            }
+            else -> {
+                val averageDays = durations.average() / MILLIS_PER_DAY.toDouble()
+                val rounded = round2(averageDays)
+                val value = if (rounded % 1.0 == 0.0) {
+                    rounded.toInt().toString()
+                } else {
+                    rounded.toString().replace('.', ',')
+                }
+                val word = if (rounded % 1.0 == 0.0) {
+                    pluralize(rounded.toInt(), "день", "дня", "дней")
+                } else {
+                    "дня"
+                }
+                "$value $word"
+            }
+        }
+    }
+
+    private fun openedPullRequestsLabel(count: Int): String {
+        return if (count == 1) "открытый PR" else "открытых PR"
+    }
+
     private fun buildRepositories(resources: List<MetricProjectResource>): List<ProjectStatsRepositoryUi> {
         return resources.map { resource ->
+            val repositoryUrl = extractStringParam(resource, "url")
+                ?: extractStringParam(resource, "apiEndpoint")
             ProjectStatsRepositoryUi(
                 id = resource.id,
-                title = resource.name.ifBlank { "Репозиторий" },
+                title = repositoryUrl?.trim()?.takeIf { it.isNotBlank() }
+                    ?: resource.name.ifBlank { "Репозиторий" },
                 subtitle = resource.platform?.trim()?.takeIf { it.isNotBlank() }
                     ?: resource.project?.trim()?.takeIf { it.isNotBlank() }
                     ?: "GitHub",
@@ -1056,6 +1380,17 @@ class ProjectStatsRepository(
         return formatDateLabel(instant)
     }
 
+    private fun formatDateTimeLabel(value: String?): String {
+        val instant = parseInstant(value) ?: return "—"
+        val dateTime = instant.toLocalDateTime(TimeZone.UTC)
+        val day = dateTime.date.dayOfMonth.toString().padStart(2, '0')
+        val month = dateTime.date.monthNumber.toString().padStart(2, '0')
+        val year = (dateTime.date.year % 100).toString().padStart(2, '0')
+        val hour = dateTime.hour.toString().padStart(2, '0')
+        val minute = dateTime.minute.toString().padStart(2, '0')
+        return "$day.$month.$year $hour:$minute"
+    }
+
     private fun formatLocalDateLabel(date: LocalDate): String {
         val day = date.dayOfMonth.toString().padStart(2, '0')
         val month = date.monthNumber.toString().padStart(2, '0')
@@ -1181,6 +1516,13 @@ class ProjectStatsRepository(
             ?.takeIf { it.isNotBlank() }
     }
 
+    private fun MetricProjectUser.githubLogin(): String? {
+        return identifiers.firstOrNull { it.platform.equals("GitHub", ignoreCase = true) }
+            ?.value
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
+
     private fun isCurrentUser(
         displayName: String,
         currentUserName: String?,
@@ -1255,6 +1597,9 @@ class ProjectStatsRepository(
         val visibleStart: Instant?,
         val visibleEnd: Instant?,
         val rapidThresholdMinutes: Int,
+        val commits: List<ProjectCommitSnapshot>,
+        val issues: List<ProjectIssueSnapshot>,
+        val pullRequests: List<ProjectPullRequestSnapshot>,
     ) {
         companion object {
             fun empty(rapidThresholdMinutes: Int): ProjectStatsResourceSnapshot {
@@ -1291,6 +1636,9 @@ class ProjectStatsRepository(
                     visibleStart = null,
                     visibleEnd = null,
                     rapidThresholdMinutes = rapidThresholdMinutes,
+                    commits = emptyList(),
+                    issues = emptyList(),
+                    pullRequests = emptyList(),
                 )
             }
         }
@@ -1301,6 +1649,8 @@ class ProjectStatsRepository(
         val author: ProjectCommitAuthorSnapshot? = null,
         val commit: ProjectCommitDataSnapshot? = null,
         val files: List<ProjectCommitFileSnapshot> = emptyList(),
+        val html_url: String? = null,
+        val sha: String? = null,
     )
 
     @Serializable
@@ -1311,6 +1661,7 @@ class ProjectStatsRepository(
     @Serializable
     private data class ProjectCommitDataSnapshot(
         val author: ProjectCommitCommitAuthorSnapshot? = null,
+        val message: String? = null,
     )
 
     @Serializable
@@ -1324,6 +1675,7 @@ class ProjectStatsRepository(
         val additions: Int? = null,
         val deletions: Int? = null,
         val changes: Int? = null,
+        val status: String? = null,
     )
 
     @Serializable
@@ -1332,18 +1684,39 @@ class ProjectStatsRepository(
         val assignees: List<ProjectSnapshotUser> = emptyList(),
         val created_at: String? = null,
         val closed_at: String? = null,
+        val title: String? = null,
+        val number: Int? = null,
+        val state: String? = null,
+        val comments: Int? = null,
+        val html_url: String? = null,
+        val labels: List<ProjectSnapshotLabel> = emptyList(),
     )
 
     @Serializable
     private data class ProjectPullRequestSnapshot(
         val user: ProjectSnapshotUser? = null,
+        val assignees: List<ProjectSnapshotUser> = emptyList(),
         val created_at: String? = null,
         val closed_at: String? = null,
+        val title: String? = null,
+        val number: Int? = null,
+        val state: String? = null,
+        val comments: Int? = null,
+        val commits: Int? = null,
+        val additions: Int? = null,
+        val deletions: Int? = null,
+        val changed_files: Int? = null,
+        val html_url: String? = null,
     )
 
     @Serializable
     private data class ProjectSnapshotUser(
         val login: String? = null,
+    )
+
+    @Serializable
+    private data class ProjectSnapshotLabel(
+        val name: String? = null,
     )
 
     private companion object {
