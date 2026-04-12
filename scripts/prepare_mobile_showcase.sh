@@ -28,9 +28,12 @@ prepare_config_file() {
 prepare_config_file "$BUILD_CONFIG_FILE" "$BUILD_CONFIG_EXAMPLE" "BuildConfigExample" "BuildConfig"
 prepare_config_file "$MAIL_CONFIG_FILE" "$MAIL_CONFIG_EXAMPLE" "MailConfigExample" "MailConfig"
 
-"$ROOT_DIR/gradlew" :composeApp:assembleDebug
+# Build from a clean composeApp state so stale dex archives do not leak
+# duplicate classes like "* 2.dex" into the APK packaging step.
+"$ROOT_DIR/gradlew" :composeApp:clean :composeApp:assembleDebug
 
 mkdir -p "$APK_TARGET_DIR"
+rm -f "$APK_TARGET"
 cp "$APK_SOURCE" "$APK_TARGET"
 
 echo "Prepared APK artifact at: $APK_TARGET"
