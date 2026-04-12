@@ -1,0 +1,7 @@
+*
+!README.md
+!LICENSE
+!docs/
+!docs/**
+!docker/
+!docker/**

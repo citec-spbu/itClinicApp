@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>itClinicApp Showcase</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --text: #17212b;
+      --muted: #5c6773;
+      --accent: #a71d1d;
+      --border: #d8dde5;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(180deg, #f9fafb 0%, #eef2f6 100%);
+      color: var(--text);
+    }
+
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+
+    .hero,
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 14px 40px rgba(23, 33, 43, 0.08);
+    }
+
+    .hero {
+      padding: 36px;
+      margin-bottom: 24px;
+    }
+
+    .hero h1 {
+      margin: 0 0 12px;
+      font-size: 40px;
+      line-height: 1.05;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.6;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      padding: 24px;
+    }
+
+    .label {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(167, 29, 29, 0.08);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(167, 29, 29, 0.18);
+      background: rgba(167, 29, 29, 0.06);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="label">GitLab CD Artifact</div>
+      <h1>itClinicApp</h1>
+      <p>
+        Docker-образ публикует статический showcase мобильного приложения и его документацию.
+        Это app-only артефакт: без backend-контейнера и без backend-зависимостей.
+      </p>
+      <div class="links">
+        <a class="button" href="./README.md">README</a>
+        <a class="button" href="./docs/Screens/Tabs/2ndTab/StatisticsScreens/ProjectStatisticsScreen.md">Project Statistics</a>
+        <a class="button" href="./docs/Screens/Tabs/2ndTab/StatisticsScreens/PersonalStatisticsScreen.md">Personal Statistics</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <div class="label">CI</div>
+        <h2>Что проверяется</h2>
+        <ul>
+          <li><strong>lintDebug</strong> для Android/Compose static analysis</li>
+          <li><strong>testDebugUnitTest</strong> для unit tests модуля <code>composeApp</code></li>
+          <li>артефакты lint и test report сохраняются в GitLab job artifacts</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="label">CD</div>
+        <h2>Что публикуется</h2>
+        <ul>
+          <li>образ <code>app-showcase</code> в GitLab Container Registry</li>
+          <li>теги: <code>latest</code>, <code>$CI_COMMIT_SHORT_SHA</code>, <code>$CI_COMMIT_REF_SLUG</code> или git tag</li>
+          <li>внутри контейнера запущен <code>nginx</code> со статикой проекта</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

@@ -258,6 +258,14 @@ node generate-test-token.js
 - **iOS не запускается**: проверьте, что установлен Xcode и выбрана актуальная версия симулятора.
 - **Не видно изменений в UI**: убедитесь, что перезапущена сборка/приложение (иногда помогает invalidate caches в IDE).
 
+## GitHub Actions CI/CD
+
+- В репозиторий добавлен app-only workflow в `.github/workflows/mobile-app-ci-cd.yml`: backend для него не нужен.
+- `lintDebug` используется как static analysis для Android/Compose части приложения.
+- `testDebugUnitTest` запускает unit tests модуля `composeApp` на GitHub Actions runner без Xcode.
+- publish job отправляет Docker-образ `itclinicapp-showcase` в GitHub Container Registry (`ghcr.io`).
+- Публикуемый образ поднимает `nginx` со статической страницей, `README.md` и папкой `docs/`.
+
 # itClinicApp (EN)
 
 ## Table of Contents
@@ -511,3 +519,11 @@ It is easier to run via Android Studio (Run configuration).
 - **Gradle does not build / strange dependencies**: try `./gradlew clean` and rebuild.
 - **iOS does not start**: check that Xcode is installed and the correct simulator version is selected.
 - **UI changes not visible**: make sure to restart the build/app (sometimes invalidate caches in IDE helps).
+
+## GitHub Actions CI/CD
+
+- The repository now includes an app-only workflow in `.github/workflows/mobile-app-ci-cd.yml`; no backend is required.
+- `lintDebug` is used as static analysis for the Android/Compose application layer.
+- `testDebugUnitTest` runs `composeApp` unit tests on a GitHub Actions runner without Xcode.
+- The publish job pushes an `itclinicapp-showcase` Docker image to GitHub Container Registry (`ghcr.io`).
+- The published image serves a static project page, `README.md`, and the `docs/` folder through `nginx`.
