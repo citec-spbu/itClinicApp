@@ -149,15 +149,8 @@ jobs:
       - name: Grant execute permission for Gradle wrapper
         run: chmod +x ./gradlew
 
-      - name: Build debug APK
-        run: ./gradlew :composeApp:assembleDebug --stacktrace
-
-      - name: Prepare APK artifact
-        shell: bash
-        run: |
-          mkdir -p release-artifacts
-          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk \
-            release-artifacts/itclinicapp-debug.apk
+      - name: Build and stage APK artifact
+        run: bash scripts/prepare_mobile_showcase.sh
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

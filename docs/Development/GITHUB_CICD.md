@@ -10,6 +10,10 @@ This workflow is configured only for the mobile application in this repository.
 
 Primary workflow: `.github/workflows/mobile-app-ci-cd.yml`
 
+For the local Docker stack with backend services, see:
+
+- `docs/Development/MOBILE_LOCAL_STACK.md`
+
 ## What the workflow does
 
 ### CI
