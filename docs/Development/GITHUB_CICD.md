@@ -122,6 +122,42 @@ APK staging for CD is handled by:
 
 - `scripts/prepare_mobile_showcase.sh`
 
+## How to run the Docker image
+
+Pull the published image:
+
+```bash
+docker pull ghcr.io/<owner>/itclinicapp-showcase:latest
+```
+
+Run the container locally:
+
+```bash
+docker run --rm -p 8080:80 ghcr.io/<owner>/itclinicapp-showcase:latest
+```
+
+If you want to run a specific published tag instead of `latest`:
+
+```bash
+docker run --rm -p 8080:80 ghcr.io/<owner>/itclinicapp-showcase:<tag>
+```
+
+After the container starts, open:
+
+- `http://localhost:8080/` for the landing page
+- `http://localhost:8080/release-artifacts/itclinicapp-debug.apk` for the APK
+- `http://localhost:8080/docs/Development/GITHUB_CICD.md` for the CI/CD documentation
+
+If the package is private, authenticate first:
+
+```bash
+echo <PAT> | docker login ghcr.io -u <github_username> --password-stdin
+```
+
+The personal access token needs:
+
+- `read:packages`
+
 ## How to troubleshoot common failures
 
 ### Missing `BuildConfig` or `MailConfig`
