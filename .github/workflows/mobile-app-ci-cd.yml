@@ -62,6 +62,8 @@ jobs:
           echo "ORG_GRADLE_PROJECT_androidVersionName=${VERSION_NAME}" >> "${GITHUB_ENV}"
           echo "ANDROID_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "${GITHUB_ENV}"
           echo "ANDROID_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
+          echo "UPDATE_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "${GITHUB_ENV}"
+          echo "UPDATE_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
           echo "UPDATE_RELEASE_TAG=${RELEASE_TAG}" >> "${GITHUB_ENV}"
           echo "UPDATE_REPOSITORY_OWNER=${GITHUB_REPOSITORY_OWNER}" >> "${GITHUB_ENV}"
           echo "UPDATE_REPOSITORY_NAME=${GITHUB_REPOSITORY#*/}" >> "${GITHUB_ENV}"
@@ -246,6 +248,7 @@ jobs:
           fi
 
           echo "ANDROID_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
+          echo "UPDATE_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
           echo "UPDATE_RELEASE_TAG=${RELEASE_TAG}" >> "${GITHUB_ENV}"
 
       - name: Create or update GitHub release for main branch
