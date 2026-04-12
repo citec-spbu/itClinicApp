@@ -55,8 +55,7 @@ fun SuggestProjectButton(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSans,
-            fontWeight = FontWeight.SemiBold,
+            fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 14.sp,
             color = AppColors.White,
             modifier = Modifier.padding(horizontal = 16.dp)

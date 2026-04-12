@@ -22,6 +22,7 @@ node_modules/
 **/BuildConfig.kt
 BuildConfig.kt
 composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
+composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
 
 # Environment variables
 .env
@@ -31,6 +32,8 @@ composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
 # Report files
 report/
 report/**/*
+release-artifacts/
+release-artifacts/**/*
 
 # Images/photos
 Фотки/

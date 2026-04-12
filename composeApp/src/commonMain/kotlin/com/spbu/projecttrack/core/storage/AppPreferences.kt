@@ -9,6 +9,12 @@ interface AppPreferences {
     fun getCustomHostIP(): String?
     fun saveCustomHostIP(ip: String)
     fun clearCustomHostIP()
+    fun getAppLanguage(): String?
+    fun saveAppLanguage(language: String)
+    fun getAppThemeMode(): String?
+    fun saveAppThemeMode(themeMode: String)
+    fun isProjectStatusNotificationsEnabled(): Boolean
+    fun setProjectStatusNotificationsEnabled(enabled: Boolean)
 }
 
 // Factory function для создания платформо-специфичной реализации

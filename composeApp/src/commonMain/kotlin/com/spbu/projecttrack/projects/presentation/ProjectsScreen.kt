@@ -31,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.alpha
 import org.jetbrains.compose.resources.Font
@@ -55,7 +54,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 
-import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
 private fun openSansFamily(): FontFamily {
@@ -825,162 +823,3 @@ private fun getSampleProjects() = listOf(
         client = "DataCorp"
     )
 )
-
-@Preview
-@Composable
-@Suppress("unused")
-private fun ProjectCardPlaygroundPreview() {
-    MaterialTheme {
-        Surface(color = Color.White) {
-            val tagsList = listOf(
-                Tag(id = 1, name = "AI"),
-                Tag(id = 2, name = "Mobile"),
-                Tag(id = 3, name = "Kotlin"),
-                Tag(id = 4, name = "Compose"),
-                Tag(id = 5, name = "Data"),
-                Tag(id = 6, name = "С++")
-            )
-
-            val project = Project(
-                id = "preview-id",
-                slug = "preview-slug",
-                name = "Анализ и прогнозирование манёвра космического аппарата (КА)",
-                shortDescription = "В современном мире сложно переоценить важность актуальной информации. Каждая компания стремится показать клиенту свои достижения и скрыть недостатки. Предположим компания А решила заказать себе спутник ретранслятор для обеспечения связи с удаленными",
-                description = null,
-                dateStart = "2025-09-08",
-                dateEnd = "2025-12-20",
-                tags = tagsList.map { it.id },
-                client = "ООО Космические технологии"
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.White)
-                    .padding(16.dp)
-            ) {
-                ProjectCard(
-                    project = project,
-                    tags = tagsList,
-                    onClick = { }
-                )
-            }
-        }
-    }
-}
-
-// Превью UI компонентов (без ViewModel)
-// Превью успешного состояния со списком проектов
-@Preview
-@Composable
-private fun ProjectsListSuccessPreview() {
-    ProjectsContent(
-        projects = getSampleProjects(),
-        tags = getSampleTags(),
-        isLoadingMore = false,
-        onProjectClick = { },
-        onLoadMore = { }
-    )
-}
-
-// Превью состояния загрузки
-@Preview
-@Composable
-private fun ProjectsListLoadingPreview() {
-    LoadingContent()
-}
-
-// Превью состояния ошибки
-@Preview
-@Composable
-private fun ProjectsListErrorPreview() {
-    ErrorContent(
-        message = "Не удалось загрузить проекты",
-        onRetry = { }
-    )
-}
-
-// Превью полного экрана с поиском и фильтрами
-@Preview
-@Composable
-private fun ProjectsScreenWithSearchPreview() {
-    val viewModel = remember {
-        createPreviewViewModel(
-            state = ProjectsUiState.Success(
-                projects = getSampleProjects(),
-                tags = getSampleTags(),
-                isLoadingMore = false,
-                hasMorePages = true
-            )
-        )
-    }
-    
-    ProjectsScreen(
-        viewModel = viewModel,
-        onProjectClick = { }
-    )
-}
-
-// Превью с пустым результатом поиска
-@Preview
-@Composable
-private fun ProjectsScreenEmptySearchPreview() {
-    val viewModel = remember {
-        createPreviewViewModel(
-            state = ProjectsUiState.Success(
-                projects = emptyList(), // Пустой список для демонстрации "нет результатов"
-                tags = getSampleTags(),
-                isLoadingMore = false,
-                hasMorePages = false
-            )
-        )
-    }
-    
-    ProjectsScreen(
-        viewModel = viewModel,
-        onProjectClick = { }
-    )
-}
-
-// Превью полного экрана с таббаром
-@Preview
-@Composable
-private fun ProjectsScreenWithTabBarPreview() {
-    val viewModel = remember {
-        createPreviewViewModel(
-            state = ProjectsUiState.Success(
-                projects = getSampleProjects().take(2),
-                tags = getSampleTags(),
-                isLoadingMore = false,
-                hasMorePages = true
-            )
-        )
-    }
-    
-    Scaffold(
-        containerColor = Color.White,
-        bottomBar = {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                com.spbu.projecttrack.main.presentation.CustomTabBar(
-                    selectedTab = 0,
-                    onTabSelected = { }
-                )
-            }
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            ProjectsScreen(
-                viewModel = viewModel,
-                onProjectClick = { }
-            )
-        }
-    }
-}
-

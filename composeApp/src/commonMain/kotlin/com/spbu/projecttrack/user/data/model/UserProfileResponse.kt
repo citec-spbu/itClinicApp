@@ -11,6 +11,8 @@ data class UserProfileResponse(
 
 @Serializable
 data class UserProfileUser(
+    val email: String = "",
+    val phone: String = "",
     val fullName: UserProfileFullName = UserProfileFullName()
 )
 
@@ -25,3 +27,16 @@ data class UserProfileFullName(
         .filter { it.isNotBlank() }
         .joinToString(" ")
 }
+
+@Serializable
+data class EditPersonalDataRequest(
+    val name: String,
+    val surname: String,
+    val patronymic: String,
+)
+
+@Serializable
+data class EditAccountDataRequest(
+    val email: String,
+    val phone: String,
+)

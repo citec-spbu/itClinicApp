@@ -3,6 +3,8 @@ package com.spbu.projecttrack.rating.presentation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.spbu.projecttrack.rating.data.model.RankingData
+import com.spbu.projecttrack.rating.data.model.RankingFilters
+import com.spbu.projecttrack.rating.data.model.rankingDefaultFilters
 import com.spbu.projecttrack.rating.data.repository.RankingRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,12 +27,20 @@ class RankingViewModel(
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     private var hasLoaded = false
+    private var currentFilters = rankingDefaultFilters()
 
-    fun load(force: Boolean = false) {
+    fun load(
+        force: Boolean = false,
+        filters: RankingFilters = currentFilters,
+    ) {
         if (hasLoaded && !force) return
+        currentFilters = filters
         viewModelScope.launch {
             _uiState.value = RankingUiState.Loading
-            val result = repository.loadRatings()
+            val result = repository.loadRatings(
+                filters = currentFilters,
+                forceRefresh = force,
+            )
             if (result.isSuccess) {
                 hasLoaded = true
                 _uiState.value = RankingUiState.Success(result.getOrThrow())
@@ -44,13 +54,16 @@ class RankingViewModel(
 
     fun retry() {
         hasLoaded = false
-        load(force = true)
+        load(force = true, filters = currentFilters)
     }
 
     fun refresh() {
         viewModelScope.launch {
             _isRefreshing.value = true
-            val result = repository.loadRatings()
+            val result = repository.loadRatings(
+                filters = currentFilters,
+                forceRefresh = true,
+            )
             if (result.isSuccess) {
                 hasLoaded = true
                 _uiState.value = RankingUiState.Success(result.getOrThrow())
@@ -63,8 +76,24 @@ class RankingViewModel(
         }
     }
 
+    fun applyFilters(filters: RankingFilters) {
+        currentFilters = filters
+        viewModelScope.launch {
+            val result = repository.loadRatings(filters = currentFilters)
+            if (result.isSuccess) {
+                hasLoaded = true
+                _uiState.value = RankingUiState.Success(result.getOrThrow())
+            } else if (_uiState.value !is RankingUiState.Success) {
+                _uiState.value = RankingUiState.Error(
+                    result.exceptionOrNull()?.message ?: "Не удалось загрузить рейтинг"
+                )
+            }
+        }
+    }
+
     fun reset() {
         hasLoaded = false
+        currentFilters = rankingDefaultFilters()
         _isRefreshing.value = false
         _uiState.value = RankingUiState.Idle
     }

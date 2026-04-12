@@ -1,5 +1,6 @@
 package com.spbu.projecttrack.core.network
 
+import com.spbu.projecttrack.BuildConfig
 import platform.Foundation.*
 import kotlinx.cinterop.*
 
@@ -54,10 +55,13 @@ object LocalDevConfig {
     val LOCAL_MACHINE_IP: String
         get() = getHostIP()
     
+    private val configuredHostIp: String?
+        get() = BuildConfig.LOCAL_HOST_IP.takeIf { it.isNotBlank() }
+
     /**
      * Fallback IP по умолчанию
      */
-    private const val FALLBACK_IP = "192.168.1.153"
+    private const val DEFAULT_FALLBACK_IP = "192.168.1.2"
     
     /**
      * Получить IP адрес компьютера
@@ -69,8 +73,14 @@ object LocalDevConfig {
             println("✅ Используется пользовательский IP (iOS): $userDefinedIp")
             return userDefinedIp
         }
+
+        // Приоритет 2: Явно настроенный IP машины разработчика
+        configuredHostIp?.let { configured ->
+            println("✅ Используется LOCAL_HOST_IP из BuildConfig (iOS): $configured")
+            return configured
+        }
         
-        // Приоритет 2: Попытка определить автоматически
+        // Приоритет 3: Попытка определить автоматически
         val deviceIP = getDeviceIP()
         if (deviceIP != null) {
             // Предполагаем, что компьютер на .2 (обычно .1 - роутер)
@@ -84,10 +94,10 @@ object LocalDevConfig {
         }
         
         // Fallback
-        println("⚠️  Не удалось определить IP автоматически (iOS), использую $FALLBACK_IP")
+        println("⚠️  Не удалось определить IP автоматически (iOS), использую $DEFAULT_FALLBACK_IP")
         println("💡 Совет: Откройте NetworkDebugScreen в приложении для ручного ввода IP")
         println("💡 Текущий IP вашего Mac: используйте 'ifconfig' в терминале для проверки")
-        return FALLBACK_IP
+        return DEFAULT_FALLBACK_IP
     }
     
     /**
@@ -104,5 +114,4 @@ object LocalDevConfig {
         return "iOS устройство: $deviceIP\nХост: $hostIP\nИсточник: $source"
     }
 }
-
 

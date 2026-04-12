@@ -46,7 +46,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.ui.tooling.preview.Preview
 import projecttrack.composeapp.generated.resources.*
 
 // ==================== Font Helper ====================
@@ -703,11 +702,13 @@ internal fun ProjectDetailScreenContent(
         Scaffold (
             containerColor = Color.Transparent,
             contentColor = AppColors.Black
-        ) { paddingValues ->
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+                    )
             ) {
                 // Хедер с кнопкой назад и титулом
                 Box(
@@ -1094,113 +1095,3 @@ private fun getSampleMembers() = listOf(
     Member(id = 3, name = "Студент Студентов Студентович", role = "Designer"),
     Member(id = 4, name = "Студент Студентов Студентович", role = "Project Manager")
 )
-
-@Preview
-@Composable
-private fun ProjectDetailScreenPreview() {
-    MaterialTheme {
-        ProjectDetailScreenContent(
-            uiState = ProjectDetailUiState.Success(
-                project = getSampleProjectDetail(),
-                tags = getSampleTags(),
-                teams = emptyList(),
-                members = getSampleMembers(),
-                users = emptyList(),
-                statusText = "Назначена команда"
-            ),
-            isAuthorized = true,
-            currentUserId = 1,
-            onBackClick = { },
-            onRetry = { }
-        )
-    }
-}
-
-@Preview
-@Composable
-private fun ProjectDetailScreenNotAuthorizedPreview() {
-    MaterialTheme {
-        ProjectDetailScreenContent(
-            uiState = ProjectDetailUiState.Success(
-                project = getSampleProjectDetail(),
-                tags = getSampleTags(),
-                teams = emptyList(),
-                members = getSampleMembers(),
-                users = emptyList(),
-                statusText = "Назначена команда"
-            ),
-            isAuthorized = false,
-            onBackClick = { },
-            onRetry = { }
-        )
-    }
-}
-
-@Preview
-@Composable
-private fun ProjectDetailScreenLoadingPreview() {
-    MaterialTheme {
-        ProjectDetailScreenContent(
-            uiState = ProjectDetailUiState.Loading,
-            isAuthorized = false,
-            onBackClick = { },
-            onRetry = { }
-        )
-    }
-}
-
-@Preview
-@Composable
-private fun ProjectDetailScreenErrorPreview() {
-    MaterialTheme {
-        ProjectDetailScreenContent(
-            uiState = ProjectDetailUiState.Error("Не удалось загрузить данные проекта"),
-            isAuthorized = false,
-            onBackClick = { },
-            onRetry = { }
-        )
-    }
-}
-
-@Preview
-@Composable
-private fun ProjectHeaderCardPreview() {
-    MaterialTheme {
-        Surface(color = Color.White) {
-            Box(modifier = Modifier.padding(16.dp)) {
-                ProjectHeaderCard(project = getSampleProjectDetail())
-            }
-        }
-    }
-}
-
-@Preview
-@Composable
-private fun TeamCardPreview() {
-    MaterialTheme {
-        Surface(color = Color.White) {
-            Box(modifier = Modifier.padding(16.dp)) {
-                TeamCard(
-                    members = getSampleMembers(),
-                    currentUserId = 1
-                )
-            }
-        }
-    }
-}
-
-@Preview
-@Composable
-private fun RequirementTagChipPreview() {
-    MaterialTheme {
-        Surface(color = Color.White) {
-            Box(modifier = Modifier.padding(16.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RequirementTagChip(text = "Интерес к OSINT")
-                    RequirementTagChip(text = "С++")
-                    RequirementTagChip(text = "Rest API")
-                }
-            }
-        }
-    }
-}

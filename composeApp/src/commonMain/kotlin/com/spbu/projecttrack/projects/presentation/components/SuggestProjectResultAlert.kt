@@ -31,7 +31,6 @@ import androidx.compose.ui.window.DialogProperties
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.ui.tooling.preview.Preview
 import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.close_icon
 import projecttrack.composeapp.generated.resources.spbu_logo
@@ -85,8 +84,7 @@ fun SuggestProjectResultAlert(
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = title,
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Bold,
+                        fontFamily = AppFonts.OpenSansBold,
                         fontSize = 22.sp,
                         color = AppColors.Color2,
                         textAlign = TextAlign.Center,
@@ -98,8 +96,7 @@ fun SuggestProjectResultAlert(
 
                 Text(
                     text = message,
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Normal,
+                    fontFamily = AppFonts.OpenSansRegular,
                     fontSize = 12.sp,
                     lineHeight = 13.sp,
                     color = AppColors.Color1,
@@ -130,8 +127,7 @@ fun SuggestProjectResultAlert(
                 ) {
                     Text(
                         text = "Ок",
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = AppFonts.OpenSansSemiBold,
                         fontSize = 12.sp,
                         color = AppColors.White
                     )
@@ -139,26 +135,4 @@ fun SuggestProjectResultAlert(
             }
         }
     }
-}
-
-@Preview
-@Composable
-private fun SuggestProjectResultAlertSuccessPreview() {
-    SuggestProjectResultAlert(
-        isVisible = true,
-        title = "Заявка отправлена",
-        message = "Мы свяжемся с вами в ближайшее время.",
-        onDismiss = {}
-    )
-}
-
-@Preview
-@Composable
-private fun SuggestProjectResultAlertErrorPreview() {
-    SuggestProjectResultAlert(
-        isVisible = true,
-        title = "Не удалось отправить заявку",
-        message = "Попробуйте позже.",
-        onDismiss = {}
-    )
 }

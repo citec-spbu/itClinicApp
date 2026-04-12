@@ -10,39 +10,36 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.PictureAsPdf
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -56,8 +53,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -65,14 +65,22 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.rating.data.model.ProjectStatsChartPointUi
@@ -95,55 +103,90 @@ import com.spbu.projecttrack.rating.export.ProjectStatsSection
 import com.spbu.projecttrack.rating.export.ProjectStatsSummaryCard
 import com.spbu.projecttrack.rating.export.ProjectStatsTableRow
 import com.spbu.projecttrack.rating.export.rememberProjectStatsExporter
+import com.spbu.projecttrack.rating.presentation.details.StatsDetailScreen
+import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSection
+import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsScreen
+import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsTarget
+import com.spbu.projecttrack.rating.presentation.settings.defaultStatsScreenSectionIds
+import com.spbu.projecttrack.rating.presentation.settings.statsScreenSectionsFromIds
 import kotlinx.coroutines.launch
-import kotlinx.datetime.atStartOfDayIn
-import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.painterResource
+import androidx.compose.ui.backhandler.BackHandler
 import projecttrack.composeapp.generated.resources.Res
-import projecttrack.composeapp.generated.resources.calendar_icon
 import projecttrack.composeapp.generated.resources.spbu_logo
+import projecttrack.composeapp.generated.resources.stats_back
+import projecttrack.composeapp.generated.resources.stats_calendar
+import projecttrack.composeapp.generated.resources.stats_dropdown_chevron
+import projecttrack.composeapp.generated.resources.stats_footer_excel
+import projecttrack.composeapp.generated.resources.stats_footer_pdf
+import projecttrack.composeapp.generated.resources.stats_footer_settings
+import projecttrack.composeapp.generated.resources.stats_tooltip_close
 import kotlin.math.PI
 import kotlin.math.roundToInt
 
-private val CardShape = RoundedCornerShape(18.dp)
+private val CardShape = RoundedCornerShape(10.dp)
+private val CompactControlShape = RoundedCornerShape(5.dp)
+private val ActionButtonShape = RoundedCornerShape(5.dp)
+private val OverallRatingShape = RoundedCornerShape(10.dp)
+private val ScreenHorizontalPadding = 21.dp
+private val FileStatsValueColumnWidth = 92.dp
+internal val StatsTopBarTotalHeight = 74.dp
+private val AccentGradient = Brush.verticalGradient(
+    colors = listOf(AppColors.GradientStart, AppColors.GradientEndAlt)
+)
+private val TableHeaderColor = Color(0x4DBDBDBD)
+private val TableDividerColor = Color(0xFFBDBDBD)
+private val ChartGridColor = Color(0xFFE3E3E6)
+private val ChartAxisColor = ChartGridColor
+private val BarShape = RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp)
+private val ChartPlotTopPadding = 10.dp
+private val ChartPlotBottomPadding = 6.dp
+private val ChartHorizontalPadding = 8.dp
+private val ChartYAxisGap = 4.dp
+private val ChartXAxisGap = 4.dp
+private val CompactStatsCardHeight = 70.dp
+private val CompactStatsCardPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun ProjectStatsScreen(
     viewModel: ProjectStatsViewModel,
     onBackClick: () -> Unit,
+    onOverallRatingClick: () -> Unit,
+    onMemberStatsClick: (ProjectStatsMemberUi) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val exporter = rememberProjectStatsExporter()
+    var showSettingsScreen by remember { mutableStateOf(false) }
+    var activeDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
+    var activeSectionIds by rememberSaveable { mutableStateOf(defaultStatsScreenSectionIds()) }
+    val activeSections = remember(activeSectionIds) { statsScreenSectionsFromIds(activeSectionIds) }
 
     LaunchedEffect(viewModel) {
         viewModel.load()
+    }
+
+    BackHandler(enabled = activeDetailSection != null || showSettingsScreen) {
+        when {
+            activeDetailSection != null -> activeDetailSection = null
+            showSettingsScreen -> showSettingsScreen = false
+        }
     }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = Color.White,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
-    ) { paddingValues ->
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
-                .padding(paddingValues)
         ) {
-            Image(
-                painter = painterResource(Res.drawable.spbu_logo),
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Center)
-                    .offset(y = (-60).dp),
-                contentScale = ContentScale.FillWidth,
-                alpha = 0.08f
-            )
+            StatsBackgroundLogo()
 
             when (val state = uiState) {
                 ProjectStatsUiState.Loading -> {
@@ -167,20 +210,18 @@ fun ProjectStatsScreen(
                     val model = state.data
                     ProjectStatsContent(
                         model = model,
+                        visibleSections = activeSections,
                         onBackClick = onBackClick,
                         onRepositorySelected = viewModel::selectRepository,
-                        onStartDateSelected = viewModel::selectStartDate,
-                        onEndDateSelected = viewModel::selectEndDate,
+                        onDateRangeSelected = viewModel::selectDateRange,
                         onRapidThresholdChanged = viewModel::updateRapidThreshold,
-                        onPlaceholderClick = {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Раздел в разработке")
-                            }
+                        onOverallRatingClick = onOverallRatingClick,
+                        onMemberStatsClick = onMemberStatsClick,
+                        onDetailsClick = { section ->
+                            activeDetailSection = section
                         },
                         onSettingsClick = {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Настройки экрана скоро появятся")
-                            }
+                            showSettingsScreen = true
                         },
                         onExportPdfClick = {
                             scope.launch {
@@ -205,12 +246,78 @@ fun ProjectStatsScreen(
                     )
                 }
             }
+
+            if (showSettingsScreen) {
+                StatsScreenSettingsScreen(
+                    target = StatsScreenSettingsTarget.Project,
+                    activeSectionIds = activeSectionIds,
+                    onActiveSectionIdsChange = { activeSectionIds = it },
+                    onBackClick = { showSettingsScreen = false },
+                )
+            }
+
+            val detailSection = activeDetailSection
+            if (detailSection != null && uiState is ProjectStatsUiState.Success) {
+                val model = (uiState as ProjectStatsUiState.Success).data
+                StatsDetailScreen(
+                    section = detailSection,
+                    repositories = model.repositories,
+                    selectedRepositoryId = model.selectedRepositoryId,
+                    visibleRange = model.visibleRange,
+                    rapidThreshold = model.rapidThreshold,
+                    details = model.details,
+                    allowParticipantFilter = true,
+                    initialParticipantId = null,
+                    overallRank = when (detailSection) {
+                        StatsScreenSection.Commits -> model.commits.rank
+                        StatsScreenSection.Issues -> model.issues.rank
+                        StatsScreenSection.PullRequests -> model.pullRequests.rank
+                        StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.rank
+                        StatsScreenSection.CodeChurn -> model.codeChurn.rank
+                        StatsScreenSection.CodeOwnership -> model.codeOwnership.rank
+                        StatsScreenSection.DominantWeekDay -> null
+                    },
+                    overallScore = when (detailSection) {
+                        StatsScreenSection.Commits -> model.commits.score
+                        StatsScreenSection.Issues -> model.issues.score
+                        StatsScreenSection.PullRequests -> model.pullRequests.score
+                        StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.score
+                        StatsScreenSection.CodeChurn -> model.codeChurn.score
+                        StatsScreenSection.CodeOwnership -> model.codeOwnership.score
+                        StatsScreenSection.DominantWeekDay -> model.dominantWeekDay.score
+                    },
+                    onBackClick = { activeDetailSection = null },
+                    onRepositorySelected = viewModel::selectRepository,
+                    onDateRangeSelected = viewModel::selectDateRange,
+                    onRapidThresholdChanged = viewModel::updateRapidThreshold,
+                    onExportPdfClick = {
+                        scope.launch {
+                            val payload = model.toExportPayload()
+                            val result = exporter.exportPdf(payload)
+                            val message = result.getOrNull()?.let { export ->
+                                "PDF сохранен: ${export.fileName}"
+                            } ?: "Не удалось экспортировать PDF"
+                            snackbarHostState.showSnackbar(message)
+                        }
+                    },
+                    onExportExcelClick = {
+                        scope.launch {
+                            val payload = model.toExportPayload()
+                            val result = exporter.exportExcelCsv(payload)
+                            val message = result.getOrNull()?.let { export ->
+                                "CSV сохранен: ${export.fileName}"
+                            } ?: "Не удалось экспортировать Excel"
+                            snackbarHostState.showSnackbar(message)
+                        }
+                    },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ErrorState(
+internal fun ErrorState(
     message: String,
     onRetry: () -> Unit,
     onBackClick: () -> Unit,
@@ -228,15 +335,13 @@ private fun ErrorState(
         ) {
             Text(
                 text = "Статистика недоступна",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Bold,
+                fontFamily = AppFonts.OpenSansBold,
                 fontSize = 24.sp,
                 color = AppColors.Color3
             )
             Text(
                 text = message,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Normal,
+                fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 14.sp,
                 color = AppColors.Color2,
                 textAlign = TextAlign.Center
@@ -258,36 +363,52 @@ private fun ErrorState(
 @Composable
 private fun ProjectStatsContent(
     model: ProjectStatsUiModel,
+    visibleSections: List<StatsScreenSection>,
     onBackClick: () -> Unit,
     onRepositorySelected: (String) -> Unit,
-    onStartDateSelected: (String) -> Unit,
-    onEndDateSelected: (String) -> Unit,
+    onDateRangeSelected: (String, String) -> Unit,
     onRapidThresholdChanged: (Int, Int, Int) -> Unit,
-    onPlaceholderClick: () -> Unit,
+    onOverallRatingClick: () -> Unit,
+    onMemberStatsClick: (ProjectStatsMemberUi) -> Unit,
+    onDetailsClick: (StatsScreenSection) -> Unit,
     onSettingsClick: () -> Unit,
     onExportPdfClick: () -> Unit,
     onExportExcelClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var datePickerTarget by remember { mutableStateOf<DatePickerTarget?>(null) }
+    var showDateRangePicker by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier.fillMaxSize()
     ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+                ),
             contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 16.dp,
-                bottom = if (model.showOverallRatingButton) 156.dp else 72.dp
+                start = ScreenHorizontalPadding,
+                end = ScreenHorizontalPadding,
+                top = StatsTopBarTotalHeight + 8.dp,
+                bottom = if (model.showOverallRatingButton) 148.dp else 40.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
-                StatsHeader(
-                    title = model.title,
-                    onBackClick = onBackClick
+                Text(
+                    text = model.title,
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontSize = 20.sp,
+                        lineHeight = 20.sp,
+                        fontFamily = AppFonts.OpenSansBold,
+                        color = Color(0xFF000000),
+                        letterSpacing = 0.2.sp,
+                    ),
+                    textAlign = TextAlign.Left,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 3.dp, end = 20.dp)
                 )
             }
             item {
@@ -297,8 +418,7 @@ private fun ProjectStatsContent(
                         content = {
                             Text(
                                 text = model.customer,
-                                fontFamily = AppFonts.OpenSans,
-                                fontWeight = FontWeight.Normal,
+                                fontFamily = AppFonts.OpenSansRegular,
                                 fontSize = 13.sp,
                                 color = AppColors.Color2
                             )
@@ -310,7 +430,7 @@ private fun ProjectStatsContent(
                 AnimatedSection {
                     TeamMembersCard(
                         members = model.members,
-                        onPlaceholderClick = onPlaceholderClick
+                        onMemberStatsClick = onMemberStatsClick
                     )
                 }
             }
@@ -324,69 +444,67 @@ private fun ProjectStatsContent(
                             selectedId = model.selectedRepositoryId,
                             visibleRange = model.visibleRange,
                             onRepositorySelected = onRepositorySelected,
-                            onStartDateClick = { datePickerTarget = DatePickerTarget.Start },
-                            onEndDateClick = { datePickerTarget = DatePickerTarget.End }
+                            onDateRangeClick = { showDateRangePicker = true }
                         )
                     }
                 }
             }
             if (model.repositories.isNotEmpty()) {
-                item {
-                    AnimatedSection {
-                        MetricSection(
-                            section = model.commits,
-                            onDetailsClick = onPlaceholderClick
-                        )
-                    }
-                }
-                item {
-                    AnimatedSection {
-                        IssueSection(
-                            section = model.issues,
-                            onDetailsClick = onPlaceholderClick
-                        )
-                    }
-                }
-                item {
-                    AnimatedSection {
-                        MetricSection(
-                            section = model.pullRequests,
-                            onDetailsClick = onPlaceholderClick
-                        )
-                    }
-                }
-                item {
-                    AnimatedSection {
-                        MetricSection(
-                            section = model.rapidPullRequests,
-                            rapidThreshold = model.rapidThreshold,
-                            onRapidThresholdChanged = onRapidThresholdChanged,
-                            onDetailsClick = onPlaceholderClick
-                        )
-                    }
-                }
-                item {
-                    AnimatedSection {
-                        CodeChurnSection(
-                            section = model.codeChurn,
-                            onDetailsClick = onPlaceholderClick
-                        )
-                    }
-                }
-                item {
-                    AnimatedSection {
-                        OwnershipSection(
-                            section = model.codeOwnership,
-                            onDetailsClick = onPlaceholderClick
-                        )
-                    }
-                }
-                item {
-                    AnimatedSection {
-                        DominantWeekDaySection(
-                            section = model.dominantWeekDay,
-                            onDetailsClick = onPlaceholderClick
-                        )
+                items(
+                    items = visibleSections,
+                    key = { it.id },
+                ) { section ->
+                    when (section) {
+                        StatsScreenSection.Commits -> AnimatedSection {
+                            MetricSection(
+                                section = model.commits,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.Commits) }
+                            )
+                        }
+
+                        StatsScreenSection.Issues -> AnimatedSection {
+                            IssueSection(
+                                section = model.issues,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.Issues) }
+                            )
+                        }
+
+                        StatsScreenSection.PullRequests -> AnimatedSection {
+                            MetricSection(
+                                section = model.pullRequests,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.PullRequests) }
+                            )
+                        }
+
+                        StatsScreenSection.RapidPullRequests -> AnimatedSection {
+                            MetricSection(
+                                section = model.rapidPullRequests,
+                                rapidThreshold = model.rapidThreshold,
+                                onRapidThresholdChanged = onRapidThresholdChanged,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.RapidPullRequests) }
+                            )
+                        }
+
+                        StatsScreenSection.CodeChurn -> AnimatedSection {
+                            CodeChurnSection(
+                                section = model.codeChurn,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.CodeChurn) }
+                            )
+                        }
+
+                        StatsScreenSection.CodeOwnership -> AnimatedSection {
+                            OwnershipSection(
+                                section = model.codeOwnership,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.CodeOwnership) }
+                            )
+                        }
+
+                        StatsScreenSection.DominantWeekDay -> AnimatedSection {
+                            DominantWeekDaySection(
+                                section = model.dominantWeekDay,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.DominantWeekDay) }
+                            )
+                        }
                     }
                 }
             }
@@ -399,26 +517,20 @@ private fun ProjectStatsContent(
             }
         }
 
-        datePickerTarget?.let { target ->
-            SingleDatePickerDialog(
-                title = if (target == DatePickerTarget.Start) {
-                    "Начальная дата"
-                } else {
-                    "Конечная дата"
-                },
-                initialIsoDate = if (target == DatePickerTarget.Start) {
-                    model.visibleRange.startIsoDate
-                } else {
-                    model.visibleRange.endIsoDate
-                },
-                onDismiss = { datePickerTarget = null },
-                onConfirm = { isoDate ->
-                    datePickerTarget = null
-                    if (target == DatePickerTarget.Start) {
-                        onStartDateSelected(isoDate)
-                    } else {
-                        onEndDateSelected(isoDate)
-                    }
+        StatsTopBar(
+            title = "Статистика",
+            onBackClick = onBackClick,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
+
+        if (showDateRangePicker) {
+            StatsDateRangePickerDialog(
+                initialStartIsoDate = model.visibleRange.startIsoDate,
+                initialEndIsoDate = model.visibleRange.endIsoDate,
+                onDismiss = { showDateRangePicker = false },
+                onConfirm = { startIsoDate, endIsoDate ->
+                    showDateRangePicker = false
+                    onDateRangeSelected(startIsoDate, endIsoDate)
                 }
             )
         }
@@ -427,24 +539,26 @@ private fun ProjectStatsContent(
             visible = model.showOverallRatingButton,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 28.dp, vertical = 20.dp),
+                .padding(bottom = 26.dp),
             enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 })
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = AppColors.Color3,
-                shadowElevation = 8.dp
+            Box(
+                modifier = Modifier
+                    .width(200.dp)
+                    .clickable(onClick = onOverallRatingClick)
+                    .border(1.dp, AppColors.BorderColor, OverallRatingShape)
+                    .background(brush = AccentGradient, shape = OverallRatingShape)
             ) {
                 Text(
                     text = "Общий рейтинг",
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
+                    fontFamily = AppFonts.OpenSansBold,
+                    fontSize = 16.sp,
                     color = Color.White,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(vertical = 16.dp)
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .align(Alignment.Center)
                 )
             }
         }
@@ -452,67 +566,68 @@ private fun ProjectStatsContent(
 }
 
 @Composable
-private fun AnimatedSection(
+internal fun AnimatedSection(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-    AnimatedVisibility(
-        visible = visible,
-        modifier = modifier,
-        enter = fadeIn() + slideInVertically(initialOffsetY = { it / 6 }),
-        exit = fadeOut()
-    ) {
-        content()
-    }
+    Box(modifier = modifier) { content() }
 }
 
 @Composable
-private fun StatsHeader(
+internal fun BoxScope.StatsBackgroundLogo(
+    modifier: Modifier = Modifier,
+) {
+    Image(
+        painter = painterResource(Res.drawable.spbu_logo),
+        contentDescription = null,
+        modifier = modifier
+            .fillMaxWidth()
+            .align(Alignment.Center)
+            .offset(y = (-12).dp),
+        contentScale = ContentScale.FillWidth,
+        alpha = 0.08f,
+    )
+}
+
+@Composable
+internal fun StatsTopBar(
     title: String,
     onBackClick: () -> Unit,
+    titleFontSize: androidx.compose.ui.unit.TextUnit = 40.sp,
+    titleLineHeight: androidx.compose.ui.unit.TextUnit = 20.sp,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Surface(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        color = Color.White,
+        shadowElevation = 4.dp,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(32.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp)
+                .height(50.dp)
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+            Image(
+                painter = painterResource(Res.drawable.stats_back),
                 contentDescription = "Назад",
-                tint = AppColors.Color2,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .size(24.dp)
                     .clickable(onClick = onBackClick)
             )
             Text(
-                text = "Статистика",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 22.sp,
+                text = title,
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = titleFontSize,
+                lineHeight = titleLineHeight,
+                letterSpacing = if (titleFontSize >= 40.sp) 0.4.sp else 0.16.sp,
                 color = AppColors.Color3,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.Center)
             )
         }
-
-        Text(
-            text = title,
-            fontFamily = AppFonts.OpenSans,
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-            lineHeight = 22.sp,
-            color = Color.Black,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
 
@@ -524,13 +639,7 @@ private fun StatsValueCard(
 ) {
     StatsCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = title,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 12.sp,
-                color = AppColors.Color2
-            )
+            StatsCardTitle(text = title)
             content()
         }
     }
@@ -539,18 +648,12 @@ private fun StatsValueCard(
 @Composable
 private fun TeamMembersCard(
     members: List<ProjectStatsMemberUi>,
-    onPlaceholderClick: () -> Unit,
+    onMemberStatsClick: (ProjectStatsMemberUi) -> Unit,
     modifier: Modifier = Modifier
 ) {
     StatsCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = "Участники команды",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = AppColors.Color2
-            )
+            StatsCardTitle(text = "Участники команды")
 
             members.forEachIndexed { index, member ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -561,31 +664,44 @@ private fun TeamMembersCard(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = buildString {
+                                text = buildAnnotatedString {
                                     append(member.name)
-                                    if (member.isCurrentUser) append(" (Вы)")
+                                    if (member.isCurrentUser) {
+                                        append(" ")
+                                        withStyle(
+                                            style = androidx.compose.ui.text.SpanStyle(
+                                                color = AppColors.Color3,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        ) {
+                                            append("(Вы)")
+                                        }
+                                    }
                                 },
-                                fontFamily = AppFonts.OpenSans,
-                                fontWeight = FontWeight.Normal,
-                                fontSize = 13.sp,
-                                color = AppColors.Color2
+                                fontFamily = AppFonts.OpenSansRegular,
+                                fontSize = 12.sp,
+                                lineHeight = 20.sp,
+                                color = AppColors.Color2,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = member.role,
-                                fontFamily = AppFonts.OpenSans,
-                                fontWeight = FontWeight.Normal,
-                                fontSize = 11.sp,
+                                fontFamily = AppFonts.OpenSansLight,
+                                fontSize = 10.sp,
+                                lineHeight = 15.sp,
                                 color = AppColors.Color1
                             )
                         }
 
                         Text(
                             text = "Статистика",
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 12.sp,
                             color = Color.Black,
-                            modifier = Modifier.clickable(onClick = onPlaceholderClick)
+                            modifier = Modifier.clickable {
+                                onMemberStatsClick(member)
+                            }
                         )
                     }
 
@@ -599,14 +715,13 @@ private fun TeamMembersCard(
 }
 
 @Composable
-private fun EmptyDetailedInfoCard(
+internal fun EmptyDetailedInfoCard(
     modifier: Modifier = Modifier
 ) {
     StatsCard(modifier = modifier) {
         Text(
             text = "Нет подробной информации по репозиториям",
-            fontFamily = AppFonts.OpenSans,
-            fontWeight = FontWeight.Medium,
+            fontFamily = AppFonts.OpenSansMedium,
             fontSize = 14.sp,
             color = AppColors.Color2
         )
@@ -614,13 +729,12 @@ private fun EmptyDetailedInfoCard(
 }
 
 @Composable
-private fun RepositorySelectorCard(
+internal fun RepositorySelectorCard(
     repositories: List<com.spbu.projecttrack.rating.data.model.ProjectStatsRepositoryUi>,
     selectedId: String,
     visibleRange: com.spbu.projecttrack.rating.data.model.ProjectStatsDateRangeUi,
     onRepositorySelected: (String) -> Unit,
-    onStartDateClick: () -> Unit,
-    onEndDateClick: () -> Unit,
+    onDateRangeClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val selectedRepository = repositories.firstOrNull { it.id == selectedId } ?: repositories.first()
@@ -633,40 +747,17 @@ private fun RepositorySelectorCard(
             title = "Выбор репозитория",
             value = selectedRepository.title,
             options = repositories.map { it.id to it.title },
+            selectedKey = selectedId,
             onSelected = onRepositorySelected
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "Выбор периода",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = Color.Black
+            StatsCardTitle(text = "Выбор периода")
+            DateRangeSelector(
+                startLabel = visibleRange.startLabel,
+                endLabel = visibleRange.endLabel,
+                onClick = onDateRangeClick,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DateBadge(
-                    text = visibleRange.startLabel,
-                    onClick = onStartDateClick,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = "—",
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = Color.Black
-                )
-                DateBadge(
-                    text = visibleRange.endLabel,
-                    onClick = onEndDateClick,
-                    modifier = Modifier.weight(1f)
-                )
-            }
         }
     }
 }
@@ -695,12 +786,39 @@ private fun MetricSection(
             )
         }
 
-        DoubleMetricRow(
-            leftValue = section.primaryValue,
-            leftCaption = section.primaryCaption,
-            rightValue = section.rank?.toString() ?: "—",
-            rightCaption = section.rankCaption
-        )
+        if (
+            section.title == "Pull Requests" &&
+            !section.supplementaryValue.isNullOrBlank() &&
+            !section.supplementaryCaption.isNullOrBlank()
+        ) {
+            SingleMetricCard(
+                value = section.supplementaryValue,
+                caption = section.supplementaryCaption,
+            )
+
+            DoubleMetricRow(
+                leftValue = section.primaryValue,
+                leftCaption = section.primaryCaption,
+                rightValue = section.rank?.toString() ?: "—",
+                rightCaption = section.rankCaption
+            )
+        } else if (!section.supplementaryValue.isNullOrBlank() && !section.supplementaryCaption.isNullOrBlank()) {
+            TripleMetricRow(
+                firstValue = section.supplementaryValue,
+                firstCaption = section.supplementaryCaption,
+                secondValue = section.primaryValue,
+                secondCaption = section.primaryCaption,
+                thirdValue = section.rank?.toString() ?: "—",
+                thirdCaption = section.rankCaption,
+            )
+        } else {
+            DoubleMetricRow(
+                leftValue = section.primaryValue,
+                leftCaption = section.primaryCaption,
+                rightValue = section.rank?.toString() ?: "—",
+                rightCaption = section.rankCaption
+            )
+        }
 
         if (section.chartPoints.isNotEmpty()) {
             ChartCard(
@@ -718,7 +836,7 @@ private fun MetricSection(
 
         ScoreCard(
             score = section.score,
-            title = "оценка ${section.title.lowercase()}"
+            title = metricScoreTitle(section.title)
         )
     }
 }
@@ -751,10 +869,13 @@ private fun IssueSection(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            StatsCard(
+            CompactStatsCard(
                 modifier = Modifier.weight(1f)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxHeight(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -770,10 +891,12 @@ private fun IssueSection(
                     }
                     Text(
                         text = section.remainingText,
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Medium,
+                        fontFamily = AppFonts.OpenSansMedium,
                         fontSize = 13.sp,
-                        color = AppColors.Color2
+                        lineHeight = 16.sp,
+                        color = AppColors.Color2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -868,15 +991,13 @@ private fun OwnershipSection(
                                         append(slice.label)
                                         if (slice.highlight) append(" (Вы)")
                                     },
-                                    fontFamily = AppFonts.OpenSans,
-                                    fontWeight = FontWeight.Normal,
+                                    fontFamily = AppFonts.OpenSansRegular,
                                     fontSize = 13.sp,
                                     color = AppColors.Color2
                                 )
                                 Text(
                                     text = slice.secondaryLabel,
-                                    fontFamily = AppFonts.OpenSans,
-                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = AppFonts.OpenSansBold,
                                     fontSize = 12.sp,
                                     color = AppColors.Color2
                                 )
@@ -928,23 +1049,10 @@ private fun DominantWeekDaySection(
                                     .size(10.dp)
                                     .background(Color(slice.colorHex), CircleShape)
                             )
-                            Text(
-                                text = buildAnnotatedString {
-                                    append(slice.label)
-                                    append(" ")
-                                    withStyle(
-                                        style = androidx.compose.ui.text.SpanStyle(
-                                            color = AppColors.Color3,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    ) {
-                                        append(slice.secondaryLabel)
-                                    }
-                                },
-                                fontFamily = AppFonts.OpenSans,
-                                fontWeight = if (slice.highlight) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 13.sp,
-                                color = AppColors.Color2
+                            WeekdayLegendText(
+                                label = slice.label,
+                                secondaryLabel = slice.secondaryLabel,
+                                emphasizeLabel = slice.highlight,
                             )
                         }
                     }
@@ -952,21 +1060,28 @@ private fun DominantWeekDaySection(
             }
         }
 
-        StatsCard {
-            Column {
+        CompactStatsCard {
+            Column(
+                modifier = Modifier.fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
-                    text = section.headline,
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 28.sp,
-                    color = AppColors.Color3
+                    text = section.headline.uppercase(),
+                    fontFamily = AppFonts.OpenSansBold,
+                    fontSize = 32.sp,
+                    lineHeight = 20.sp,
+                    letterSpacing = 0.32.sp,
+                    color = AppColors.Color3,
                 )
                 Text(
                     text = section.subtitle,
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Normal,
+                    fontFamily = AppFonts.OpenSansRegular,
                     fontSize = 14.sp,
-                    color = AppColors.Color2
+                    lineHeight = 16.sp,
+                    letterSpacing = 0.14.sp,
+                    color = AppColors.Color2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -979,7 +1094,62 @@ private fun DominantWeekDaySection(
 }
 
 @Composable
-private fun SectionHeader(
+internal fun WeekdayLegendText(
+    label: String,
+    secondaryLabel: String,
+    emphasizeLabel: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val (valuePart, suffixPart) = remember(secondaryLabel) { splitMetricCount(secondaryLabel) }
+    Text(
+        text = buildAnnotatedString {
+            withStyle(
+                SpanStyle(
+                    fontWeight = if (emphasizeLabel) FontWeight.Bold else FontWeight.SemiBold,
+                    color = AppColors.Color2,
+                )
+            ) {
+                append(label)
+            }
+            withStyle(
+                SpanStyle(
+                    fontWeight = FontWeight.Normal,
+                    color = AppColors.Color2,
+                )
+            ) {
+                append(" - ")
+            }
+            withStyle(
+                SpanStyle(
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.Color3,
+                )
+            ) {
+                append(valuePart)
+            }
+            if (suffixPart.isNotBlank()) {
+                withStyle(
+                    SpanStyle(
+                        fontWeight = FontWeight.Normal,
+                        color = AppColors.Color2,
+                    )
+                ) {
+                    append(" ")
+                    append(suffixPart)
+                }
+            }
+        },
+        fontFamily = AppFonts.OpenSansRegular,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.14.sp,
+        color = AppColors.Color2,
+        modifier = modifier,
+    )
+}
+
+@Composable
+internal fun SectionHeader(
     title: String,
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -989,13 +1159,7 @@ private fun SectionHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = title,
-            fontFamily = AppFonts.OpenSans,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 16.sp,
-            color = Color.Black
-        )
+        StatsCardTitle(text = title)
         ActionPillButton(
             text = "Подробнее",
             onClick = onDetailsClick
@@ -1004,30 +1168,39 @@ private fun SectionHeader(
 }
 
 @Composable
-private fun ActionPillButton(
+internal fun ActionPillButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
-        color = AppColors.Color3,
-        shadowElevation = 4.dp
+        modifier = modifier
+            .clickable(onClick = onClick),
+        shape = ActionButtonShape,
+        color = Color.Transparent,
+        shadowElevation = 8.dp
     ) {
-        Text(
-            text = text,
-            fontFamily = AppFonts.OpenSans,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
-            color = Color.White,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-        )
+        Box(
+            modifier = Modifier
+                .background(brush = AccentGradient, shape = ActionButtonShape)
+                .width(120.dp)
+                .height(30.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                letterSpacing = 0.16.sp,
+                color = Color.White,
+            )
+        }
     }
 }
 
 @Composable
-private fun DoubleMetricRow(
+internal fun DoubleMetricRow(
     leftValue: String,
     leftCaption: String,
     rightValue: String,
@@ -1052,57 +1225,109 @@ private fun DoubleMetricRow(
 }
 
 @Composable
-private fun SingleMetricCard(
+internal fun TripleMetricRow(
+    firstValue: String,
+    firstCaption: String,
+    secondValue: String,
+    secondCaption: String,
+    thirdValue: String,
+    thirdCaption: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SingleMetricCard(
+            modifier = Modifier.weight(1f),
+            value = firstValue,
+            caption = firstCaption
+        )
+        SingleMetricCard(
+            modifier = Modifier.weight(1f),
+            value = secondValue,
+            caption = secondCaption
+        )
+        SingleMetricCard(
+            modifier = Modifier.weight(1f),
+            value = thirdValue,
+            caption = thirdCaption
+        )
+    }
+}
+
+@Composable
+internal fun SingleMetricCard(
     value: String,
     caption: String,
     modifier: Modifier = Modifier
 ) {
-    StatsCard(modifier = modifier) {
+    CompactStatsCard(modifier = modifier) {
+        val valueFontSize = when {
+            value.length > 10 -> 24.sp
+            value.length > 7 -> 28.sp
+            else -> 32.sp
+        }
+        val valueLineHeight = when (valueFontSize) {
+            24.sp -> 28.sp
+            28.sp -> 30.sp
+            else -> 32.sp
+        }
         Column(
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            modifier = Modifier.fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = value,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 32.sp,
-                color = AppColors.Color3
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = valueFontSize,
+                lineHeight = valueLineHeight,
+                color = AppColors.Color3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = caption,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Normal,
+                fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
-                lineHeight = 18.sp,
-                color = AppColors.Color2
+                lineHeight = 16.sp,
+                color = AppColors.Color2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
 @Composable
-private fun ScoreCard(
+internal fun ScoreCard(
     score: Double?,
     title: String,
     modifier: Modifier = Modifier
 ) {
     val scoreText = score?.let(::formatScoreValue) ?: "—"
     val color = projectScoreColor(score)
-    StatsCard(modifier = modifier) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    CompactStatsCard(modifier = modifier) {
+        val valueFontSize = 32.sp
+        Column(
+            modifier = Modifier.fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
             Text(
                 text = scoreText,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 32.sp,
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = valueFontSize,
+                lineHeight = valueFontSize,
                 color = color
             )
             Text(
                 text = title,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Normal,
+                fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
-                color = AppColors.Color2
+                lineHeight = 16.sp,
+                color = AppColors.Color2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -1132,8 +1357,13 @@ private fun formatScoreValue(score: Double): String {
     }
 }
 
+internal fun metricScoreTitle(title: String): String = when (title) {
+    "Быстрые Pull Requests" -> "оценка быстрых PR"
+    else -> "оценка ${title.lowercase()}"
+}
+
 @Composable
-private fun ChartCard(
+internal fun ChartCard(
     title: String,
     chartType: ProjectStatsChartType,
     points: List<ProjectStatsChartPointUi>,
@@ -1142,13 +1372,7 @@ private fun ChartCard(
 ) {
     StatsCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                text = title,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                color = AppColors.Color2
-            )
+            StatsCardTitle(text = title)
 
             when (chartType) {
                 ProjectStatsChartType.Bars -> BarChart(points = points, tooltipTitle = tooltipTitle)
@@ -1164,18 +1388,34 @@ private fun BarChart(
     tooltipTitle: String,
     modifier: Modifier = Modifier
 ) {
-    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
-    val maxValue = (points.maxOfOrNull { it.value } ?: 1f).coerceAtLeast(1f)
+    val displayPoints = remember(points) { condenseChartPoints(points) }
+    var selectedIndex by remember(displayPoints) { mutableStateOf<Int?>(null) }
+    var tooltipSize by remember { mutableStateOf(IntSize.Zero) }
+    val axisScale = remember(displayPoints) {
+        buildChartAxisScale(displayPoints.maxOfOrNull { it.value } ?: 1f)
+    }
+    val maxValue = axisScale.maxValue
+    val density = LocalDensity.current
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(210.dp)
     ) {
-        val chartHeight = 144.dp
-        val maxBarHeight = 92.dp
+        val width = maxWidth
+        val chartHeight = 152.dp
+        val plotHeight = chartHeight - ChartPlotTopPadding - ChartPlotBottomPadding
+        val axisWidth = 24.dp
+        val axisLabelGap = ChartYAxisGap
+        val plotStart = ChartHorizontalPadding + axisWidth + axisLabelGap
+        val plotEndPadding = plotStart
+        val plotWidth = width - plotStart - plotEndPadding
+        val slotWidth = (plotWidth / displayPoints.size.coerceAtLeast(1))
+            .coerceAtLeast(18.dp)
+        val barWidth = (slotWidth - 10.dp).coerceAtLeast(14.dp)
+        val tooltipWidth = with(density) { tooltipSize.width.toDp() }
+        val tooltipHalfWidth = tooltipWidth / 2
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxWidth()
         ) {
             Box(
                 modifier = Modifier
@@ -1183,85 +1423,103 @@ private fun BarChart(
                     .height(chartHeight)
             ) {
                 GridBackground(
-                    maxValue = maxValue,
+                    axisLabels = axisScale.labels,
+                    axisLabelWidth = axisWidth,
+                    axisLabelGap = axisLabelGap,
                     highlightBaseline = true
                 )
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .padding(start = 28.dp, end = 8.dp, bottom = 1.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.Bottom
+                        .width(plotWidth)
+                        .height(plotHeight)
+                        .align(Alignment.TopStart)
+                        .offset(x = plotStart, y = ChartPlotTopPadding)
                 ) {
-                    points.forEachIndexed { index, point ->
-                        val targetFraction = (point.value / maxValue).coerceIn(0f, 1f)
-                        val animatedFraction by animateFloatAsState(
-                            targetValue = targetFraction,
-                            animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
-                            label = "bar_height_$index"
-                        )
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Bottom,
-                            modifier = Modifier
-                                .weight(1f)
-                        ) {
-                            val isSelected = selectedIndex == index
-                            if (isSelected) {
-                                TooltipBubble(
-                                    text = point.hint,
-                                    onClose = { selectedIndex = null }
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(if (isSelected) 10.dp else 34.dp))
-
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.Start,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        displayPoints.forEachIndexed { index, point ->
+                            val targetFraction = (point.value / maxValue).coerceIn(0f, 1f)
+                            val animatedFraction by animateFloatAsState(
+                                targetValue = targetFraction,
+                                animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
+                                label = "bar_height_$index"
+                            )
                             Box(
                                 modifier = Modifier
-                                    .width(36.dp)
-                                    .height(maxBarHeight + 14.dp),
-                                contentAlignment = Alignment.BottomCenter
+                                    .width(slotWidth)
+                                    .fillMaxHeight()
                             ) {
-                                if (isSelected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(1.dp)
-                                            .height(maxBarHeight + 10.dp)
-                                            .background(Color(0xFFD8D8DB))
-                                    )
-                                }
-
                                 Box(
                                     modifier = Modifier
-                                        .width(34.dp)
-                                        .height((maxBarHeight * animatedFraction).coerceAtLeast(4.dp))
-                                        .background(Color(0xFFC6C6C8), RoundedCornerShape(6.dp))
+                                        .fillMaxSize()
                                         .clickable {
-                                            selectedIndex = if (isSelected) null else index
-                                        }
-                                )
+                                            selectedIndex = if (selectedIndex == index) null else index
+                                        },
+                                    contentAlignment = Alignment.BottomCenter
+                                ) {
+                                    val barHeight = when {
+                                        animatedFraction <= 0f -> 0.dp
+                                        else -> plotHeight * animatedFraction
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .width(barWidth)
+                                            .height(barHeight)
+                                            .background(Color(0xFFBDBDBD), BarShape)
+                                    )
+                                }
                             }
                         }
                     }
+                }
+
+                selectedIndex?.let { index ->
+                    val centerX = plotStart + slotWidth * index + (slotWidth / 2)
+                    TooltipBubble(
+                        text = formatChartTooltip(
+                            point = displayPoints[index],
+                            tooltipTitle = tooltipTitle,
+                        ),
+                        onClose = { selectedIndex = null },
+                        modifier = Modifier
+                            .onSizeChanged { tooltipSize = it }
+                            .offset(
+                                x = (centerX - tooltipHalfWidth).coerceIn(
+                                    plotStart,
+                                    width - tooltipWidth
+                                ),
+                                y = 18.dp,
+                            ),
+                    )
                 }
             }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 24.dp, end = 8.dp, top = 6.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                    .padding(start = plotStart, end = plotEndPadding, top = ChartXAxisGap),
+                horizontalArrangement = Arrangement.Start
             ) {
-                points.forEach { point ->
-                    Text(
-                        text = point.label,
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp,
-                        color = AppColors.Color2,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f)
-                    )
+                displayPoints.forEach { point ->
+                    Box(
+                        modifier = Modifier.width(slotWidth),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        Text(
+                            text = point.label,
+                            fontFamily = AppFonts.OpenSansMedium,
+                            fontSize = 11.sp,
+                            lineHeight = 12.sp,
+                            letterSpacing = 0.11.sp,
+                            color = AppColors.Color2,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -1274,25 +1532,36 @@ private fun LineChart(
     tooltipTitle: String,
     modifier: Modifier = Modifier
 ) {
-    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
-    val maxValue = (points.maxOfOrNull { it.value } ?: 1f).coerceAtLeast(1f)
+    val displayPoints = remember(points) { condenseChartPoints(points) }
+    var selectedIndex by remember(displayPoints) { mutableStateOf<Int?>(null) }
+    var tooltipSize by remember { mutableStateOf(IntSize.Zero) }
+    val axisScale = remember(displayPoints) {
+        buildChartAxisScale(displayPoints.maxOfOrNull { it.value } ?: 1f)
+    }
+    val maxValue = axisScale.maxValue
+    val density = LocalDensity.current
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(210.dp)
     ) {
         val width = maxWidth
-        val height = 144.dp
-        val pointPositions = remember(points, width, height, maxValue) {
-            val startX = 30.dp
-            val endX = width - 12.dp
-            val usableWidth = (endX - startX).value.coerceAtLeast(0f)
-            val step = if (points.size <= 1) 0f else usableWidth / (points.size - 1).toFloat()
-            points.mapIndexed { index, point ->
+        val chartHeight = 152.dp
+        val plotHeight = chartHeight - ChartPlotTopPadding - ChartPlotBottomPadding
+        val axisWidth = 24.dp
+        val axisLabelGap = ChartYAxisGap
+        val plotStart = ChartHorizontalPadding + axisWidth + axisLabelGap
+        val plotEndPadding = plotStart
+        val slotWidth = ((width - plotStart - plotEndPadding) / displayPoints.size.coerceAtLeast(1))
+            .coerceAtLeast(18.dp)
+        val tooltipWidth = with(density) { tooltipSize.width.toDp() }
+        val tooltipHalfWidth = tooltipWidth / 2
+        val pointPositions = remember(displayPoints, plotHeight, maxValue) {
+            displayPoints.mapIndexed { index, point ->
+                val fraction = (point.value / maxValue).coerceIn(0f, 1f)
                 Offset(
-                    x = startX.value + step * index,
-                    y = height.value - 8f - (point.value / maxValue) * (height.value - 20f)
+                    x = (plotStart + slotWidth * index + (slotWidth / 2)).value,
+                    y = (ChartPlotTopPadding + plotHeight * (1f - fraction)).value
                 )
             }
         }
@@ -1301,10 +1570,12 @@ private fun LineChart(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(height)
+                    .height(chartHeight)
             ) {
                 GridBackground(
-                    maxValue = maxValue,
+                    axisLabels = axisScale.labels,
+                    axisLabelWidth = axisWidth,
+                    axisLabelGap = axisLabelGap,
                     highlightBaseline = true
                 )
                 Canvas(modifier = Modifier.matchParentSize()) {
@@ -1324,16 +1595,6 @@ private fun LineChart(
                         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                     )
 
-                    selectedIndex?.let { index ->
-                        val point = pointPositions[index]
-                        drawLine(
-                            color = Color(0xFFD8D8DB),
-                            start = Offset(point.x.dp.toPx(), 8.dp.toPx()),
-                            end = Offset(point.x.dp.toPx(), (height - 1.dp).toPx()),
-                            strokeWidth = 1.dp.toPx()
-                        )
-                    }
-
                     pointPositions.forEachIndexed { index, point ->
                         drawCircle(
                             color = if (selectedIndex == index) AppColors.Color3 else AppColors.Color2,
@@ -1344,15 +1605,19 @@ private fun LineChart(
                 }
 
                 selectedIndex?.let { index ->
-                    val tooltipX = (pointPositions[index].x - 52f).dp
-                        .coerceIn(20.dp, width - 112.dp)
+                    val tooltipX = (pointPositions[index].x.dp - tooltipHalfWidth)
+                        .coerceIn(plotStart, width - tooltipWidth)
                     TooltipBubble(
-                        text = points[index].hint,
+                        text = formatChartTooltip(
+                            point = displayPoints[index],
+                            tooltipTitle = tooltipTitle,
+                        ),
                         onClose = { selectedIndex = null },
                         modifier = Modifier
+                            .onSizeChanged { tooltipSize = it }
                             .offset(
                                 x = tooltipX,
-                                y = (pointPositions[index].y - 42f).dp
+                                y = (pointPositions[index].y - 44f).dp
                             )
                     )
                 }
@@ -1372,19 +1637,26 @@ private fun LineChart(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 24.dp, end = 8.dp, top = 6.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                    .padding(start = plotStart, end = plotEndPadding, top = ChartXAxisGap),
+                horizontalArrangement = Arrangement.Start
             ) {
-                points.forEach { point ->
-                    Text(
-                        text = point.label,
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp,
-                        color = AppColors.Color2,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f)
-                    )
+                displayPoints.forEach { point ->
+                    Box(
+                        modifier = Modifier.width(slotWidth),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        Text(
+                            text = point.label,
+                            fontFamily = AppFonts.OpenSansMedium,
+                            fontSize = 11.sp,
+                            lineHeight = 12.sp,
+                            letterSpacing = 0.11.sp,
+                            color = AppColors.Color2,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -1393,47 +1665,114 @@ private fun LineChart(
 
 @Composable
 private fun GridBackground(
-    maxValue: Float,
+    axisLabels: List<Int>,
+    axisLabelWidth: Dp,
+    axisLabelGap: Dp,
     highlightBaseline: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 24.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            val labels = listOf(maxValue, maxValue * 0.66f, maxValue * 0.33f, 0f)
-            labels.forEach { label ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = label.roundToInt().toString(),
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Normal,
-                        fontSize = 12.sp,
-                        color = AppColors.Color2,
-                        modifier = Modifier.width(18.dp)
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val plotHeight = maxHeight - ChartPlotTopPadding - ChartPlotBottomPadding
+        val rowHeight = 16.dp
+        val lastIndex = axisLabels.lastIndex.coerceAtLeast(1)
+
+        axisLabels.forEachIndexed { index, label ->
+            val lineY = ChartPlotTopPadding + plotHeight * (index / lastIndex.toFloat())
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(rowHeight)
+                    .padding(
+                        start = ChartHorizontalPadding,
+                        end = ChartHorizontalPadding + axisLabelWidth + axisLabelGap
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(if (highlightBaseline && label == 0f) 2.dp else 1.dp)
-                            .background(
-                                if (highlightBaseline && label == 0f) {
-                                    AppColors.Color2.copy(alpha = 0.4f)
-                                } else {
-                                    Color(0xFFE3E3E6)
-                                }
-                            )
-                    )
-                }
+                    .offset(y = lineY - (rowHeight / 2)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = label.toString(),
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 12.sp,
+                    lineHeight = 12.sp,
+                    letterSpacing = 0.12.sp,
+                    color = AppColors.Color2,
+                    textAlign = TextAlign.Right,
+                    modifier = Modifier.width(axisLabelWidth)
+                )
+                Spacer(modifier = Modifier.width(axisLabelGap))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (highlightBaseline && label == 0) 2.dp else 1.dp)
+                        .background(
+                            if (highlightBaseline && label == 0) {
+                                AppColors.Color2.copy(alpha = 0.4f)
+                            } else {
+                                ChartGridColor
+                            }
+                        )
+                )
             }
         }
+
+        Box(
+            modifier = Modifier
+                .offset(
+                    x = ChartHorizontalPadding + axisLabelWidth + axisLabelGap,
+                    y = ChartPlotTopPadding
+                )
+                .width(1.dp)
+                .height(plotHeight)
+                .background(ChartGridColor)
+        )
+    }
+}
+
+private fun formatChartTooltip(
+    point: ProjectStatsChartPointUi,
+    tooltipTitle: String,
+): String {
+    if (tooltipTitle.contains("коммит", ignoreCase = true)) {
+        val count = point.value.roundToInt()
+        return "$count ${pluralizeRussian(count, "коммит", "коммита", "коммитов")}"
+    }
+    if (tooltipTitle.contains("Pull Request", ignoreCase = true) &&
+        !tooltipTitle.contains("быст", ignoreCase = true)
+    ) {
+        val count = point.value.roundToInt()
+        return "$count ${if (count == 1) "открытый PR" else "открытых PR"}"
+    }
+    return point.hint.ifBlank { tooltipTitle }
+}
+
+private data class ChartAxisScale(
+    val maxValue: Float,
+    val labels: List<Int>,
+)
+
+private fun buildChartAxisScale(rawMaxValue: Float): ChartAxisScale {
+    val safeMax = rawMaxValue.coerceAtLeast(1f)
+    val step = kotlin.math.ceil(safeMax / 3f).toInt().coerceAtLeast(1)
+    val axisMax = step * 3
+    return ChartAxisScale(
+        maxValue = axisMax.toFloat(),
+        labels = listOf(axisMax, axisMax - step, axisMax - (step * 2), 0),
+    )
+}
+
+private fun pluralizeRussian(
+    value: Int,
+    one: String,
+    few: String,
+    many: String,
+): String {
+    val mod100 = value % 100
+    val mod10 = value % 10
+    return when {
+        mod100 in 11..14 -> many
+        mod10 == 1 -> one
+        mod10 in 2..4 -> few
+        else -> many
     }
 }
 
@@ -1445,31 +1784,85 @@ private fun TooltipBubble(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(4.dp),
         color = Color.White,
-        shadowElevation = 4.dp
+        shadowElevation = 3.dp
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
         ) {
             Text(
                 text = text,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Normal,
+                fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 10.sp,
-                color = AppColors.Color2
-            )
-            Text(
-                text = "×",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
+                lineHeight = 20.sp,
+                letterSpacing = 0.1.sp,
                 color = AppColors.Color2,
-                modifier = Modifier.clickable(onClick = onClose)
+                modifier = Modifier.padding(end = 24.dp)
+            )
+            Image(
+                painter = painterResource(Res.drawable.stats_tooltip_close),
+                contentDescription = "Закрыть",
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(12.dp)
+                    .clickable(onClick = onClose)
             )
         }
+    }
+}
+
+private fun condenseChartPoints(
+    points: List<ProjectStatsChartPointUi>,
+    maxPoints: Int = 4,
+): List<ProjectStatsChartPointUi> {
+    if (points.size <= maxPoints) return points
+
+    val chunkSize = kotlin.math.ceil(points.size / maxPoints.toDouble()).toInt().coerceAtLeast(1)
+    return points.chunked(chunkSize).map { chunk ->
+        val totalValue = chunk.sumOf { it.value.toDouble() }.toFloat()
+        val startLabel = chunk.first().label
+        val endLabel = chunk.last().label
+        val axisLabel = if (chunk.size == 1) startLabel else chartRangeAxisLabel(startLabel, endLabel)
+        val tooltipLabel = if (chunk.size == 1) startLabel else chartRangeTooltipLabel(startLabel, endLabel)
+        ProjectStatsChartPointUi(
+            label = axisLabel,
+            value = totalValue,
+            valueLabel = totalValue.roundToInt().toString(),
+            hint = if (chunk.size == 1) {
+                chunk.first().hint
+            } else {
+                "$tooltipLabel: ${totalValue.roundToInt()}"
+            }
+        )
+    }
+}
+
+private fun chartRangeAxisLabel(startLabel: String, endLabel: String): String {
+    if (startLabel == endLabel) return startLabel
+    return if (looksLikeDateLabel(startLabel) && looksLikeDateLabel(endLabel)) {
+        "$startLabel\n$endLabel"
+    } else {
+        "$startLabel\n$endLabel"
+    }
+}
+
+private fun looksLikeDateLabel(label: String): Boolean {
+    return label.length == 8 && label[2] == '.' && label[5] == '.'
+}
+
+private fun chartRangeTooltipLabel(startLabel: String, endLabel: String): String {
+    return if (startLabel == endLabel) startLabel else "$startLabel - $endLabel"
+}
+
+private fun splitMetricCount(text: String): Pair<String, String> {
+    val trimmed = text.trim()
+    val firstSpace = trimmed.indexOf(' ')
+    return if (firstSpace == -1) {
+        trimmed to ""
+    } else {
+        trimmed.substring(0, firstSpace) to trimmed.substring(firstSpace + 1).trim()
     }
 }
 
@@ -1489,13 +1882,7 @@ private fun TableCard(
 ) {
     StatsCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = title,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                color = AppColors.Color2
-            )
+            StatsCardTitle(text = title)
             rows.forEachIndexed { index, row ->
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -1504,16 +1891,14 @@ private fun TableCard(
                     ) {
                         Text(
                             text = row.name,
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.Normal,
+                            fontFamily = AppFonts.OpenSansRegular,
                             fontSize = 13.sp,
                             color = AppColors.Color2,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = row.value,
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 13.sp,
                             color = if (row.highlight) AppColors.Color3 else AppColors.Color2
                         )
@@ -1528,59 +1913,57 @@ private fun TableCard(
 }
 
 @Composable
-private fun FileStatsCard(
+internal fun FileStatsCard(
     rows: List<com.spbu.projecttrack.rating.data.model.ProjectStatsFileRowUi>,
     modifier: Modifier = Modifier
 ) {
     StatsCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = "Статистика по файлам",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                color = AppColors.Color2
-            )
+            StatsCardTitle(text = "Статистика по файлам")
 
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(6.dp),
                 color = Color.White,
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCECED2))
+                border = androidx.compose.foundation.BorderStroke(1.dp, TableDividerColor)
             ) {
                 Column {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.White)
-                            .padding(vertical = 12.dp),
+                            .background(TableHeaderColor)
+                            .height(40.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "Файл",
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.Bold,
+                            fontFamily = AppFonts.OpenSansBold,
                             fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            letterSpacing = 0.14.sp,
                             color = AppColors.Color2,
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(start = 16.dp)
+                                .padding(horizontal = 12.dp),
+                            textAlign = TextAlign.Center,
                         )
                         Box(
                             modifier = Modifier
                                 .width(1.dp)
-                                .height(22.dp)
-                                .background(Color(0xFFCECED2))
+                                .fillMaxHeight()
+                                .background(TableDividerColor)
                         )
                         Text(
                             text = "Кол-во",
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.Bold,
+                            fontFamily = AppFonts.OpenSansBold,
                             fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            letterSpacing = 0.14.sp,
                             color = AppColors.Color2,
                             modifier = Modifier
-                                .widthIn(min = 72.dp)
-                                .padding(horizontal = 16.dp),
-                            textAlign = TextAlign.End
+                                .width(FileStatsValueColumnWidth)
+                                .padding(horizontal = 8.dp),
+                            textAlign = TextAlign.Center
                         )
                     }
 
@@ -1589,39 +1972,49 @@ private fun FileStatsCard(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 14.dp),
+                                    .height(40.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = row.fileName,
-                                    fontFamily = AppFonts.OpenSans,
-                                    fontWeight = FontWeight.Medium,
+                                    fontFamily = AppFonts.OpenSansMedium,
                                     fontSize = 13.sp,
+                                    lineHeight = 20.sp,
+                                    letterSpacing = 0.13.sp,
                                     color = AppColors.Color2,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .padding(start = 16.dp)
+                                        .padding(start = 12.dp, end = 10.dp),
+                                    textAlign = TextAlign.Start,
                                 )
                                 Box(
                                     modifier = Modifier
                                         .width(1.dp)
-                                        .height(22.dp)
-                                        .background(Color(0xFFCECED2))
+                                        .fillMaxHeight()
+                                        .background(TableDividerColor)
                                 )
                                 Text(
                                     text = row.value,
-                                    fontFamily = AppFonts.OpenSans,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 13.sp,
+                                    fontFamily = AppFonts.OpenSansMedium,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
+                                    letterSpacing = 0.14.sp,
                                     color = AppColors.Color2,
-                                    textAlign = TextAlign.End,
+                                    textAlign = TextAlign.Center,
                                     modifier = Modifier
-                                        .widthIn(min = 72.dp)
-                                        .padding(horizontal = 16.dp)
+                                        .width(FileStatsValueColumnWidth)
+                                        .padding(horizontal = 8.dp)
                                 )
                             }
                             if (index < rows.lastIndex) {
-                                DividerLine()
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(TableDividerColor)
+                                )
                             }
                         }
                     }
@@ -1656,15 +2049,13 @@ private fun DonutSectionCard(
                                     append(slice.label)
                                     if (slice.highlight) append("(Вы)")
                                 },
-                                fontFamily = AppFonts.OpenSans,
-                                fontWeight = FontWeight.Normal,
+                                fontFamily = AppFonts.OpenSansRegular,
                                 fontSize = 13.sp,
                                 color = AppColors.Color2
                             )
                             Text(
                                 text = slice.secondaryLabel,
-                                fontFamily = AppFonts.OpenSans,
-                                fontWeight = FontWeight.Bold,
+                                fontFamily = AppFonts.OpenSansBold,
                                 fontSize = 12.sp,
                                 color = AppColors.Color2
                             )
@@ -1677,7 +2068,7 @@ private fun DonutSectionCard(
 }
 
 @Composable
-private fun DonutChart(
+internal fun DonutChart(
     slices: List<ProjectStatsDonutSliceUi>,
     modifier: Modifier = Modifier
 ) {
@@ -1690,12 +2081,17 @@ private fun DonutChart(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(230.dp),
+            .padding(top = 8.dp, bottom = 10.dp)
+            .height(208.dp),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.size(220.dp)) {
+        val chartSize = 188.dp
+        val outerRadius = chartSize / 2
+        val innerRadius = outerRadius / 2
+        val strokeWidth = outerRadius - innerRadius
+
+        Canvas(modifier = Modifier.size(chartSize)) {
             var startAngle = -90f
-            val strokeWidth = 28.dp.toPx()
             slices.forEach { slice ->
                 val sweep = ((slice.value / total.toFloat()) * 360f) * progress
                 drawArc(
@@ -1703,7 +2099,7 @@ private fun DonutChart(
                     startAngle = startAngle,
                     sweepAngle = sweep,
                     useCenter = false,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+                    style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Butt)
                 )
                 startAngle += sweep
             }
@@ -1714,18 +2110,33 @@ private fun DonutChart(
             val sweep = (slice.value / total.toFloat()) * 360f
             val middle = start + sweep / 2f
             val angle = middle * (PI / 180.0)
-            val radius = if (sweep < 24f) 58f else 66f
+            val radius = innerRadius.value + ((outerRadius - innerRadius).value * 0.72f)
             val x = kotlin.math.cos(angle).toFloat() * radius
             val y = kotlin.math.sin(angle).toFloat() * radius
-            if (slice.value > 0f) {
-                Text(
-                    text = slice.percentLabel,
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = Color.White,
-                    modifier = Modifier.offset(x = x.dp, y = y.dp)
-                )
+            val arcLength = 2 * PI.toFloat() * radius * (sweep / 360f)
+            if (
+                slices.size > 1 &&
+                slice.value > 0f &&
+                sweep >= 32f &&
+                arcLength >= slice.percentLabel.length * 9f
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(x = x.dp, y = y.dp)
+                        .defaultMinSize(minWidth = 32.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = slice.percentLabel,
+                        fontFamily = AppFonts.OpenSansBold,
+                        fontSize = 11.sp,
+                        lineHeight = 12.sp,
+                        letterSpacing = 0.11.sp,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
             start += sweep
         }
@@ -1733,7 +2144,7 @@ private fun DonutChart(
 }
 
 @Composable
-private fun FooterActions(
+internal fun FooterActions(
     onSettingsClick: () -> Unit,
     onExportPdfClick: () -> Unit,
     onExportExcelClick: () -> Unit,
@@ -1746,10 +2157,10 @@ private fun FooterActions(
         FooterActionRow(
             text = "Настройки экрана",
             icon = {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
+                Image(
+                    painter = painterResource(Res.drawable.stats_footer_settings),
                     contentDescription = null,
-                    tint = AppColors.Color2
+                    modifier = Modifier.size(20.dp)
                 )
             },
             onClick = onSettingsClick
@@ -1757,10 +2168,12 @@ private fun FooterActions(
         FooterActionRow(
             text = "Экспорт в PDF",
             icon = {
-                Icon(
-                    imageVector = Icons.Outlined.PictureAsPdf,
+                Image(
+                    painter = painterResource(Res.drawable.stats_footer_pdf),
                     contentDescription = null,
-                    tint = AppColors.Color2
+                    modifier = Modifier
+                        .width(16.dp)
+                        .height(22.4.dp)
                 )
             },
             onClick = onExportPdfClick
@@ -1768,10 +2181,12 @@ private fun FooterActions(
         FooterActionRow(
             text = "Экспорт в Excel",
             icon = {
-                Icon(
-                    imageVector = Icons.Outlined.TableChart,
+                Image(
+                    painter = painterResource(Res.drawable.stats_footer_excel),
                     contentDescription = null,
-                    tint = AppColors.Color2
+                    modifier = Modifier
+                        .width(16.dp)
+                        .height(22.4.dp)
                 )
             },
             onClick = onExportExcelClick
@@ -1796,208 +2211,165 @@ private fun FooterActionRow(
         icon()
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSans,
-            fontWeight = FontWeight.Normal,
-            fontSize = 16.sp,
+            fontFamily = AppFonts.OpenSansMedium,
+            fontSize = 14.sp,
             color = AppColors.Color2
         )
     }
 }
 
-private enum class DatePickerTarget {
-    Start,
-    End,
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SingleDatePickerDialog(
-    title: String,
-    initialIsoDate: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+private fun DateRangeSelector(
+    startLabel: String,
+    endLabel: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val datePickerState = androidx.compose.material3.rememberDatePickerState(
-        initialSelectedDateMillis = initialIsoDate.toDatePickerMillis()
+    DateBadge(
+        text = "$startLabel - $endLabel",
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
     )
-
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            Text(
-                text = "Готово",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = AppColors.Color3,
-                modifier = Modifier.clickable {
-                    datePickerState.selectedDateMillis
-                        ?.toIsoDate()
-                        ?.let(onConfirm)
-                }
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            )
-        },
-        dismissButton = {
-            Text(
-                text = "Отмена",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
-                color = AppColors.Color2,
-                modifier = Modifier
-                    .clickable(onClick = onDismiss)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            )
-        }
-    ) {
-        DatePicker(
-            state = datePickerState,
-            title = {
-                Text(
-                    text = title,
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = AppColors.Color2,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
-                )
-            }
-        )
-    }
-}
-
-private fun String.toDatePickerMillis(): Long? {
-    val parts = split("-")
-    if (parts.size != 3) return null
-    val year = parts[0].toIntOrNull() ?: return null
-    val month = parts[1].toIntOrNull() ?: return null
-    val day = parts[2].toIntOrNull() ?: return null
-    return kotlinx.datetime.LocalDate(year, month, day)
-        .atStartOfDayIn(kotlinx.datetime.TimeZone.UTC)
-        .toEpochMilliseconds()
-}
-
-private fun Long.toIsoDate(): String {
-    val date = kotlinx.datetime.Instant
-        .fromEpochMilliseconds(this)
-        .toLocalDateTime(kotlinx.datetime.TimeZone.UTC)
-        .date
-    val month = date.monthNumber.toString().padStart(2, '0')
-    val day = date.dayOfMonth.toString().padStart(2, '0')
-    return "${date.year}-$month-$day"
 }
 
 @Composable
 private fun DateBadge(
     text: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(6.dp),
-        color = Color(0xFFF2F2F4)
+        modifier = modifier
+            .height(22.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(5.dp),
+        color = AppColors.Color1,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 10.dp, end = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = text,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Medium,
-                fontSize = 13.sp,
-                color = AppColors.Color2,
-                modifier = Modifier.weight(1f, fill = false)
+                fontFamily = AppFonts.OpenSansRegular,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                letterSpacing = 0.14.sp,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
-            Image(
-                painter = painterResource(Res.drawable.calendar_icon),
-                contentDescription = "Календарь",
-                modifier = Modifier.size(16.dp)
-            )
+            Box(
+                modifier = Modifier.size(16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(Res.drawable.stats_calendar),
+                    contentDescription = "Календарь",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun DropdownSelector(
+private fun StatsCardTitle(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = text,
+        fontFamily = AppFonts.OpenSansSemiBold,
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.16.sp,
+        color = Color.Black,
+        modifier = modifier,
+    )
+}
+
+@Composable
+internal fun DropdownSelector(
     title: String,
     value: String,
     options: List<Pair<String, String>>,
     onSelected: (String) -> Unit,
-    width: Dp? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedKey: String? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var anchorSize by remember { mutableStateOf(IntSize.Zero) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 700f),
+        label = "stats_dropdown_chevron_rotation",
+    )
+    val density = LocalDensity.current
+    val popupWidth = with(density) { anchorSize.width.toDp() }
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(if (title.isBlank()) 0.dp else 6.dp)
     ) {
         if (title.isNotBlank()) {
-            Text(
-                text = title,
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = Color.Black
-            )
+            StatsCardTitle(text = title)
         }
 
         Box {
             Surface(
                 modifier = Modifier
-                    .then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
-                    .clickable { expanded = true },
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFFF2F2F4)
+                    .fillMaxWidth()
+                    .onSizeChanged { anchorSize = it }
+                    .clickable { expanded = !expanded },
+                shape = CompactControlShape,
+                color = AppColors.Color1
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .height(22.dp)
+                        .padding(start = 10.dp, end = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = value,
-                        fontFamily = AppFonts.OpenSans,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 13.sp,
-                        color = AppColors.Color2,
+                        fontFamily = AppFonts.OpenSansRegular,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        letterSpacing = 0.14.sp,
+                        color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f)
                     )
-                    Icon(
-                        imageVector = Icons.Outlined.KeyboardArrowDown,
+                    Image(
+                        painter = painterResource(Res.drawable.stats_dropdown_chevron),
                         contentDescription = null,
-                        tint = AppColors.Color2
+                        modifier = Modifier
+                            .width(8.5.dp)
+                            .height(7.dp)
+                            .rotate(chevronRotation)
                     )
                 }
             }
 
-            DropdownMenu(
+            StatsDropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false }
-            ) {
-                options.forEach { (key, titleValue) ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = titleValue,
-                                fontFamily = AppFonts.OpenSans
-                            )
-                        },
-                        onClick = {
-                            expanded = false
-                            onSelected(key)
-                        }
-                    )
-                }
-            }
+                onDismissRequest = { expanded = false },
+                options = options,
+                onSelected = onSelected,
+                width = if (anchorSize.width > 0) popupWidth else null,
+                offset = DpOffset(0.dp, 6.dp),
+                selectedKey = selectedKey,
+                selectedLabel = value,
+            )
         }
     }
 }
@@ -2012,13 +2384,7 @@ private fun RapidThresholdSelector(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = "Период:",
-            fontFamily = AppFonts.OpenSans,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
-            color = Color.Black
-        )
+        StatsCardTitle(text = "Период:")
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2063,7 +2429,7 @@ private fun InlineValueSelector(
         options = values.map { it.toString() to "$it $label" },
         onSelected = { onSelected(it.toInt()) },
         modifier = modifier,
-        width = null
+        selectedKey = value.toString(),
     )
 }
 
@@ -2083,7 +2449,7 @@ private fun FilterChip(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSans,
+            fontFamily = AppFonts.OpenSansRegular,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             fontSize = 12.sp,
             color = if (selected) Color.White else AppColors.Color2,
@@ -2095,6 +2461,8 @@ private fun FilterChip(
 @Composable
 private fun StatsCard(
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+    contentVerticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
@@ -2104,10 +2472,23 @@ private fun StatsCard(
         shadowElevation = 8.dp
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            modifier = Modifier.padding(contentPadding),
+            verticalArrangement = contentVerticalArrangement,
             content = content
         )
     }
+}
+
+@Composable
+private fun CompactStatsCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    StatsCard(
+        modifier = modifier.height(CompactStatsCardHeight),
+        contentPadding = CompactStatsCardPadding,
+        content = content
+    )
 }
 
 @Composable

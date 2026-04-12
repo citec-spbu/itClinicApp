@@ -1,5 +1,6 @@
 package com.spbu.projecttrack.rating.data.repository
 
+import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.projects.data.api.ProjectsApi
 import com.spbu.projecttrack.projects.data.model.Member
 import com.spbu.projecttrack.projects.data.model.Project
@@ -8,9 +9,12 @@ import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.data.model.User
 import com.spbu.projecttrack.projects.presentation.util.extractGithubUrl
 import com.spbu.projecttrack.rating.data.api.MetricApi
-import com.spbu.projecttrack.rating.data.model.MetricRankingItem
+import com.spbu.projecttrack.rating.data.model.MetricProjectDetail
+import com.spbu.projecttrack.rating.data.model.MetricProjectInList
 import com.spbu.projecttrack.rating.data.model.RankingData
+import com.spbu.projecttrack.rating.data.model.RankingFilters
 import com.spbu.projecttrack.rating.data.model.RankingItem
+import com.spbu.projecttrack.rating.data.model.RankingMetricKey
 import com.spbu.projecttrack.rating.data.model.RatingSyncIdentifier
 import com.spbu.projecttrack.rating.data.model.RatingSyncMember
 import com.spbu.projecttrack.rating.data.model.RatingSyncProject
@@ -24,74 +28,138 @@ import kotlin.math.roundToInt
 class RankingRepository(
     private val api: MetricApi,
     private val projectsApi: ProjectsApi,
-    private val userProfileApi: UserProfileApi
+    private val userProfileApi: UserProfileApi,
 ) {
     private var hasSynced = false
     private var cachedProjectCatalog: ProjectCatalog? = null
+    private var cachedSource: RankingSource? = null
 
-    suspend fun loadRatings(): Result<RankingData> {
-        val projectCatalog = getProjectCatalog().getOrNull()
+    suspend fun loadRatings(
+        filters: RankingFilters,
+        forceRefresh: Boolean = false,
+    ): Result<RankingData> {
+        return runCatching {
+            val source = getSource(forceRefresh).getOrThrow()
+            buildRankingData(source, filters)
+        }
+    }
+
+    private suspend fun getSource(forceRefresh: Boolean): Result<RankingSource> {
+        cachedSource?.takeIf { !forceRefresh }?.let { return Result.success(it) }
+
+        val projectCatalog = getProjectCatalog(forceRefresh).getOrNull()
         val profile = userProfileApi.getProfile().getOrNull()
 
         if (projectCatalog != null) {
             syncProjects(projectCatalog)
         }
 
-        val projectsResult = api.getProjectRatings()
-        if (projectsResult.isFailure) {
-            return Result.failure(
-                projectsResult.exceptionOrNull() ?: RuntimeException("Failed to load project ratings")
-            )
+        val metricProjects = api.getProjects().getOrElse {
+            throw it
         }
+        val metricDetails = loadMetricProjectDetails(metricProjects)
 
-        val studentsResult = api.getStudentRatings()
-        if (studentsResult.isFailure) {
-            return Result.failure(
-                studentsResult.exceptionOrNull() ?: RuntimeException("Failed to load student ratings")
-            )
+        val studentProjectNames = buildMap {
+            putAll(projectCatalog?.let(::buildRegistryStudentProjectNames).orEmpty())
+            putAll(buildMetricStudentProjectNames(metricDetails.values))
         }
-
-        val metricProjectItems = projectsResult.getOrNull().orEmpty()
-        val currentProject = profile?.projects.orEmpty().firstOrNull()
-        val currentUserName = profile?.user?.fullName
-            ?.displayName()
-            ?.takeIf { it.isNotBlank() }
-        val studentProjectNames = projectCatalog?.let(::buildStudentProjectNames).orEmpty()
-
-        val projectItems = metricProjectItems.map { item ->
-            item.toProjectRankingItem(
-                projectCatalog = projectCatalog,
-                currentProject = currentProject
-            )
-        }
-        val studentItems = studentsResult.getOrNull().orEmpty().map { item ->
-            item.toStudentRankingItem(
-                studentProjectNames = studentProjectNames,
-                currentUserName = currentUserName,
-                currentProjectName = currentProject?.name
-            )
-        }
-        val weeklyMovement = loadProjectWeeklyMovement(metricProjectItems)
-
-        val projectItemsWithMovement = projectItems.map { item ->
-            val movement = weeklyMovement[item.key]
-            item.copy(
-                previousPosition = movement?.previousPosition,
-                positionDelta = movement?.positionDelta,
-                historyAvailable = true
-            )
+        val studentDisplayNames = buildMap {
+            putAll(projectCatalog?.let(::buildStudentDisplayNames).orEmpty())
+            putAll(buildMetricStudentDisplayNames(metricDetails.values))
         }
 
         return Result.success(
-            RankingData(
-                projects = projectItemsWithMovement,
-                students = studentItems
-            )
+            RankingSource(
+                projectCatalog = projectCatalog,
+                metricProjects = metricProjects,
+                metricDetailsById = metricDetails,
+                currentProject = profile?.projects.orEmpty().firstOrNull(),
+                currentUserName = profile?.user?.fullName?.displayName()?.trim()?.takeIf { it.isNotBlank() },
+                currentProjectName = profile?.projects.orEmpty().firstOrNull()?.name,
+                studentProjectNames = studentProjectNames,
+                studentDisplayNames = studentDisplayNames,
+            ).also { cachedSource = it }
         )
     }
 
-    private suspend fun getProjectCatalog(): Result<ProjectCatalog> {
-        cachedProjectCatalog?.let { return Result.success(it) }
+    private fun buildRankingData(
+        source: RankingSource,
+        filters: RankingFilters,
+    ): RankingData {
+        val nowMillis = PlatformTime.currentTimeMillis()
+        val movementBaseMillis = nowMillis - WEEK_MILLIS
+
+        val projectEntries = source.metricProjects.map { project ->
+            val detail = source.metricDetailsById[project.id]
+            ProjectRankingEntry(
+                project = project,
+                detail = detail,
+                score = detail?.let { RankingScoreEngine.calculateProjectScore(it, filters, nowMillis) }
+                    ?: fallbackProjectScore(project, filters),
+            )
+        }
+        val projectMovement = buildMovement(
+            currentScores = projectEntries.map { entry ->
+                ScoreRecord(
+                    key = entry.project.id,
+                    title = entry.project.name,
+                    score = entry.score,
+                )
+            },
+            previousScores = projectEntries.associate { entry ->
+                entry.project.id to entry.detail?.let { detail ->
+                    RankingScoreEngine.calculateProjectScore(detail, filters, movementBaseMillis)
+                }
+            },
+        )
+        val projectItems = projectEntries.sortedProjectEntries()
+            .map { entry ->
+                val movement = projectMovement[entry.project.id]
+                entry.toRankingItem(
+                    source = source,
+                    movement = movement,
+                )
+            }
+
+        val studentEntries = buildStudentEntries(
+            source = source,
+            filters = filters,
+            baseNowMillis = nowMillis,
+        )
+        val previousStudentEntries = buildStudentEntries(
+            source = source,
+            filters = filters,
+            baseNowMillis = movementBaseMillis,
+        )
+        val studentMovement = buildMovement(
+            currentScores = studentEntries.map { entry ->
+                ScoreRecord(
+                    key = entry.key,
+                    title = entry.title,
+                    score = entry.score,
+                )
+            },
+            previousScores = previousStudentEntries.associate { entry -> entry.key to entry.score },
+        )
+        val studentItems = studentEntries.sortedStudentEntries()
+            .map { entry ->
+                val movement = studentMovement[entry.key]
+                entry.toRankingItem(
+                    source = source,
+                    movement = movement,
+                )
+            }
+
+        return RankingData(
+            projects = projectItems,
+            students = studentItems,
+            currentUserName = source.currentUserName,
+            currentUserProjectName = source.currentProjectName,
+        )
+    }
+
+    private suspend fun getProjectCatalog(forceRefresh: Boolean): Result<ProjectCatalog> {
+        cachedProjectCatalog?.takeIf { !forceRefresh }?.let { return Result.success(it) }
 
         val allProjectsResult = projectsApi.getAllProjects()
         if (allProjectsResult.isFailure) {
@@ -107,13 +175,13 @@ class RankingRepository(
             project.id to fetchProjectDetail(project)
         }
 
-        val catalog = ProjectCatalog(
-            projects = allProjects,
-            tagsById = tagsById,
-            detailsByProjectId = detailsByProjectId
+        return Result.success(
+            ProjectCatalog(
+                projects = allProjects,
+                tagsById = tagsById,
+                detailsByProjectId = detailsByProjectId,
+            ).also { cachedProjectCatalog = it }
         )
-        cachedProjectCatalog = catalog
-        return Result.success(catalog)
     }
 
     private suspend fun syncProjects(projectCatalog: ProjectCatalog): Result<Unit> {
@@ -133,7 +201,7 @@ class RankingRepository(
                 dateStart = detailProject?.dateStart ?: project.dateStart,
                 dateEnd = detailProject?.dateEnd ?: project.dateEnd,
                 githubUrl = githubUrl,
-                members = members
+                members = members,
             )
         }
 
@@ -144,8 +212,8 @@ class RankingRepository(
         return result
     }
 
-    private fun buildStudentProjectNames(
-        projectCatalog: ProjectCatalog
+    private fun buildRegistryStudentProjectNames(
+        projectCatalog: ProjectCatalog,
     ): Map<String, String> {
         val studentProjects = mutableMapOf<String, String>()
 
@@ -154,38 +222,92 @@ class RankingRepository(
             val projectName = detail.project?.name?.trim().takeIf { !it.isNullOrBlank() } ?: project.name
             val usersById = detail.users.orEmpty().associateBy { it.id }
 
+            detail.users.orEmpty().forEach { user ->
+                studentProjects.registerStudentProject(
+                    studentName = user.name,
+                    projectName = projectName,
+                )
+            }
             detail.members.orEmpty().forEach { member ->
                 val resolvedName = resolveMemberName(member, usersById)
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
                     ?: return@forEach
 
-                val normalizedName = normalizeName(resolvedName)
-                if (normalizedName !in studentProjects) {
-                    studentProjects[normalizedName] = projectName
-                }
+                studentProjects.registerStudentProject(
+                    studentName = resolvedName,
+                    projectName = projectName,
+                )
             }
         }
 
         return studentProjects
     }
 
+    private fun buildStudentDisplayNames(
+        projectCatalog: ProjectCatalog,
+    ): Map<String, String> {
+        val studentNames = mutableMapOf<String, String>()
+
+        projectCatalog.projects.forEach { project ->
+            val detail = projectCatalog.detailsByProjectId[project.id] ?: return@forEach
+            val usersById = detail.users.orEmpty().associateBy { it.id }
+
+            detail.users.orEmpty().forEach { user ->
+                studentNames.registerStudentDisplayName(user.name)
+            }
+            detail.members.orEmpty().forEach { member ->
+                studentNames.registerStudentDisplayName(resolveMemberName(member, usersById))
+            }
+        }
+
+        return studentNames
+    }
+
+    private fun buildMetricStudentProjectNames(
+        details: Collection<MetricProjectDetail>,
+    ): Map<String, String> {
+        val studentProjects = mutableMapOf<String, String>()
+
+        details.forEach { detail ->
+            val projectName = detail.name.trim().takeIf { it.isNotBlank() } ?: return@forEach
+            detail.users.forEach { user ->
+                studentProjects.registerStudentProject(
+                    studentName = user.name,
+                    projectName = projectName,
+                )
+            }
+        }
+
+        return studentProjects
+    }
+
+    private fun buildMetricStudentDisplayNames(
+        details: Collection<MetricProjectDetail>,
+    ): Map<String, String> {
+        val studentNames = mutableMapOf<String, String>()
+        details.forEach { detail ->
+            detail.users.forEach { user ->
+                studentNames.registerStudentDisplayName(user.name)
+            }
+        }
+        return studentNames
+    }
+
     private suspend fun fetchProjectDetail(project: Project): ProjectDetailResponse? {
         val projectKey = project.slug?.takeIf { it.isNotBlank() } ?: project.id
-        val detailResult = projectsApi.getProjectById(projectKey)
-        return detailResult.getOrNull()
+        return projectsApi.getProjectById(projectKey).getOrNull()
     }
 
     private fun buildMembers(
         detail: ProjectDetailResponse?,
-        githubUrl: String?
+        githubUrl: String?,
     ): List<RatingSyncMember> {
         if (detail == null) return emptyList()
         val members = detail.members.orEmpty()
         if (members.isEmpty()) return emptyList()
 
-        val usersById = detail.users.orEmpty()
-            .associateBy { it.id }
+        val usersById = detail.users.orEmpty().associateBy { it.id }
         val repoOwner = extractGithubOwner(githubUrl)
         val shouldUseOwnerFallback = members.size == 1
 
@@ -205,20 +327,20 @@ class RankingRepository(
                 resolvedName = resolvedName,
                 usersById = usersById,
                 repoOwner = repoOwner,
-                useOwnerFallback = shouldUseOwnerFallback
+                useOwnerFallback = shouldUseOwnerFallback,
             )
 
             RatingSyncMember(
                 name = resolvedName,
                 roles = roles,
-                identifiers = listOfNotNull(identifier)
+                identifiers = listOfNotNull(identifier),
             )
         }.distinctBy { it.name }
     }
 
     private fun resolveMemberName(
         member: Member,
-        usersById: Map<String, User>
+        usersById: Map<String, User>,
     ): String? {
         val name = member.name.trim()
         if (name.isNotBlank()) return name
@@ -232,7 +354,7 @@ class RankingRepository(
         resolvedName: String,
         usersById: Map<String, User>,
         repoOwner: String?,
-        useOwnerFallback: Boolean
+        useOwnerFallback: Boolean,
     ): RatingSyncIdentifier? {
         val userName = member.user?.toString()
             ?.let { userId -> usersById[userId]?.name }
@@ -246,7 +368,7 @@ class RankingRepository(
         return githubLogin?.let { login ->
             RatingSyncIdentifier(
                 platform = "GitHub",
-                value = login
+                value = login,
             )
         }
     }
@@ -255,7 +377,7 @@ class RankingRepository(
         if (githubUrl.isNullOrBlank()) return null
         val regex = Regex(
             pattern = "github\\.com/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/",
-            option = RegexOption.IGNORE_CASE
+            option = RegexOption.IGNORE_CASE,
         )
         return regex.find(githubUrl)?.groupValues?.getOrNull(1)
     }
@@ -266,14 +388,12 @@ class RankingRepository(
 
         val urlRegex = Regex(
             pattern = "github\\.com/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))",
-            option = RegexOption.IGNORE_CASE
+            option = RegexOption.IGNORE_CASE,
         )
         val fromUrl = urlRegex.find(value)?.groupValues?.getOrNull(1)
         if (isValidGithubLogin(fromUrl)) return fromUrl
 
-        val mentionRegex = Regex(
-            pattern = "@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))"
-        )
+        val mentionRegex = Regex(pattern = "@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))")
         val fromMention = mentionRegex.find(value)?.groupValues?.getOrNull(1)
         if (isValidGithubLogin(fromMention)) return fromMention
 
@@ -297,80 +417,191 @@ class RankingRepository(
         return candidate.matches(Regex("^[A-Za-z0-9-]+$"))
     }
 
-    private fun MetricRankingItem.toProjectRankingItem(
-        projectCatalog: ProjectCatalog?,
-        currentProject: Project?
+    private suspend fun loadMetricProjectDetails(
+        metricProjects: List<MetricProjectInList>,
+    ): Map<String, MetricProjectDetail> = coroutineScope {
+        metricProjects.map { item ->
+            async {
+                item.id to api.getProjectDetail(item.id).getOrNull()
+            }
+        }.awaitAll()
+            .mapNotNull { (id, detail) -> detail?.let { id to it } }
+            .toMap()
+    }
+
+    private fun buildStudentEntries(
+        source: RankingSource,
+        filters: RankingFilters,
+        baseNowMillis: Long,
+    ): List<StudentRankingEntry> {
+        val buckets = linkedMapOf<String, StudentAggregation>()
+
+        source.metricDetailsById.values.forEach { detail ->
+            val projectName = detail.name.trim().takeIf { it.isNotBlank() } ?: return@forEach
+            val usersByIdentity = detail.users
+                .groupBy { personNameKey(it.name) }
+                .filterKeys { it.isNotBlank() }
+
+            usersByIdentity.forEach { (identityKey, users) ->
+                val mergedLogins = users.flatMap { user ->
+                    user.identifiers.mapNotNull { identifier ->
+                        identifier.value.trim()
+                            .takeIf { identifier.platform.equals("GitHub", ignoreCase = true) && it.isNotBlank() }
+                            ?.lowercase()
+                    }
+                }.toSet()
+
+                val score = if (mergedLogins.isEmpty()) {
+                    null
+                } else {
+                    RankingScoreEngine.calculateUserScore(
+                        project = detail,
+                        filters = filters,
+                        selectedUsers = mergedLogins,
+                        baseNowMillis = baseNowMillis,
+                    )
+                }
+
+                val bucket = buckets.getOrPut(identityKey) { StudentAggregation(identityKey) }
+                bucket.displayName = preferDisplayPersonName(
+                    bucket.displayName,
+                    source.studentDisplayNames[identityKey] ?: users.firstOrNull()?.name,
+                )
+                bucket.projectNames += projectName
+                if (score != null) {
+                    bucket.scores += score
+                }
+            }
+        }
+
+        return buckets.values.map { bucket ->
+            val title = bucket.displayName?.takeIf { it.isNotBlank() } ?: bucket.identityKey
+            val projectName = when {
+                source.currentUserName != null && personNameMatches(title, source.currentUserName) -> {
+                    source.currentProjectName ?: source.studentProjectNames[bucket.identityKey]
+                }
+
+                bucket.projectNames.size == 1 -> bucket.projectNames.firstOrNull()
+                else -> source.studentProjectNames[bucket.identityKey] ?: bucket.projectNames.firstOrNull()
+            }
+
+            StudentRankingEntry(
+                key = bucket.identityKey,
+                title = title,
+                projectName = projectName,
+                score = bucket.scores.takeIf { it.isNotEmpty() }?.average(),
+                markerLabel = if (source.currentUserName != null && personNameMatches(title, source.currentUserName)) {
+                    "Вы"
+                } else {
+                    null
+                },
+            )
+        }
+    }
+
+    private fun buildMovement(
+        currentScores: List<ScoreRecord>,
+        previousScores: Map<String, Double?>,
+    ): Map<String, RankingMovement> {
+        val currentPositions = currentScores.sortedScoreRecords()
+            .mapIndexed { index, item -> item.key to (index + 1) }
+            .toMap()
+
+        val titlesByKey = currentScores.associate { it.key to it.title }
+        val historicalScores = previousScores.mapNotNull { (key, score) ->
+            score?.let {
+                ScoreRecord(
+                    key = key,
+                    title = titlesByKey[key] ?: key,
+                    score = it,
+                )
+            }
+        }.sortedScoreRecords()
+
+        val previousPositions = historicalScores.mapIndexed { index, item ->
+            item.key to (index + 1)
+        }.toMap()
+
+        return currentPositions.mapNotNull { (id, currentPosition) ->
+            val previousPosition = previousPositions[id] ?: return@mapNotNull null
+            id to RankingMovement(
+                previousPosition = previousPosition,
+                positionDelta = previousPosition - currentPosition,
+            )
+        }.toMap()
+    }
+
+    private fun ProjectRankingEntry.toRankingItem(
+        source: RankingSource,
+        movement: RankingMovement?,
     ): RankingItem {
-        val project = projectCatalog?.projectsById?.get(id)
-        val detailProject = projectCatalog?.detailsByProjectId?.get(id)?.project
+        val projectCatalog = source.projectCatalog
+        val projectId = project.id
+        val projectName = project.name
+        val catalogProject = projectCatalog?.projectsById?.get(projectId)
+        val detailProject = projectCatalog?.detailsByProjectId?.get(projectId)?.project
         val description = detailProject?.shortDescription
             ?: detailProject?.description
-            ?: project?.shortDescription
-            ?: project?.description
-        val tagIds = detailProject?.tags ?: project?.tags.orEmpty()
-        val isCurrentProject = currentProject != null && (
-            currentProject.id == id ||
-                normalizedEquals(currentProject.name, name)
+            ?: catalogProject?.shortDescription
+            ?: catalogProject?.description
+            ?: detail?.description
+
+        val tagIds = detailProject?.tags ?: catalogProject?.tags.orEmpty()
+        val isCurrentProject = source.currentProject != null && (
+            source.currentProject.id == projectId || normalizedEquals(source.currentProject.name, projectName)
             )
 
         return RankingItem(
-            key = id,
-            title = name,
+            key = projectId,
+            title = projectName,
             score = score,
             scoreText = formatScore(score),
             description = description?.trim()?.takeIf { it.isNotBlank() },
             tags = tagIds
                 .mapNotNull { tagId -> projectCatalog?.tagsById?.get(tagId)?.name }
                 .distinct(),
-            markerLabel = if (isCurrentProject) "Текущий" else null
+            markerLabel = if (isCurrentProject) "Текущий" else null,
+            previousPosition = movement?.previousPosition,
+            positionDelta = movement?.positionDelta,
+            historyAvailable = movement != null,
         )
     }
 
-    private fun MetricRankingItem.toStudentRankingItem(
-        studentProjectNames: Map<String, String>,
-        currentUserName: String?,
-        currentProjectName: String?
+    private fun StudentRankingEntry.toRankingItem(
+        source: RankingSource,
+        movement: RankingMovement?,
     ): RankingItem {
-        val normalizedName = normalizeName(name)
-        val isCurrentUser = currentUserName != null &&
-            normalizedName.isNotBlank() &&
-            normalizedName == normalizeName(currentUserName)
+        val title = source.studentDisplayNames[key]
+            ?: displayPersonName(title).takeIf { it.isNotBlank() }
+            ?: title
 
         return RankingItem(
-            key = id,
-            title = name,
+            key = key,
+            title = title,
             score = score,
             scoreText = formatScore(score),
-            projectName = if (isCurrentUser) {
-                currentProjectName ?: studentProjectNames[normalizedName]
-            } else {
-                studentProjectNames[normalizedName]
-            },
-            markerLabel = if (isCurrentUser) "Вы" else null
+            projectName = projectName,
+            markerLabel = markerLabel,
+            previousPosition = movement?.previousPosition,
+            positionDelta = movement?.positionDelta,
+            historyAvailable = movement != null,
         )
     }
 
-    private suspend fun loadProjectWeeklyMovement(
-        projectRatings: List<MetricRankingItem>
-    ): Map<String, ProjectRankingMovement> = coroutineScope {
-        if (projectRatings.isEmpty()) {
-            return@coroutineScope emptyMap()
+    private fun fallbackProjectScore(
+        project: MetricProjectInList,
+        filters: RankingFilters,
+    ): Double? {
+        val enabledKeys = filters.activeMetricKeys()
+        return if (enabledKeys.isEmpty() || enabledKeys == listOf(RankingMetricKey.PerformanceGrade)) {
+            project.grade.toScoreOrNull()
+        } else {
+            null
         }
-
-        val details = projectRatings.map { item ->
-            async {
-                api.getProjectDetail(item.id).getOrNull()
-            }
-        }.awaitAll()
-
-        ProjectRankingHistoryHack.buildWeeklyMovement(
-            currentRatings = projectRatings,
-            details = details
-        )
     }
 
     private fun formatScore(value: Double?): String {
-        if (value == null) return "N/A"
+        if (value == null) return "—"
         val rounded = (value * 100).roundToInt()
         val intPart = rounded / 100
         val fracPart = abs(rounded % 100)
@@ -378,11 +609,7 @@ class RankingRepository(
     }
 
     private fun normalizeName(value: String?): String {
-        return value
-            ?.trim()
-            ?.lowercase()
-            ?.replace(Regex("\\s+"), " ")
-            .orEmpty()
+        return normalizeComparableText(value)
     }
 
     private fun normalizedEquals(first: String?, second: String?): Boolean {
@@ -390,12 +617,114 @@ class RankingRepository(
         val right = normalizeName(second)
         return left.isNotBlank() && left == right
     }
+
+    private fun MutableMap<String, String>.registerStudentProject(
+        studentName: String?,
+        projectName: String,
+    ) {
+        val key = personNameKey(studentName)
+        if (key.isBlank()) return
+        if (!containsKey(key)) {
+            put(key, projectName.trim())
+        }
+    }
+
+    private fun MutableMap<String, String>.registerStudentDisplayName(
+        studentName: String?,
+    ) {
+        val key = personNameKey(studentName)
+        if (key.isBlank()) return
+
+        val preferredName = preferDisplayPersonName(this[key], studentName)
+            ?.takeIf { it.isNotBlank() }
+            ?: return
+
+        this[key] = preferredName
+    }
+
+    private fun String?.toScoreOrNull(): Double? {
+        val value = this?.trim()
+        if (value.isNullOrEmpty()) return null
+        if (value.equals("N/A", ignoreCase = true)) return null
+        return value.toDoubleOrNull()
+    }
+
+    private companion object {
+        const val WEEK_MILLIS = 7L * 24L * 60L * 60L * 1000L
+    }
 }
 
 private data class ProjectCatalog(
     val projects: List<Project>,
     val tagsById: Map<Int, Tag>,
-    val detailsByProjectId: Map<String, ProjectDetailResponse?>
+    val detailsByProjectId: Map<String, ProjectDetailResponse?>,
 ) {
     val projectsById: Map<String, Project> = projects.associateBy { it.id }
+}
+
+private data class RankingSource(
+    val projectCatalog: ProjectCatalog?,
+    val metricProjects: List<MetricProjectInList>,
+    val metricDetailsById: Map<String, MetricProjectDetail>,
+    val currentProject: Project?,
+    val currentUserName: String?,
+    val currentProjectName: String?,
+    val studentProjectNames: Map<String, String>,
+    val studentDisplayNames: Map<String, String>,
+)
+
+private data class ProjectRankingEntry(
+    val project: MetricProjectInList,
+    val detail: MetricProjectDetail?,
+    val score: Double?,
+)
+
+private data class StudentRankingEntry(
+    val key: String,
+    val title: String,
+    val projectName: String?,
+    val score: Double?,
+    val markerLabel: String?,
+)
+
+private data class StudentAggregation(
+    val identityKey: String,
+    var displayName: String? = null,
+    val projectNames: MutableSet<String> = linkedSetOf(),
+    val scores: MutableList<Double> = mutableListOf(),
+)
+
+private data class ScoreRecord(
+    val key: String,
+    val title: String,
+    val score: Double?,
+)
+
+private data class RankingMovement(
+    val previousPosition: Int,
+    val positionDelta: Int,
+)
+
+private fun List<ProjectRankingEntry>.sortedProjectEntries(): List<ProjectRankingEntry> {
+    return sortedWith(
+        compareBy<ProjectRankingEntry> { it.score == null }
+            .thenByDescending { it.score ?: Double.NEGATIVE_INFINITY }
+            .thenBy { it.project.name.lowercase() }
+    )
+}
+
+private fun List<StudentRankingEntry>.sortedStudentEntries(): List<StudentRankingEntry> {
+    return sortedWith(
+        compareBy<StudentRankingEntry> { it.score == null }
+            .thenByDescending { it.score ?: Double.NEGATIVE_INFINITY }
+            .thenBy { it.title.lowercase() }
+    )
+}
+
+private fun List<ScoreRecord>.sortedScoreRecords(): List<ScoreRecord> {
+    return sortedWith(
+        compareBy<ScoreRecord> { it.score == null }
+            .thenByDescending { it.score ?: Double.NEGATIVE_INFINITY }
+            .thenBy { it.title.lowercase() }
+    )
 }

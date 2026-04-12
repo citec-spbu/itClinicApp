@@ -96,8 +96,7 @@ fun FiltersAlert(
                     ) {
                         Text(
                             text = "Фильтры",
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.Bold,
+                            fontFamily = AppFonts.OpenSansBold,
                             fontSize = 24.sp,
                             color = AppColors.Color2,
                             modifier = Modifier.align(Alignment.Center)
@@ -157,8 +156,7 @@ fun FiltersAlert(
                     ) {
                         Text(
                             text = "Очистить все",
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 10.sp,
                             color = AppColors.White
                         )
@@ -186,8 +184,7 @@ private fun TagFiltersSection(
         ) {
             Text(
                 text = "Теги",
-                fontFamily = AppFonts.OpenSans,
-                fontWeight = FontWeight.SemiBold,
+                fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 15.sp,
                 color = AppColors.Black
             )
@@ -244,8 +241,7 @@ private fun TagFiltersSection(
                     } else {
                         "${selectedTags.size} выбрано"
                     },
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Normal,
+                    fontFamily = AppFonts.OpenSansRegular,
                     fontSize = 15.sp,
                     color = if (selectedTags.isEmpty()) AppColors.Color1 else AppColors.Color2
                 )
@@ -302,8 +298,7 @@ private fun TagFiltersSection(
                                 
                                 Text(
                                     text = tag.name,
-                                    fontFamily = AppFonts.OpenSans,
-                                    fontWeight = FontWeight.Normal,
+                                    fontFamily = AppFonts.OpenSansRegular,
                                     fontSize = 15.sp,
                                     color = AppColors.Color1
                                 )
@@ -364,8 +359,7 @@ private fun DateInputField(
     Column {
         Text(
             text = label,
-            fontFamily = AppFonts.OpenSans,
-            fontWeight = FontWeight.SemiBold,
+            fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 15.sp,
             color = AppColors.Black
         )
@@ -400,8 +394,7 @@ private fun DateInputField(
                     } else {
                         "00.00.0000 по 31.12.3000"
                     },
-                    fontFamily = AppFonts.OpenSans,
-                    fontWeight = FontWeight.Medium,
+                    fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 12.sp,
                     color = if (startDate != null || endDate != null) AppColors.Color2 else AppColors.Color1
                 )

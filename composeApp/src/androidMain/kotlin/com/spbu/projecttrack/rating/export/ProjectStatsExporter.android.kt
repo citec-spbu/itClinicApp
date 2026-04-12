@@ -25,6 +25,20 @@ actual fun rememberProjectStatsExporter(): ProjectStatsExporter {
 private class AndroidProjectStatsExporter(
     private val context: Context
 ) : ProjectStatsExporter {
+    private enum class PdfTextStyle {
+        Title,
+        Heading,
+        Body,
+        Muted,
+    }
+
+    private data class PdfParagraph(
+        val text: String,
+        val style: PdfTextStyle,
+        val indent: Float = 0f,
+        val spacingAfter: Float = 0f,
+    )
+
     override suspend fun exportPdf(
         payload: ProjectStatsExportPayload
     ): Result<ProjectStatsExportResult> = runCatching {
@@ -59,18 +73,13 @@ private class AndroidProjectStatsExporter(
 
     private fun writePdf(file: File, payload: ProjectStatsExportPayload) {
         val document = PdfDocument()
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
-        val page = document.startPage(pageInfo)
-        val canvas = page.canvas
-        drawPdfContent(canvas, payload)
-        document.finishPage(page)
-        file.outputStream().use { output ->
-            document.writeTo(output)
-        }
-        document.close()
-    }
+        val pageWidth = 595
+        val pageHeight = 842
+        val leftMargin = 32f
+        val rightMargin = 32f
+        val topMargin = 40f
+        val bottomMargin = 40f
 
-    private fun drawPdfContent(canvas: Canvas, payload: ProjectStatsExportPayload) {
         val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = AndroidColor.rgb(159, 45, 32)
             textSize = 24f
@@ -82,96 +91,230 @@ private class AndroidProjectStatsExporter(
             isFakeBoldText = true
         }
         val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = AndroidColor.DKGRAY
+            color = AndroidColor.rgb(48, 48, 52)
             textSize = 11f
         }
-        val smallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = AndroidColor.GRAY
-            textSize = 9f
+        val mutedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.rgb(118, 118, 124)
+            textSize = 10f
         }
 
-        var y = 48f
-        canvas.drawText(payload.projectName, 32f, y, titlePaint)
-        y += 28f
+        val paragraphs = buildPdfParagraphs(payload)
 
-        listOfNotNull(
-            payload.description?.takeIf { it.isNotBlank() }?.let { "Описание: $it" },
-            payload.customerName?.takeIf { it.isNotBlank() }?.let { "Заказчик: $it" },
-            payload.repositoryUrl?.takeIf { it.isNotBlank() }?.let { "Репозиторий: $it" },
-            payload.periodLabel?.takeIf { it.isNotBlank() }?.let { "Период: $it" },
-            payload.generatedAtLabel?.takeIf { it.isNotBlank() }?.let { "Сформировано: $it" }
-        ).forEach { line ->
-            canvas.drawText(line, 32f, y, bodyPaint)
-            y += 18f
+        var pageNumber = 1
+        var page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create())
+        var canvas = page.canvas
+        var y = topMargin
+
+        fun paintFor(style: PdfTextStyle): Paint = when (style) {
+            PdfTextStyle.Title -> titlePaint
+            PdfTextStyle.Heading -> headingPaint
+            PdfTextStyle.Body -> bodyPaint
+            PdfTextStyle.Muted -> mutedPaint
         }
 
-        fun drawHeading(text: String) {
-            y += 10f
-            canvas.drawText(text, 32f, y, headingPaint)
-            y += 18f
+        fun lineHeightFor(style: PdfTextStyle): Float = when (style) {
+            PdfTextStyle.Title -> 30f
+            PdfTextStyle.Heading -> 22f
+            PdfTextStyle.Body -> 17f
+            PdfTextStyle.Muted -> 15f
+        }
+
+        fun startNewPage() {
+            document.finishPage(page)
+            pageNumber += 1
+            page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create())
+            canvas = page.canvas
+            y = topMargin
+        }
+
+        fun ensureSpace(requiredHeight: Float) {
+            if (y + requiredHeight > pageHeight - bottomMargin) {
+                startNewPage()
+            }
+        }
+
+        paragraphs.forEach { paragraph ->
+            val paint = paintFor(paragraph.style)
+            val lineHeight = lineHeightFor(paragraph.style)
+            val wrappedLines = wrapPdfText(
+                text = paragraph.text,
+                paint = paint,
+                maxWidth = pageWidth - leftMargin - rightMargin - paragraph.indent,
+            )
+
+            wrappedLines.forEach { line ->
+                ensureSpace(lineHeight)
+                canvas.drawText(line, leftMargin + paragraph.indent, y, paint)
+                y += lineHeight
+            }
+
+            y += paragraph.spacingAfter
+        }
+
+        document.finishPage(page)
+        file.outputStream().use { output ->
+            document.writeTo(output)
+        }
+        document.close()
+    }
+
+    private fun buildPdfParagraphs(payload: ProjectStatsExportPayload): List<PdfParagraph> {
+        val paragraphs = mutableListOf<PdfParagraph>()
+        paragraphs += PdfParagraph(payload.projectName, PdfTextStyle.Title, spacingAfter = 8f)
+
+        payload.periodLabel?.takeIf { it.isNotBlank() }?.let {
+            paragraphs += PdfParagraph("Период: $it", PdfTextStyle.Body)
+        }
+        payload.customerName?.takeIf { it.isNotBlank() }?.let {
+            paragraphs += PdfParagraph("Заказчик: $it", PdfTextStyle.Body)
+        }
+        payload.repositoryUrl?.takeIf { it.isNotBlank() }?.let {
+            paragraphs += PdfParagraph("Репозиторий: $it", PdfTextStyle.Body)
+        }
+        payload.description?.takeIf { it.isNotBlank() }?.let {
+            paragraphs += PdfParagraph("Описание: $it", PdfTextStyle.Muted, spacingAfter = 4f)
         }
 
         if (payload.summaryCards.isNotEmpty()) {
-            drawHeading("Ключевые показатели")
+            paragraphs += PdfParagraph("Сводка", PdfTextStyle.Heading, spacingAfter = 2f)
             payload.summaryCards.forEach { card ->
-                canvas.drawText("${card.title}: ${card.value}", 32f, y, bodyPaint)
-                card.subtitle?.takeIf { it.isNotBlank() }?.let {
-                    canvas.drawText(it, 300f, y, smallPaint)
+                val text = buildString {
+                    append(card.title)
+                    append(": ")
+                    append(card.value)
+                    card.subtitle?.takeIf { it.isNotBlank() }?.let {
+                        append(" — ")
+                        append(it)
+                    }
                 }
-                y += 16f
+                paragraphs += PdfParagraph(text, PdfTextStyle.Body, indent = 10f)
             }
         }
 
         if (payload.members.isNotEmpty()) {
-            drawHeading("Команда")
+            paragraphs += PdfParagraph("Команда", PdfTextStyle.Heading, spacingAfter = 2f)
             payload.members.forEach { member ->
-                val line = buildString {
+                val text = buildString {
                     append(member.name)
-                    member.role?.takeIf { it.isNotBlank() }?.let { append(" - ").append(it) }
-                    member.value?.takeIf { it.isNotBlank() }?.let { append(" - ").append(it) }
-                    member.marker?.takeIf { it.isNotBlank() }?.let { append(" - ").append(it) }
+                    member.role?.takeIf { it.isNotBlank() }?.let { append(" — ").append(it) }
+                    member.value?.takeIf { it.isNotBlank() }?.let { append(" — ").append(it) }
+                    member.marker?.takeIf { it.isNotBlank() }?.let { append(" — ").append(it) }
                 }
-                canvas.drawText(line, 32f, y, bodyPaint)
-                y += 16f
+                paragraphs += PdfParagraph(text, PdfTextStyle.Body, indent = 10f)
             }
         }
 
         payload.sections.forEach { section ->
-            drawHeading(section.title)
+            paragraphs += PdfParagraph(section.title, PdfTextStyle.Heading, spacingAfter = 2f)
             section.subtitle?.takeIf { it.isNotBlank() }?.let {
-                canvas.drawText(it, 32f, y, smallPaint)
-                y += 14f
+                paragraphs += PdfParagraph(it, PdfTextStyle.Muted)
             }
             section.rows.forEach { row ->
-                canvas.drawText("${row.label}: ${row.value}", 32f, y, bodyPaint)
-                row.note?.takeIf { it.isNotBlank() }?.let { note ->
-                    canvas.drawText(note, 300f, y, smallPaint)
+                val text = buildString {
+                    append(row.label)
+                    append(": ")
+                    append(row.value)
+                    row.note?.takeIf { it.isNotBlank() }?.let {
+                        append(" — ")
+                        append(it)
+                    }
                 }
-                y += 15f
+                paragraphs += PdfParagraph(text, PdfTextStyle.Body, indent = 10f)
             }
-            section.chart?.let { chart ->
-                canvas.drawText("График: ${chart.title}", 32f, y, smallPaint)
-                y += 14f
-                when (chart) {
-                    is ProjectStatsChart.Bar -> chart.points.forEach { point ->
-                        canvas.drawText("${point.label}: ${point.value}", 40f, y, bodyPaint)
-                        y += 14f
-                    }
-                    is ProjectStatsChart.Line -> chart.points.forEach { point ->
-                        canvas.drawText("${point.label}: ${point.value}", 40f, y, bodyPaint)
-                        y += 14f
-                    }
-                    is ProjectStatsChart.Donut -> chart.segments.forEach { segment ->
-                        canvas.drawText("${segment.label}: ${segment.value}", 40f, y, bodyPaint)
-                        y += 14f
+            when (val chart = section.chart) {
+                is ProjectStatsChart.Bar -> {
+                    paragraphs += PdfParagraph("График: ${chart.title}", PdfTextStyle.Muted)
+                    chart.points.forEach { point ->
+                        paragraphs += PdfParagraph(
+                            text = buildString {
+                                append(point.label)
+                                append(": ")
+                                append(point.value)
+                                point.note?.takeIf { it.isNotBlank() }?.let {
+                                    append(" — ")
+                                    append(it)
+                                }
+                            },
+                            style = PdfTextStyle.Body,
+                            indent = 18f,
+                        )
                     }
                 }
+                is ProjectStatsChart.Line -> {
+                    paragraphs += PdfParagraph("График: ${chart.title}", PdfTextStyle.Muted)
+                    chart.points.forEach { point ->
+                        paragraphs += PdfParagraph(
+                            text = buildString {
+                                append(point.label)
+                                append(": ")
+                                append(point.value)
+                                point.note?.takeIf { it.isNotBlank() }?.let {
+                                    append(" — ")
+                                    append(it)
+                                }
+                            },
+                            style = PdfTextStyle.Body,
+                            indent = 18f,
+                        )
+                    }
+                }
+                is ProjectStatsChart.Donut -> {
+                    paragraphs += PdfParagraph("График: ${chart.title}", PdfTextStyle.Muted)
+                    chart.segments.forEach { segment ->
+                        paragraphs += PdfParagraph(
+                            text = buildString {
+                                append(segment.label)
+                                append(": ")
+                                append(segment.value)
+                                segment.colorHint?.takeIf { it.isNotBlank() }?.let {
+                                    append(" — ")
+                                    append(it)
+                                }
+                            },
+                            style = PdfTextStyle.Body,
+                            indent = 18f,
+                        )
+                    }
+                }
+                null -> Unit
             }
             section.notes.forEach { note ->
-                canvas.drawText(note, 32f, y, smallPaint)
-                y += 14f
+                paragraphs += PdfParagraph(note, PdfTextStyle.Muted, indent = 10f)
             }
         }
+
+        return paragraphs
+    }
+
+    private fun wrapPdfText(
+        text: String,
+        paint: Paint,
+        maxWidth: Float,
+    ): List<String> {
+        if (text.isBlank()) return listOf("")
+
+        val lines = mutableListOf<String>()
+        val words = text.split(Regex("\\s+"))
+        var currentLine = ""
+
+        words.forEach { word ->
+            val candidate = if (currentLine.isBlank()) word else "$currentLine $word"
+            if (paint.measureText(candidate) <= maxWidth) {
+                currentLine = candidate
+            } else {
+                if (currentLine.isNotBlank()) {
+                    lines += currentLine
+                }
+                currentLine = word
+            }
+        }
+
+        if (currentLine.isNotBlank()) {
+            lines += currentLine
+        }
+
+        return lines.ifEmpty { listOf(text) }
     }
 
     private fun tryShare(file: File, mimeType: String) {

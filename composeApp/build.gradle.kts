@@ -9,6 +9,15 @@ plugins {
     alias(libs.plugins.kotlinx.serialization)
 }
 
+val resolvedAndroidVersionCode = providers.gradleProperty("androidVersionCode")
+    .orNull
+    ?.toIntOrNull()
+    ?: 1
+
+val resolvedAndroidVersionName = providers.gradleProperty("androidVersionName")
+    .orNull
+    ?: "1.0"
+
 kotlin {
     androidTarget {
         compilerOptions {
@@ -31,8 +40,8 @@ kotlin {
             languageSettings.optIn("kotlin.time.ExperimentalTime")
         }
         androidMain.dependencies {
-            implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
+            implementation(libs.androidx.core.splashscreen)
             implementation(libs.ktor.client.okhttp)
         }
         commonMain.dependencies {
@@ -42,7 +51,7 @@ kotlin {
             implementation(compose.materialIconsExtended)
             implementation(compose.ui)
             implementation(compose.components.resources)
-            implementation(compose.components.uiToolingPreview)
+            implementation(libs.compose.ui.backhandler)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.ktor.client.core)
@@ -70,8 +79,8 @@ android {
         applicationId = "com.spbu.projecttrack"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = resolvedAndroidVersionCode
+        versionName = resolvedAndroidVersionName
     }
     packaging {
         resources {
@@ -87,8 +96,4 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-}
-
-dependencies {
-    debugImplementation(compose.uiTooling)
 }

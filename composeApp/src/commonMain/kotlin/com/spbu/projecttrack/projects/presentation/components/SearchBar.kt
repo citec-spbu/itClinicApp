@@ -78,7 +78,7 @@ fun SearchBar(
                     },
                 singleLine = true, // Одна строка
                 textStyle = androidx.compose.ui.text.TextStyle(
-                    fontFamily = AppFonts.OpenSans,
+                    fontFamily = AppFonts.OpenSansRegular,
                     fontWeight = if (searchText.isEmpty()) FontWeight.SemiBold else FontWeight.Normal,
                     fontSize = 16.sp,
                     color = if (searchText.isEmpty()) AppColors.Color1 else AppColors.Color2
@@ -96,8 +96,7 @@ fun SearchBar(
                     if (searchText.isEmpty()) {
                         Text(
                             text = "Поиск",
-                            fontFamily = AppFonts.OpenSans,
-                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 16.sp,
                             color = AppColors.Color1
                         )

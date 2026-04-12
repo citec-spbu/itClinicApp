@@ -16,5 +16,7 @@ data class RankingItem(
 
 data class RankingData(
     val projects: List<RankingItem>,
-    val students: List<RankingItem>
+    val students: List<RankingItem>,
+    val currentUserName: String? = null,
+    val currentUserProjectName: String? = null,
 )

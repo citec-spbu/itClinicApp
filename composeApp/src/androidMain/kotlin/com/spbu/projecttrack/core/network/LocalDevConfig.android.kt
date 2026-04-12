@@ -1,5 +1,6 @@
 package com.spbu.projecttrack.core.network
 
+import com.spbu.projecttrack.BuildConfig
 import java.net.NetworkInterface
 import java.net.Inet4Address
 
@@ -9,6 +10,9 @@ import java.net.Inet4Address
  * Автоматически определяет IP адрес компьютера в локальной сети
  */
 object LocalDevConfig {
+    private val configuredHostIp: String?
+        get() = BuildConfig.LOCAL_HOST_IP.takeIf { it.isNotBlank() }
+
     /**
      * Получить IP адрес устройства в локальной сети
      */
@@ -87,6 +91,11 @@ object LocalDevConfig {
      */
     fun getHostIP(): String {
         return try {
+            configuredHostIp?.let { configured ->
+                println("✅ Используется LOCAL_HOST_IP из BuildConfig: $configured")
+                return configured
+            }
+
             val deviceIP = getDeviceIP()
             
             if (deviceIP != null) {
@@ -156,4 +165,3 @@ object LocalDevConfig {
         }
     }
 }
-

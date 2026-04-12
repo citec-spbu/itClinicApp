@@ -10,8 +10,10 @@ import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailViewModel
 import com.spbu.projecttrack.rating.data.api.MetricApi
 import com.spbu.projecttrack.rating.data.repository.ProjectStatsRepository
 import com.spbu.projecttrack.rating.data.repository.RankingRepository
+import com.spbu.projecttrack.rating.data.repository.UserStatsRepository
 import com.spbu.projecttrack.rating.presentation.RankingViewModel
 import com.spbu.projecttrack.rating.presentation.projectstats.ProjectStatsViewModel
+import com.spbu.projecttrack.rating.presentation.userstats.UserStatsViewModel
 
 object DependencyContainer {
     
@@ -35,6 +37,12 @@ object DependencyContainer {
             metricApi = metricApi,
             projectsApi = projectsApi,
             userProfileApi = userProfileApi
+        )
+    }
+    private val userStatsRepository by lazy {
+        UserStatsRepository(
+            metricApi = metricApi,
+            projectsApi = projectsApi
         )
     }
     
@@ -62,6 +70,19 @@ object DependencyContainer {
         return ProjectStatsViewModel(
             repository = projectStatsRepository,
             projectId = projectId
+        )
+    }
+
+    fun provideUserStatsViewModel(
+        userId: String,
+        userName: String,
+        preferredProjectName: String?,
+    ): UserStatsViewModel {
+        return UserStatsViewModel(
+            repository = userStatsRepository,
+            userId = userId,
+            userName = userName,
+            preferredProjectName = preferredProjectName
         )
     }
 }

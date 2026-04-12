@@ -258,6 +258,11 @@ node generate-test-token.js
 - **iOS не запускается**: проверьте, что установлен Xcode и выбрана актуальная версия симулятора.
 - **Не видно изменений в UI**: убедитесь, что перезапущена сборка/приложение (иногда помогает invalidate caches в IDE).
 
+## GitHub Actions CI/CD
+
+- Подробная документация вынесена в [docs/Development/GITHUB_CICD.md](docs/Development/GITHUB_CICD.md).
+- Там описаны workflow, CI-safe stub config, Android/iOS validation, APK artifacts, GitHub update releases, Android in-app updates и GHCR publishing.
+
 # itClinicApp (EN)
 
 ## Table of Contents
@@ -511,3 +516,8 @@ It is easier to run via Android Studio (Run configuration).
 - **Gradle does not build / strange dependencies**: try `./gradlew clean` and rebuild.
 - **iOS does not start**: check that Xcode is installed and the correct simulator version is selected.
 - **UI changes not visible**: make sure to restart the build/app (sometimes invalidate caches in IDE helps).
+
+## GitHub Actions CI/CD
+
+- Detailed documentation is available in [docs/Development/GITHUB_CICD.md](docs/Development/GITHUB_CICD.md).
+- It covers the workflow, CI-safe stub config, Android/iOS validation, APK artifacts, GitHub update releases, Android in-app updates, and GHCR publishing.

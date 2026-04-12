@@ -20,7 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.spbu.projecttrack.core.auth.AuthManager
+import com.spbu.projecttrack.core.settings.LocalAppStrings
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.*
@@ -40,6 +40,7 @@ fun OnboardingScreen(
     onContinueWithoutAuth: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalAppStrings.current
     // Загрузка шрифтов
     val philosopherBold = FontFamily(Font(Res.font.philosopher_bold, FontWeight.Bold))
     val openSansBold = FontFamily(Font(Res.font.opensans_bold, FontWeight.Bold))
@@ -91,9 +92,6 @@ fun OnboardingScreen(
             // Кнопка авторизации через GitHub - по центру экрана
             Button(
                 onClick = {
-                    // TODO: Заменить на реальную авторизацию через GitHub
-                    // Пока используем тестовый токен для локального бэкенда
-                    AuthManager.setTestToken()
                     onGitHubAuth()
                 },
                 modifier = Modifier
@@ -132,7 +130,7 @@ fun OnboardingScreen(
                     
                     // Текст кнопки
                     Text(
-                        text = "Login With GitHub",
+                        text = strings.loginWithGithub,
                         fontFamily = openSansBold,
                         fontSize = 20.sp,
                         color = ButtonTextColor
@@ -144,7 +142,7 @@ fun OnboardingScreen(
             
             // Кликабельный текст "Продолжить без авторизации"
             Text(
-                text = getLocalizedContinueText(),
+                text = strings.continueWithoutAuth,
                 fontFamily = openSansBold,
                 fontSize = 14.sp,
                 color = ContinueTextColor,

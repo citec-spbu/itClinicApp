@@ -102,21 +102,26 @@ internal fun sanitizeProjectStatsFileName(value: String): String {
 internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): List<String> {
     val lines = mutableListOf<String>()
     lines += payload.projectName
-    payload.description?.takeIf { it.isNotBlank() }?.let { lines += "Описание: $it" }
+    payload.periodLabel?.takeIf { it.isNotBlank() }?.let { lines += "Период: $it" }
     payload.customerName?.takeIf { it.isNotBlank() }?.let { lines += "Заказчик: $it" }
     payload.repositoryUrl?.takeIf { it.isNotBlank() }?.let { lines += "Репозиторий: $it" }
-    payload.periodLabel?.takeIf { it.isNotBlank() }?.let { lines += "Период: $it" }
+    payload.description?.takeIf { it.isNotBlank() }?.let { lines += "Описание: $it" }
     payload.generatedAtLabel?.takeIf { it.isNotBlank() }?.let { lines += "Сформировано: $it" }
 
     if (payload.summaryCards.isNotEmpty()) {
         lines += ""
-        lines += "Ключевые показатели"
+        lines += "Сводка"
         payload.summaryCards.forEach { card ->
             val subtitle = card.subtitle?.takeIf { it.isNotBlank() }
-            lines += if (subtitle == null) {
-                "${card.title}: ${card.value}"
-            } else {
-                "${card.title}: ${card.value} ($subtitle)"
+            lines += buildString {
+                append("• ")
+                append(card.title)
+                append(": ")
+                append(card.value)
+                subtitle?.let {
+                    append(" — ")
+                    append(it)
+                }
             }
         }
     }
@@ -131,33 +136,69 @@ internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): L
                 member.value?.takeIf { it.isNotBlank() }?.let { add(it) }
                 member.marker?.takeIf { it.isNotBlank() }?.let { add(it) }
             }
-            lines += parts.joinToString(" - ")
+            lines += "• " + parts.joinToString(" — ")
         }
     }
 
     payload.sections.forEach { section ->
         lines += ""
         lines += section.title
-        section.subtitle?.takeIf { it.isNotBlank() }?.let { lines += it }
+        section.subtitle?.takeIf { it.isNotBlank() }?.let { lines += "  $it" }
         section.rows.forEach { row ->
-            lines += "${row.label}: ${row.value}" + row.note?.let { " ($it)" }.orEmpty()
+            lines += buildString {
+                append("• ")
+                append(row.label)
+                append(": ")
+                append(row.value)
+                row.note?.takeIf { it.isNotBlank() }?.let {
+                    append(" — ")
+                    append(it)
+                }
+            }
         }
         section.chart?.let { chart ->
             lines += "График: ${chart.title}"
             when (chart) {
                 is ProjectStatsChart.Bar -> chart.points.forEach { point ->
-                    lines += "${point.label}: ${point.value}"
+                    lines += buildString {
+                        append("  • ")
+                        append(point.label)
+                        append(": ")
+                        append(point.value)
+                        point.note?.takeIf { it.isNotBlank() }?.let {
+                            append(" — ")
+                            append(it)
+                        }
+                    }
                 }
                 is ProjectStatsChart.Line -> chart.points.forEach { point ->
-                    lines += "${point.label}: ${point.value}"
+                    lines += buildString {
+                        append("  • ")
+                        append(point.label)
+                        append(": ")
+                        append(point.value)
+                        point.note?.takeIf { it.isNotBlank() }?.let {
+                            append(" — ")
+                            append(it)
+                        }
+                    }
                 }
                 is ProjectStatsChart.Donut -> chart.segments.forEach { segment ->
-                    lines += "${segment.label}: ${segment.value}"
+                    lines += buildString {
+                        append("  • ")
+                        append(segment.label)
+                        append(": ")
+                        append(segment.value)
+                        segment.colorHint?.takeIf { it.isNotBlank() }?.let {
+                            append(" — ")
+                            append(it)
+                        }
+                    }
                 }
             }
         }
         section.notes.forEach { note ->
-            lines += note
+            lines += "• $note"
         }
     }
 
@@ -166,35 +207,33 @@ internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): L
 
 internal fun buildProjectStatsCsv(payload: ProjectStatsExportPayload): String {
     val rows = mutableListOf(
-        listOf("section", "title", "label", "value", "note")
+        listOf("Группа", "Блок", "Метрика", "Значение", "Комментарий")
     )
 
-    fun addRow(section: String, title: String, label: String, value: String, note: String? = null) {
-        rows += listOf(section, title, label, value, note.orEmpty())
+    fun addRow(group: String, block: String, metric: String, value: String, note: String? = null) {
+        rows += listOf(group, block, metric, value, note.orEmpty())
     }
 
-    addRow(
-        section = "meta",
-        title = "project",
-        label = "projectId",
-        value = payload.projectId
-    )
-    addRow("meta", "project", "projectName", payload.projectName)
-    addRow("meta", "project", "description", payload.description.orEmpty())
-    addRow("meta", "project", "customerName", payload.customerName.orEmpty())
-    addRow("meta", "project", "repositoryUrl", payload.repositoryUrl.orEmpty())
-    addRow("meta", "project", "periodLabel", payload.periodLabel.orEmpty())
-    addRow("meta", "project", "generatedAtLabel", payload.generatedAtLabel.orEmpty())
+    addRow("Контекст", "Проект", "Название", payload.projectName)
+    payload.periodLabel?.takeIf { it.isNotBlank() }?.let {
+        addRow("Контекст", "Проект", "Период", it)
+    }
+    payload.customerName?.takeIf { it.isNotBlank() }?.let {
+        addRow("Контекст", "Проект", "Заказчик", it)
+    }
+    payload.repositoryUrl?.takeIf { it.isNotBlank() }?.let {
+        addRow("Контекст", "Проект", "Репозиторий", it)
+    }
 
     payload.summaryCards.forEach { card ->
-        addRow("summary", card.title, card.title, card.value, card.subtitle)
+        addRow("Сводка", "Ключевые показатели", card.title, card.value, card.subtitle)
     }
 
     payload.members.forEach { member ->
         addRow(
-            section = "members",
-            title = member.name,
-            label = member.role.orEmpty(),
+            group = "Команда",
+            block = member.role.orEmpty().ifBlank { "Участник" },
+            metric = member.name,
             value = member.value.orEmpty(),
             note = member.marker
         )
@@ -202,27 +241,27 @@ internal fun buildProjectStatsCsv(payload: ProjectStatsExportPayload): String {
 
     payload.sections.forEach { section ->
         section.rows.forEach { row ->
-            addRow("section", section.title, row.label, row.value, row.note)
+            addRow(section.title, "Показатели", row.label, row.value, row.note)
         }
         when (val chart = section.chart) {
             is ProjectStatsChart.Bar -> chart.points.forEach { point ->
-                addRow("chart_bar", chart.title, point.label, point.value.toString(), point.note)
+                addRow(section.title, chart.title, point.label, point.value.toString(), point.note)
             }
             is ProjectStatsChart.Line -> chart.points.forEach { point ->
-                addRow("chart_line", chart.title, point.label, point.value.toString(), point.note)
+                addRow(section.title, chart.title, point.label, point.value.toString(), point.note)
             }
             is ProjectStatsChart.Donut -> chart.segments.forEach { segment ->
-                addRow("chart_donut", chart.title, segment.label, segment.value.toString(), segment.colorHint)
+                addRow(section.title, chart.title, segment.label, segment.value.toString(), segment.colorHint)
             }
             null -> Unit
         }
         section.notes.forEach { note ->
-            addRow("note", section.title, "", note, null)
+            addRow(section.title, "Примечания", "Комментарий", note, null)
         }
     }
 
     return rows.joinToString(separator = "\n") { row ->
-        row.joinToString(",") { cell -> csvCell(cell) }
+        row.joinToString(";") { cell -> csvCell(cell) }
     }
 }
 
