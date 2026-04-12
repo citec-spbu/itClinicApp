@@ -1,18 +1,13 @@
 name: Mobile App CI/CD
 
 on:
+  pull_request:
   push:
     branches:
       - "**"
     tags:
       - "v*"
-  pull_request:
   workflow_dispatch:
-    inputs:
-      rollback_tag:
-        description: "Existing image tag to promote back to latest"
-        required: false
-        type: string
 
 concurrency:
   group: mobile-app-${{ github.workflow }}-${{ github.ref }}
@@ -21,33 +16,25 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  JAVA_VERSION: "17"
+
 jobs:
-  lint_android:
-    name: Android Lint
+  android_ci:
+    name: Android CI
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref_name == github.event.repository.default_branch || github.ref_name == 'develop'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare app config templates
-        shell: bash
-        run: |
-          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.example.kt \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
-          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.example.kt \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
-
-          perl -0pi -e 's/object BuildConfigExample/object BuildConfig/' \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
-          perl -0pi -e 's/object MailConfigExample/object MailConfig/' \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: ${{ env.JAVA_VERSION }}
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -55,93 +42,64 @@ jobs:
       - name: Grant execute permission for Gradle wrapper
         run: chmod +x ./gradlew
 
+      - name: Prepare CI stubs
+        run: bash scripts/prepare_ci_stubs.sh
+
       - name: Run Android lint
         run: ./gradlew :composeApp:lintDebug --stacktrace
+
+      - name: Run Android unit tests
+        run: ./gradlew :composeApp:testDebugUnitTest --stacktrace
+
+      - name: Build and stage APK artifact
+        run: bash scripts/prepare_mobile_showcase.sh
 
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-lint-report
+          if-no-files-found: warn
+          retention-days: 14
           path: |
             composeApp/build/reports/lint-results-debug.html
             composeApp/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
-
-  unit_tests_android:
-    name: Android Unit Tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare app config templates
-        shell: bash
-        run: |
-          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.example.kt \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
-          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.example.kt \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
-
-          perl -0pi -e 's/object BuildConfigExample/object BuildConfig/' \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
-          perl -0pi -e 's/object MailConfigExample/object MailConfig/' \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Grant execute permission for Gradle wrapper
-        run: chmod +x ./gradlew
-
-      - name: Run Android unit tests
-        run: ./gradlew :composeApp:testDebugUnitTest --stacktrace
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-unit-test-report
+          if-no-files-found: warn
+          retention-days: 14
           path: |
             composeApp/build/reports/tests/testDebugUnitTest/
             composeApp/build/test-results/testDebugUnitTest/
 
-  build_android_apk:
-    name: Build Android APK
-    runs-on: ubuntu-latest
-    needs:
-      - lint_android
-      - unit_tests_android
-    if: github.event_name == 'push' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/'))
+      - name: Upload APK artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          if-no-files-found: warn
+          retention-days: 14
+          path: release-artifacts/itclinicapp-debug.apk
+
+  ios_kotlin_validation:
+    name: iOS Kotlin Validation
+    runs-on: macos-latest
+    timeout-minutes: 30
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref_name == github.event.repository.default_branch || github.ref_name == 'develop' || startsWith(github.ref, 'refs/tags/')))
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare app config templates
-        shell: bash
-        run: |
-          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.example.kt \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
-          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.example.kt \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
-
-          perl -0pi -e 's/object BuildConfigExample/object BuildConfig/' \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
-          perl -0pi -e 's/object MailConfigExample/object MailConfig/' \
-            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: ${{ env.JAVA_VERSION }}
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -149,21 +107,19 @@ jobs:
       - name: Grant execute permission for Gradle wrapper
         run: chmod +x ./gradlew
 
-      - name: Build and stage APK artifact
-        run: bash scripts/prepare_mobile_showcase.sh
+      - name: Prepare CI stubs
+        run: bash scripts/prepare_ci_stubs.sh
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-debug-apk
-          path: release-artifacts/itclinicapp-debug.apk
+      - name: Compile iOS Kotlin target
+        run: ./gradlew :composeApp:compileKotlinIosSimulatorArm64 --stacktrace
 
   publish_app_showcase:
     name: Publish App Showcase Image
     runs-on: ubuntu-latest
     needs:
-      - build_android_apk
+      - android_ci
     if: github.event_name == 'push' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/'))
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -229,31 +185,35 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
 
-  rollback_app_showcase:
-    name: Roll Back App Showcase Image
+  release_android_artifact:
+    name: Release Android Artifact
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_tag != ''
+    needs:
+      - android_ci
+      - ios_kotlin_validation
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    timeout-minutes: 15
     permissions:
-      contents: read
-      packages: write
+      contents: write
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          name: android-debug-apk
+          path: release-artifacts
 
-      - name: Promote selected tag to latest
-        shell: bash
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          OWNER_LC="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
-          IMAGE="ghcr.io/${OWNER_LC}/itclinicapp-showcase"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --generate-notes
 
-          docker buildx imagetools create \
-            --tag "${IMAGE}:latest" \
-            "${IMAGE}:${{ github.event.inputs.rollback_tag }}"
+      - name: Upload APK to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            release-artifacts/itclinicapp-debug.apk \
+            --clobber

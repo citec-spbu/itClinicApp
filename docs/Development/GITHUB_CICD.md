@@ -1,173 +1,191 @@
 # GitHub Actions CI/CD
 
-## Scope
+## Overview
 
-This workflow is configured only for the mobile application in this repository.
+This repository is treated as a frontend-only Kotlin Multiplatform project.
 
-- no backend is required
-- CI validates the Android/Compose application layer
-- CD publishes a Docker image that serves the generated Android APK and CI/CD documentation
+- The only Gradle module in the repository is `:composeApp`.
+- CI validates the Android application and the shared KMP code.
+- The repository does not require a backend checkout to run CI.
+- CI creates temporary stub config files so the project can compile without local secrets or backend-specific files.
 
-Primary workflow: `.github/workflows/mobile-app-ci-cd.yml`
+Primary workflow:
 
-For the local Docker stack with backend services, see:
+- `.github/workflows/mobile-app-ci-cd.yml`
 
-- `docs/Development/MOBILE_LOCAL_STACK.md`
+## CI/CD workflows in this repository
 
-## What the workflow does
+The repository currently uses one workflow:
 
-### CI
+- `Mobile App CI/CD`
 
-The workflow runs two jobs:
+The workflow contains four jobs:
 
-- `Android Lint`
-  - command: `./gradlew :composeApp:lintDebug --stacktrace`
-- `Android Unit Tests`
-  - command: `./gradlew :composeApp:testDebugUnitTest --stacktrace`
+- `Android CI`
+- `iOS Kotlin Validation`
+- `Publish App Showcase Image`
+- `Release Android Artifact`
 
-Before Gradle starts, the workflow generates temporary config files:
+## What runs on pull requests
 
-- `composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt`
-- `composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt`
+Pull requests run the `Android CI` job on `ubuntu-latest`.
 
-They are created from:
+That job performs:
 
-- `BuildConfig.example.kt`
-- `MailConfig.example.kt`
+- `./gradlew :composeApp:lintDebug --stacktrace`
+- `./gradlew :composeApp:testDebugUnitTest --stacktrace`
+- `./gradlew :composeApp:clean :composeApp:assembleDebug`
 
-This is required because real local config files are intentionally not committed to Git.
+It uploads:
 
-### CD
+- Android lint reports
+- Android unit test reports
+- the debug APK artifact
 
-On `push` to the default branch or on a git tag push, the workflow publishes a Docker image:
+## What runs on main/develop
+
+Pushes to the default branch keep running `Android CI`.
+
+Pushes to the default branch and `develop` also run:
+
+- `iOS Kotlin Validation`
+
+That job performs:
+
+- `./gradlew :composeApp:compileKotlinIosSimulatorArm64 --stacktrace`
+
+This keeps the KMP iOS target compiling without requiring release signing, Xcode project automation, or backend services.
+
+Pushes to the default branch also run:
+
+- `Publish App Showcase Image`
+
+That job publishes:
 
 - `ghcr.io/<owner>/itclinicapp-showcase`
 
 The image contains:
 
-- a landing page with download links
-- the generated Android debug APK
-- the `docs/` folder
+- a lightweight static landing page
+- the debug APK produced by CI
+- this CI/CD documentation
 
-The container runs on top of `nginx`.
-The publish job builds a multi-architecture image for:
+## What runs on tags/releases
 
-- `linux/amd64`
-- `linux/arm64`
+Version tags matching `v*` run:
 
-## Image tags
+- `Android CI`
+- `iOS Kotlin Validation`
+- `Publish App Showcase Image`
+- `Release Android Artifact`
 
-Each publish creates immutable tags:
+The release job creates or updates the GitHub Release for the tag and uploads:
 
-- short commit SHA
-- branch tag
-- git tag, when the publish is triggered by a release tag
+- `release-artifacts/itclinicapp-debug.apk`
 
-Additionally:
+This is a debug artifact, not a signed production binary.
 
-- `latest` is updated only for the default branch
+## Required GitHub Secrets / Variables
 
-The idea is simple: `latest` is just a pointer, not the only source of truth.
+No custom GitHub Secrets or Variables are required for the current workflow.
 
-## Rollback strategy
+The workflow only relies on the built-in:
 
-Rollback is performed without rebuilding the image.
+- `GITHUB_TOKEN`
 
-1. Open `Actions`
-2. Select the `Mobile App CI/CD` workflow
-3. Click `Run workflow`
-4. Provide `rollback_tag`
-5. Run the workflow manually
+`GITHUB_TOKEN` is used for:
 
-The rollback job promotes an existing image:
+- publishing the GHCR image
+- creating or updating GitHub Releases
+- uploading the APK release asset
 
-- from `ghcr.io/<owner>/itclinicapp-showcase:<rollback_tag>`
-- to `ghcr.io/<owner>/itclinicapp-showcase:latest`
+Optional manual GitHub setup outside the workflow:
 
-So rollback changes only the `latest` pointer.
+- make the GHCR package public if you want anonymous `docker pull`
 
-## Why `docker pull ghcr.io/...:latest` may return `unauthorized`
+## How to work with CI/CD as a developer
 
-There are usually two possible reasons:
+Use these commands locally to mirror the main CI stages:
 
-1. the image has not been published yet
-2. the GHCR package is private and the client is not authenticated
+```bash
+./gradlew :composeApp:lintDebug
+./gradlew :composeApp:testDebugUnitTest
+./gradlew :composeApp:clean :composeApp:assembleDebug
+./gradlew :composeApp:compileKotlinIosSimulatorArm64
+```
 
-### Scenario 1: the image was not published
+The workflow generates temporary CI stubs through:
 
-If `Android Lint`, `Android Unit Tests`, or `Build Android APK` fail, the publish job does not start.
+- `scripts/prepare_ci_stubs.sh`
 
-In that case:
+APK staging for CD is handled by:
 
-- `latest` is not created
-- `docker pull` cannot fetch the image
+- `scripts/prepare_mobile_showcase.sh`
 
-The first step is to get a green workflow run.
+## How to troubleshoot common failures
 
-### Scenario 2: the GHCR package is private
+### Missing `BuildConfig` or `MailConfig`
 
-By default, a package in GitHub Container Registry is often private.
+CI should not depend on local untracked config files.
 
-In that case, you need to log in before pulling:
+If compilation starts failing with unresolved references to `BuildConfig` or `MailConfig`, verify:
+
+- `scripts/prepare_ci_stubs.sh`
+- the `Prepare CI stubs` step in `.github/workflows/mobile-app-ci-cd.yml`
+
+### Duplicate dex classes during `assembleDebug`
+
+If Android packaging fails with duplicate dex entries such as `*.dex` and `* 2.dex`, the local build directory is stale.
+
+Use:
+
+```bash
+./gradlew :composeApp:clean :composeApp:assembleDebug
+```
+
+The CI artifact helper already does this clean build automatically.
+
+### GHCR `unauthorized`
+
+The most common reasons are:
+
+- the image has not been published yet
+- the GHCR package is private
+
+For private packages, log in before pulling:
 
 ```bash
 echo <PAT> | docker login ghcr.io -u <github_username> --password-stdin
 docker pull ghcr.io/<owner>/itclinicapp-showcase:latest
 ```
 
-The `PAT` must include:
+The personal access token needs:
 
 - `read:packages`
 
-If you want anonymous pulls without `docker login`:
+### GHCR `no matching manifest for linux/arm64/v8`
 
-1. open the package page in GitHub
-2. switch package visibility to `public`
-
-## Why `no matching manifest for linux/arm64/v8` may happen
-
-This means the image exists, but the published manifest does not include an ARM64 variant.
-
-This usually happens when the image was built only for:
+The workflow publishes both:
 
 - `linux/amd64`
+- `linux/arm64`
 
-On Apple Silicon, Docker tries to pull:
+If an old tag still fails on Apple Silicon, it was likely published before multi-arch support was added. Pull a newer tag instead.
 
-- `linux/arm64/v8`
+## Notes about frontend-only repository limitations
 
-If that platform is missing, pull fails with:
+- The workflow does not clone, build, or test any backend repository.
+- No backend containers are required for CI.
+- The APK produced by CI is built with CI-safe stub config, not developer secrets.
+- The release artifact is a debug APK and should be treated as a validation artifact, not a store-ready build.
+- The workflow validates the Kotlin iOS target compilation, but it does not produce signed iOS app bundles or TestFlight-ready artifacts.
 
-- `no matching manifest for linux/arm64/v8`
+## What still requires manual setup
 
-Temporary workaround:
+The following items remain manual by design:
 
-```bash
-docker pull --platform linux/amd64 ghcr.io/<owner>/itclinicapp-showcase:<tag>
-```
-
-Proper fix:
-
-- publish the image as multi-arch
-- include both `linux/amd64` and `linux/arm64`
-
-## What to verify after push
-
-1. The `Mobile App CI/CD` workflow appears in the `Actions` tab
-2. These jobs pass:
-   - `Android Lint`
-   - `Android Unit Tests`
-3. On the default branch or on a tag, these jobs also run:
-   - `Build Android APK`
-   - `Publish App Showcase Image`
-4. A package named `itclinicapp-showcase` appears in `Packages`
-5. The container root page exposes a direct APK download link
-
-## Short summary
-
-This repository uses an app-only GitHub Actions workflow.
-
-- CI runs `lintDebug` and `testDebugUnitTest`
-- CD publishes `ghcr.io/<owner>/itclinicapp-showcase` with a downloadable APK inside
-- rollback is performed by promoting an existing immutable tag back to `latest`
-- `unauthorized` on `docker pull` usually means either the image was never published or the GHCR package is private
+- Android release signing
+- Play Store publishing
+- iOS code signing and distribution
+- making the GHCR package public, if desired
+- replacing CI stub config with real runtime configuration for local developer environments

@@ -32,6 +32,8 @@ composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
 # Report files
 report/
 report/**/*
+release-artifacts/
+release-artifacts/**/*
 
 # Images/photos
 Фотки/
