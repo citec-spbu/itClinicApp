@@ -24,6 +24,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare app config templates
+        shell: bash
+        run: |
+          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.example.kt \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
+          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.example.kt \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
+
+          perl -0pi -e 's/object BuildConfigExample/object BuildConfig/' \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
+          perl -0pi -e 's/object MailConfigExample/object MailConfig/' \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -55,6 +68,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare app config templates
+        shell: bash
+        run: |
+          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.example.kt \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
+          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.example.kt \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
+
+          perl -0pi -e 's/object BuildConfigExample/object BuildConfig/' \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
+          perl -0pi -e 's/object MailConfigExample/object MailConfig/' \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
 
       - name: Set up JDK
         uses: actions/setup-java@v4
