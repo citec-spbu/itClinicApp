@@ -9,6 +9,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.di.DependencyContainer
 import com.spbu.projecttrack.core.network.NetworkSettings
@@ -19,6 +20,9 @@ import com.spbu.projecttrack.core.settings.AppUiSettingsController
 import com.spbu.projecttrack.core.settings.ITClinicTheme
 import com.spbu.projecttrack.core.settings.appStrings
 import com.spbu.projecttrack.core.storage.createAppPreferences
+import com.spbu.projecttrack.core.update.AndroidAppUpdateChecker
+import com.spbu.projecttrack.core.update.AndroidAppUpdateDialog
+import com.spbu.projecttrack.core.update.AndroidAppUpdate
 import com.spbu.projecttrack.main.presentation.MainScreen
 import com.spbu.projecttrack.onboarding.presentation.OnboardingScreen
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreen
@@ -40,6 +44,7 @@ sealed class Screen {
 
 @Composable
 actual fun App() {
+    val context = LocalContext.current
     val preferences = remember { createAppPreferences() }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -53,6 +58,7 @@ actual fun App() {
     var appThemeMode by remember {
         mutableStateOf(AppThemeMode.fromStorage(preferences.getAppThemeMode()))
     }
+    val strings = appStrings(appLanguage)
 
     LaunchedEffect(Unit) {
         println(com.spbu.projecttrack.core.network.ApiConfig.getDebugInfo())
@@ -97,8 +103,15 @@ actual fun App() {
     var isOnboardingVisible by remember {
         mutableStateOf(debugBuild || !preferences.isOnboardingCompleted())
     }
+    var availableAndroidUpdate by remember { mutableStateOf<AndroidAppUpdate?>(null) }
     var mainSelectedTab by rememberSaveable { mutableStateOf(0) }
     val screenStack = remember { mutableStateListOf<Screen>() }
+
+    LaunchedEffect(isOnboardingVisible) {
+        if (!isOnboardingVisible) {
+            availableAndroidUpdate = AndroidAppUpdateChecker.checkForAvailableUpdate(context)
+        }
+    }
 
     fun openScreen(screen: Screen) {
         screenStack.add(screen)
@@ -133,7 +146,7 @@ actual fun App() {
                     preferences.setOnboardingCompleted()
                     isOnboardingVisible = false
                     scope.launch {
-                        snackbarHostState.showSnackbar(appStrings(appLanguage).loginSuccessMessage)
+                        snackbarHostState.showSnackbar(strings.loginSuccessMessage)
                     }
                 },
                 onContinueWithoutAuth = {
@@ -221,6 +234,20 @@ actual fun App() {
                     else -> Unit
                 }
             }
+        }
+
+        availableAndroidUpdate?.let { update ->
+            AndroidAppUpdateDialog(
+                update = update,
+                onDismiss = {
+                    AndroidAppUpdateChecker.dismissUpdate(context, update.versionCode)
+                    availableAndroidUpdate = null
+                },
+                onUpdateClick = {
+                    AndroidAppUpdateChecker.openUpdatePage(context, update.apkUrl)
+                    availableAndroidUpdate = null
+                },
+            )
         }
 
         SnackbarHost(hostState = snackbarHostState)

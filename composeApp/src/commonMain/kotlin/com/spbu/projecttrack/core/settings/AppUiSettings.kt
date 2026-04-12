@@ -87,6 +87,12 @@ data class AppStrings(
     val feedbackSendError: String,
     val profileSaveError: String,
     val profileLoadError: String,
+    val updateAvailableTitle: String,
+    val updateAvailableMessage: String,
+    val currentVersionLabel: String,
+    val availableVersionLabel: String,
+    val installUpdateLabel: String,
+    val remindMeLaterLabel: String,
     val policyBody: String,
 )
 
@@ -237,6 +243,12 @@ private fun russianStrings() = AppStrings(
     feedbackSendError = "Не удалось отправить сообщение",
     profileSaveError = "Не удалось сохранить изменения",
     profileLoadError = "Не удалось загрузить профиль",
+    updateAvailableTitle = "Доступно обновление",
+    updateAvailableMessage = "Для Android опубликована более новая сборка из main. Установите обновление, чтобы получить последние изменения.",
+    currentVersionLabel = "Текущая версия",
+    availableVersionLabel = "Доступная версия",
+    installUpdateLabel = "Обновить",
+    remindMeLaterLabel = "Позже",
     policyBody = """
         Приложение CITEC обрабатывает только те данные, которые нужны для авторизации, отображения профиля, участия в проектах и расчёта проектной статистики.
 
@@ -299,6 +311,12 @@ private fun englishStrings() = AppStrings(
     feedbackSendError = "Failed to send feedback",
     profileSaveError = "Failed to save changes",
     profileLoadError = "Failed to load profile",
+    updateAvailableTitle = "Update available",
+    updateAvailableMessage = "A newer Android build from the main branch is available. Install the update to get the latest changes.",
+    currentVersionLabel = "Current version",
+    availableVersionLabel = "Available version",
+    installUpdateLabel = "Update now",
+    remindMeLaterLabel = "Later",
     policyBody = """
         The CITEC app processes only the data required for sign-in, profile rendering, project participation and project statistics.
 

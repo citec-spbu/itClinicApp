@@ -42,6 +42,31 @@ jobs:
       - name: Grant execute permission for Gradle wrapper
         run: chmod +x ./gradlew
 
+      - name: Resolve Android build metadata
+        shell: bash
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION_NAME="${GITHUB_REF_NAME}"
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" == "${{ github.event.repository.default_branch }}" ]]; then
+            VERSION_NAME="main.${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
+            RELEASE_TAG="android-main-${GITHUB_RUN_NUMBER}"
+          else
+            VERSION_NAME="dev.${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
+            RELEASE_TAG=""
+          fi
+
+          echo "ORG_GRADLE_PROJECT_androidVersionCode=${GITHUB_RUN_NUMBER}" >> "${GITHUB_ENV}"
+          echo "ORG_GRADLE_PROJECT_androidVersionName=${VERSION_NAME}" >> "${GITHUB_ENV}"
+          echo "ANDROID_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "${GITHUB_ENV}"
+          echo "ANDROID_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
+          echo "UPDATE_RELEASE_TAG=${RELEASE_TAG}" >> "${GITHUB_ENV}"
+          echo "UPDATE_REPOSITORY_OWNER=${GITHUB_REPOSITORY_OWNER}" >> "${GITHUB_ENV}"
+          echo "UPDATE_REPOSITORY_NAME=${GITHUB_REPOSITORY#*/}" >> "${GITHUB_ENV}"
+          echo "UPDATE_COMMIT_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
       - name: Prepare CI stubs
         run: bash scripts/prepare_ci_stubs.sh
 
@@ -53,6 +78,10 @@ jobs:
 
       - name: Build and stage APK artifact
         run: bash scripts/prepare_mobile_showcase.sh
+
+      - name: Generate Android update manifest
+        if: github.event_name == 'push' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/'))
+        run: bash scripts/generate_android_update_manifest.sh
 
       - name: Upload lint reports
         if: always()
@@ -76,14 +105,14 @@ jobs:
             composeApp/build/reports/tests/testDebugUnitTest/
             composeApp/build/test-results/testDebugUnitTest/
 
-      - name: Upload APK artifact
+      - name: Upload delivery artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
+          name: android-delivery-artifacts
           if-no-files-found: warn
           retention-days: 14
-          path: release-artifacts/itclinicapp-debug.apk
+          path: release-artifacts/
 
   ios_kotlin_validation:
     name: iOS Kotlin Validation
@@ -131,7 +160,7 @@ jobs:
       - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: android-debug-apk
+          name: android-delivery-artifacts
           path: release-artifacts
 
       - name: Set up QEMU
@@ -185,35 +214,65 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
 
-  release_android_artifact:
-    name: Release Android Artifact
+  publish_android_update_release:
+    name: Publish Android Update Release
     runs-on: ubuntu-latest
     needs:
       - android_ci
       - ios_kotlin_validation
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/'))
     timeout-minutes: 15
     permissions:
       contents: write
 
     steps:
-      - name: Download APK artifact
+      - name: Download delivery artifacts
         uses: actions/download-artifact@v4
         with:
-          name: android-debug-apk
+          name: android-delivery-artifacts
           path: release-artifacts
 
-      - name: Create or update GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Resolve Android release metadata
+        shell: bash
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --generate-notes
+          SHORT_SHA="${GITHUB_SHA::7}"
 
-      - name: Upload APK to release
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION_NAME="${GITHUB_REF_NAME}"
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          else
+            VERSION_NAME="main.${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
+            RELEASE_TAG="android-main-${GITHUB_RUN_NUMBER}"
+          fi
+
+          echo "ANDROID_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
+          echo "UPDATE_RELEASE_TAG=${RELEASE_TAG}" >> "${GITHUB_ENV}"
+
+      - name: Create or update GitHub release for main branch
+        if: github.ref_name == github.event.repository.default_branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$GITHUB_REF_NAME" \
+          gh release view "$UPDATE_RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$UPDATE_RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "Android main build $ANDROID_VERSION_NAME" \
+              --notes "Automated Android main-branch delivery build for in-app update checks." \
+              --prerelease
+
+      - name: Create or update GitHub release for tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$UPDATE_RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$UPDATE_RELEASE_TAG" --generate-notes
+
+      - name: Upload Android delivery assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$UPDATE_RELEASE_TAG" \
             release-artifacts/itclinicapp-debug.apk \
+            release-artifacts/android-update.json \
             --clobber

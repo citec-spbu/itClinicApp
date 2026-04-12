@@ -261,7 +261,7 @@ node generate-test-token.js
 ## GitHub Actions CI/CD
 
 - Подробная документация вынесена в [docs/Development/GITHUB_CICD.md](docs/Development/GITHUB_CICD.md).
-- Там описаны workflow, CI-safe stub config, Android/iOS validation, APK artifacts и GHCR publishing.
+- Там описаны workflow, CI-safe stub config, Android/iOS validation, APK artifacts, GitHub update releases, Android in-app updates и GHCR publishing.
 
 # itClinicApp (EN)
 
@@ -520,4 +520,4 @@ It is easier to run via Android Studio (Run configuration).
 ## GitHub Actions CI/CD
 
 - Detailed documentation is available in [docs/Development/GITHUB_CICD.md](docs/Development/GITHUB_CICD.md).
-- It covers the workflow, CI-safe stub config, Android/iOS validation, APK artifacts, and GHCR publishing.
+- It covers the workflow, CI-safe stub config, Android/iOS validation, APK artifacts, GitHub update releases, Android in-app updates, and GHCR publishing.

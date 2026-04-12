@@ -9,6 +9,15 @@ plugins {
     alias(libs.plugins.kotlinx.serialization)
 }
 
+val resolvedAndroidVersionCode = providers.gradleProperty("androidVersionCode")
+    .orNull
+    ?.toIntOrNull()
+    ?: 1
+
+val resolvedAndroidVersionName = providers.gradleProperty("androidVersionName")
+    .orNull
+    ?: "1.0"
+
 kotlin {
     androidTarget {
         compilerOptions {
@@ -70,8 +79,8 @@ android {
         applicationId = "com.spbu.projecttrack"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = resolvedAndroidVersionCode
+        versionName = resolvedAndroidVersionName
     }
     packaging {
         resources {
