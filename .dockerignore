@@ -5,3 +5,5 @@
 !docs/**
 !docker/
 !docker/**
+!release-artifacts/
+!release-artifacts/**

@@ -6,7 +6,7 @@ This workflow is configured only for the mobile application in this repository.
 
 - no backend is required
 - CI validates the Android/Compose application layer
-- CD publishes a documentation/showcase image instead of a backend container
+- CD publishes a Docker image that serves the generated Android APK and CI/CD documentation
 
 Primary workflow: `.github/workflows/mobile-app-ci-cd.yml`
 
@@ -41,7 +41,8 @@ On `push` to the default branch or on a git tag push, the workflow publishes a D
 
 The image contains:
 
-- a static entry page
+- a landing page with download links
+- the generated Android debug APK
 - the `docs/` folder
 
 The container runs on top of `nginx`.
@@ -90,7 +91,7 @@ There are usually two possible reasons:
 
 ### Scenario 1: the image was not published
 
-If `Android Lint` or `Android Unit Tests` fail, the publish job does not start.
+If `Android Lint`, `Android Unit Tests`, or `Build Android APK` fail, the publish job does not start.
 
 In that case:
 
@@ -152,15 +153,17 @@ Proper fix:
 2. These jobs pass:
    - `Android Lint`
    - `Android Unit Tests`
-3. On the default branch or on a tag, this job also runs:
+3. On the default branch or on a tag, these jobs also run:
+   - `Build Android APK`
    - `Publish App Showcase Image`
 4. A package named `itclinicapp-showcase` appears in `Packages`
+5. The container root page exposes a direct APK download link
 
 ## Short summary
 
 This repository uses an app-only GitHub Actions workflow.
 
 - CI runs `lintDebug` and `testDebugUnitTest`
-- CD publishes `ghcr.io/<owner>/itclinicapp-showcase`
+- CD publishes `ghcr.io/<owner>/itclinicapp-showcase` with a downloadable APK inside
 - rollback is performed by promoting an existing immutable tag back to `latest`
 - `unauthorized` on `docker pull` usually means either the image was never published or the GHCR package is private

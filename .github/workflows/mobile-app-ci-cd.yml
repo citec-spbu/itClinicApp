@@ -112,12 +112,64 @@ jobs:
             composeApp/build/reports/tests/testDebugUnitTest/
             composeApp/build/test-results/testDebugUnitTest/
 
-  publish_app_showcase:
-    name: Publish App Showcase Image
+  build_android_apk:
+    name: Build Android APK
     runs-on: ubuntu-latest
     needs:
       - lint_android
       - unit_tests_android
+    if: github.event_name == 'push' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare app config templates
+        shell: bash
+        run: |
+          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.example.kt \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
+          cp composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.example.kt \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
+
+          perl -0pi -e 's/object BuildConfigExample/object BuildConfig/' \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
+          perl -0pi -e 's/object MailConfigExample/object MailConfig/' \
+            composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
+
+      - name: Build debug APK
+        run: ./gradlew :composeApp:assembleDebug --stacktrace
+
+      - name: Prepare APK artifact
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk \
+            release-artifacts/itclinicapp-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: release-artifacts/itclinicapp-debug.apk
+
+  publish_app_showcase:
+    name: Publish App Showcase Image
+    runs-on: ubuntu-latest
+    needs:
+      - build_android_apk
     if: github.event_name == 'push' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/'))
     permissions:
       contents: read
@@ -126,6 +178,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-debug-apk
+          path: release-artifacts
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
