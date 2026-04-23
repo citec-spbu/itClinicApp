@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -60,16 +61,15 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
-import com.spbu.projecttrack.rating.data.model.ProjectStatsDonutSliceUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsIssueSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsMetricSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsOwnershipSectionUi
-import com.spbu.projecttrack.rating.data.model.ProjectStatsWeekDaySectionUi
 import com.spbu.projecttrack.rating.data.model.UserStatsUiModel
 import com.spbu.projecttrack.rating.presentation.details.StatsDetailScreen
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSection
@@ -77,9 +77,14 @@ import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsScr
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsTarget
 import com.spbu.projecttrack.rating.presentation.settings.defaultStatsScreenSectionIds
 import com.spbu.projecttrack.rating.presentation.settings.statsScreenSectionsFromIds
+import com.spbu.projecttrack.rating.export.ProjectStatsExportPayload
+import com.spbu.projecttrack.rating.export.ProjectStatsSummaryCard
+import com.spbu.projecttrack.rating.export.rememberProjectStatsExporter
 import com.spbu.projecttrack.rating.presentation.projectstats.ActionPillButton
 import com.spbu.projecttrack.rating.presentation.projectstats.AnimatedSection
 import com.spbu.projecttrack.rating.presentation.projectstats.ChartCard
+import com.spbu.projecttrack.rating.presentation.projectstats.CompactStatsCard
+import com.spbu.projecttrack.rating.presentation.projectstats.DominantWeekDaySection
 import com.spbu.projecttrack.rating.presentation.projectstats.DoubleMetricRow
 import com.spbu.projecttrack.rating.presentation.projectstats.EmptyDetailedInfoCard
 import com.spbu.projecttrack.rating.presentation.projectstats.ErrorState
@@ -93,8 +98,8 @@ import com.spbu.projecttrack.rating.presentation.projectstats.StatsBackgroundLog
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsDateRangePickerDialog
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBar
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBarTotalHeight
-import com.spbu.projecttrack.rating.presentation.projectstats.WeekdayLegendText
 import com.spbu.projecttrack.rating.presentation.projectstats.metricScoreTitle
+import com.spbu.projecttrack.rating.presentation.projectstats.toExportSection
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import androidx.compose.ui.backhandler.BackHandler
@@ -119,6 +124,7 @@ fun UserStatsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val exporter = rememberProjectStatsExporter()
     var showSettingsScreen by remember { mutableStateOf(false) }
     var activeDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
     var activeSectionIds by rememberSaveable { mutableStateOf(defaultStatsScreenSectionIds()) }
@@ -183,12 +189,22 @@ fun UserStatsScreen(
                         },
                         onExportPdfClick = {
                             scope.launch {
-                                snackbarHostState.showSnackbar("Экспорт в PDF скоро появится")
+                                val payload = state.data.toExportPayload()
+                                val result = exporter.exportPdf(payload)
+                                val message = result.getOrNull()?.let { export ->
+                                    "PDF сохранен: ${export.fileName}"
+                                } ?: "Не удалось экспортировать PDF"
+                                snackbarHostState.showSnackbar(message)
                             }
                         },
                         onExportExcelClick = {
                             scope.launch {
-                                snackbarHostState.showSnackbar("Экспорт в Excel скоро появится")
+                                val payload = state.data.toExportPayload()
+                                val result = exporter.exportExcelCsv(payload)
+                                val message = result.getOrNull()?.let { export ->
+                                    "CSV сохранен: ${export.fileName}"
+                                } ?: "Не удалось экспортировать Excel"
+                                snackbarHostState.showSnackbar(message)
                             }
                         }
                     )
@@ -240,12 +256,22 @@ fun UserStatsScreen(
                     onRapidThresholdChanged = viewModel::updateRapidThreshold,
                     onExportPdfClick = {
                         scope.launch {
-                            snackbarHostState.showSnackbar("Экспорт в PDF скоро появится")
+                            val payload = model.toExportPayload()
+                            val result = exporter.exportPdf(payload)
+                            val message = result.getOrNull()?.let { export ->
+                                "PDF сохранен: ${export.fileName}"
+                            } ?: "Не удалось экспортировать PDF"
+                            snackbarHostState.showSnackbar(message)
                         }
                     },
                     onExportExcelClick = {
                         scope.launch {
-                            snackbarHostState.showSnackbar("Экспорт в Excel скоро появится")
+                            val payload = model.toExportPayload()
+                            val result = exporter.exportExcelCsv(payload)
+                            val message = result.getOrNull()?.let { export ->
+                                "CSV сохранен: ${export.fileName}"
+                            } ?: "Не удалось экспортировать Excel"
+                            snackbarHostState.showSnackbar(message)
                         }
                     },
                 )
@@ -375,7 +401,7 @@ private fun UserStatsContent(
                     }
 
                     StatsScreenSection.DominantWeekDay -> AnimatedSection {
-                        PersonalDominantWeekDaySection(
+                        DominantWeekDaySection(
                             section = model.dominantWeekDay,
                             onDetailsClick = { onDetailsClick(StatsScreenSection.DominantWeekDay) }
                         )
@@ -581,15 +607,10 @@ private fun PersonalIssueSection(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Surface(
-                modifier = Modifier.weight(1f),
-                color = Color.White,
-                shape = UserStatsCardShape,
-                shadowElevation = 4.dp
-            ) {
+            CompactStatsCard(modifier = Modifier.weight(1f)) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.fillMaxHeight(),
+                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     Box(
                         modifier = Modifier
@@ -608,7 +629,10 @@ private fun PersonalIssueSection(
                         text = section.remainingText,
                         fontFamily = AppFonts.OpenSansMedium,
                         fontSize = 13.sp,
-                        color = AppColors.Color2
+                        lineHeight = 16.sp,
+                        color = AppColors.Color2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -699,6 +723,9 @@ private fun PersonalOwnershipSection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val userLines = section.slices.firstOrNull { it.highlight }?.value?.toInt() ?: 0
+    val totalLines = section.slices.sumOf { it.value.toDouble() }.toInt()
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -707,22 +734,12 @@ private fun PersonalOwnershipSection(
             title = section.title,
             onDetailsClick = onDetailsClick
         )
-        Surface(
-            color = Color.White,
-            shape = UserStatsCardShape,
-            shadowElevation = 4.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                com.spbu.projecttrack.rating.presentation.projectstats.DonutChart(slices = section.slices)
-                DonutLegend(
-                    slices = section.slices,
-                    highlightSuffix = " (Вы)"
-                )
-            }
-        }
+        DoubleMetricRow(
+            leftValue = userLines.toString(),
+            leftCaption = "ваших строк",
+            rightValue = totalLines.toString(),
+            rightCaption = "строк в проекте"
+        )
         SingleMetricCard(
             value = section.rank?.toString() ?: "—",
             caption = "место в рейтинге"
@@ -734,127 +751,35 @@ private fun PersonalOwnershipSection(
     }
 }
 
-@Composable
-private fun PersonalDominantWeekDaySection(
-    section: ProjectStatsWeekDaySectionUi,
-    onDetailsClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        SectionHeader(
-            title = section.title,
-            onDetailsClick = onDetailsClick
-        )
-        Surface(
-            color = Color.White,
-            shape = UserStatsCardShape,
-            shadowElevation = 4.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                com.spbu.projecttrack.rating.presentation.projectstats.DonutChart(slices = section.slices)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    section.slices.forEach { slice ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(Color(slice.colorHex), CircleShape)
-                            )
-                            WeekdayLegendText(
-                                label = slice.label,
-                                secondaryLabel = slice.secondaryLabel,
-                                emphasizeLabel = slice.highlight,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        Surface(
-            color = Color.White,
-            shape = UserStatsCardShape,
-            shadowElevation = 4.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
-            ) {
-                Text(
-                    text = section.headline.uppercase(),
-                    fontFamily = AppFonts.OpenSansBold,
-                    fontSize = 32.sp,
-                    lineHeight = 20.sp,
-                    letterSpacing = 0.32.sp,
-                    color = AppColors.Color3,
-                )
-                Text(
-                    text = section.subtitle,
-                    fontFamily = AppFonts.OpenSansRegular,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    letterSpacing = 0.14.sp,
-                    color = AppColors.Color2,
-                )
-            }
-        }
-        ScoreCard(
-            score = section.score,
-            title = "оценка доминирующего дня недели"
-        )
-    }
-}
-
-@Composable
-private fun DonutLegend(
-    slices: List<ProjectStatsDonutSliceUi>,
-    highlightSuffix: String,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        slices.forEach { slice ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(Color(slice.colorHex), CircleShape)
-                )
-                Column {
-                    Text(
-                        text = buildString {
-                            append(slice.label)
-                            if (slice.highlight) append(highlightSuffix)
-                        },
-                        fontFamily = AppFonts.OpenSansRegular,
-                        fontSize = 13.sp,
-                        color = AppColors.Color2
-                    )
-                    Text(
-                        text = slice.secondaryLabel,
-                        fontFamily = AppFonts.OpenSansBold,
-                        fontSize = 12.sp,
-                        color = AppColors.Color2
-                    )
-                }
-            }
-        }
-    }
-}
-
 private enum class UserStatsDatePickerTarget {
     Start,
     End,
+}
+
+private fun UserStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
+    val selectedRepository = repositories.firstOrNull { it.id == selectedRepositoryId }
+    return ProjectStatsExportPayload(
+        projectId = userId,
+        projectName = userName,
+        description = role,
+        customerName = projectTitle,
+        repositoryUrl = selectedRepository?.title,
+        periodLabel = "${visibleRange.startLabel} - ${visibleRange.endLabel}",
+        generatedAtLabel = "Сейчас",
+        summaryCards = listOf(
+            ProjectStatsSummaryCard("Коммиты", commits.primaryValue, commits.primaryCaption),
+            ProjectStatsSummaryCard("Issue", issues.openIssues.toString(), "открытых"),
+            ProjectStatsSummaryCard("Pull Requests", pullRequests.primaryValue, pullRequests.primaryCaption),
+            ProjectStatsSummaryCard("Быстрые PR", rapidPullRequests.primaryValue, rapidPullRequests.primaryCaption)
+        ),
+        sections = listOf(
+            commits.toExportSection(),
+            issues.toExportSection(),
+            pullRequests.toExportSection(),
+            rapidPullRequests.toExportSection(),
+            codeChurn.toExportSection(),
+            codeOwnership.toExportSection(),
+            dominantWeekDay.toExportSection()
+        )
+    )
 }

@@ -142,7 +142,7 @@ import projecttrack.composeapp.generated.resources.stats_tooltip_close
 import kotlin.math.PI
 import kotlin.math.roundToInt
 
-private val CardShape = RoundedCornerShape(10.dp)
+internal val CardShape = RoundedCornerShape(10.dp)
 private val CompactControlShape = RoundedCornerShape(5.dp)
 private val ActionButtonShape = RoundedCornerShape(5.dp)
 private val OverallRatingShape = RoundedCornerShape(10.dp)
@@ -162,8 +162,8 @@ private val ChartPlotBottomPadding = 6.dp
 private val ChartHorizontalPadding = 8.dp
 private val ChartYAxisGap = 4.dp
 private val ChartXAxisGap = 4.dp
-private val CompactStatsCardHeight = 70.dp
-private val CompactStatsCardPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+internal val CompactStatsCardHeight = 70.dp
+internal val CompactStatsCardPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -1039,11 +1039,13 @@ private fun OwnershipSection(
 }
 
 @Composable
-private fun DominantWeekDaySection(
+internal fun DominantWeekDaySection(
     section: ProjectStatsWeekDaySectionUi,
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val hasActivity = section.slices.any { it.value > 0f }
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1053,54 +1055,72 @@ private fun DominantWeekDaySection(
             onDetailsClick = onDetailsClick
         )
 
-        StatsCard {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                DonutChart(slices = section.slices)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    section.slices.forEach { slice ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(Color(slice.colorHex), CircleShape)
-                            )
-                            WeekdayLegendText(
-                                label = slice.label,
-                                secondaryLabel = slice.secondaryLabel,
-                                emphasizeLabel = slice.highlight,
-                            )
+        if (!hasActivity) {
+            StatsCard {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Действий ещё не было",
+                        fontFamily = AppFonts.OpenSansRegular,
+                        fontSize = 14.sp,
+                        color = AppColors.Color2,
+                    )
+                }
+            }
+        } else {
+            StatsCard {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    DonutChart(slices = section.slices)
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        section.slices.forEach { slice ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Color(slice.colorHex), CircleShape)
+                                )
+                                WeekdayLegendText(
+                                    label = slice.label,
+                                    secondaryLabel = slice.secondaryLabel,
+                                    emphasizeLabel = slice.highlight,
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        CompactStatsCard {
-            Column(
-                modifier = Modifier.fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = section.headline.uppercase(),
-                    fontFamily = AppFonts.OpenSansBold,
-                    fontSize = 32.sp,
-                    lineHeight = 20.sp,
-                    letterSpacing = 0.32.sp,
-                    color = AppColors.Color3,
-                )
-                Text(
-                    text = section.subtitle,
-                    fontFamily = AppFonts.OpenSansRegular,
-                    fontSize = 14.sp,
-                    lineHeight = 16.sp,
-                    letterSpacing = 0.14.sp,
-                    color = AppColors.Color2,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            CompactStatsCard {
+                Column(
+                    modifier = Modifier.fillMaxHeight(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = section.headline.uppercase(),
+                        fontFamily = AppFonts.OpenSansBold,
+                        fontSize = 32.sp,
+                        lineHeight = 20.sp,
+                        letterSpacing = 0.32.sp,
+                        color = AppColors.Color3,
+                    )
+                    Text(
+                        text = section.subtitle,
+                        fontFamily = AppFonts.OpenSansRegular,
+                        fontSize = 14.sp,
+                        lineHeight = 16.sp,
+                        letterSpacing = 0.14.sp,
+                        color = AppColors.Color2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
@@ -1351,7 +1371,7 @@ internal fun ScoreCard(
     }
 }
 
-private fun projectScoreColor(score: Double?): Color {
+internal fun projectScoreColor(score: Double?): Color {
     if (score == null) return AppColors.Color2
 
     val low = AppColors.Color3
@@ -1366,7 +1386,7 @@ private fun projectScoreColor(score: Double?): Color {
     }
 }
 
-private fun formatScoreValue(score: Double): String {
+internal fun formatScoreValue(score: Double): String {
     val rounded = (score * 10.0).roundToInt() / 10.0
     return if (rounded % 1.0 == 0.0) {
         rounded.toInt().toString()
@@ -2882,7 +2902,7 @@ private fun FilterChip(
 }
 
 @Composable
-private fun StatsCard(
+internal fun StatsCard(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
     contentVerticalArrangement: Arrangement.Vertical = Arrangement.Top,
@@ -2903,7 +2923,7 @@ private fun StatsCard(
 }
 
 @Composable
-private fun CompactStatsCard(
+internal fun CompactStatsCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -2960,7 +2980,7 @@ private fun ProjectStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
     )
 }
 
-private fun ProjectStatsMetricSectionUi.toExportSection(): ProjectStatsSection {
+internal fun ProjectStatsMetricSectionUi.toExportSection(): ProjectStatsSection {
     val chart = when (chartType) {
         ProjectStatsChartType.Bars -> ProjectStatsChart.Bar(
             title = chartTitle,
@@ -2997,7 +3017,7 @@ private fun ProjectStatsMetricSectionUi.toExportSection(): ProjectStatsSection {
     )
 }
 
-private fun ProjectStatsIssueSectionUi.toExportSection(): ProjectStatsSection {
+internal fun ProjectStatsIssueSectionUi.toExportSection(): ProjectStatsSection {
     return ProjectStatsSection(
         title = title,
         subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
@@ -3013,7 +3033,7 @@ private fun ProjectStatsIssueSectionUi.toExportSection(): ProjectStatsSection {
     )
 }
 
-private fun ProjectStatsCodeChurnSectionUi.toExportSection(): ProjectStatsSection {
+internal fun ProjectStatsCodeChurnSectionUi.toExportSection(): ProjectStatsSection {
     return ProjectStatsSection(
         title = title,
         subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
@@ -3030,7 +3050,7 @@ private fun ProjectStatsCodeChurnSectionUi.toExportSection(): ProjectStatsSectio
     )
 }
 
-private fun ProjectStatsOwnershipSectionUi.toExportSection(): ProjectStatsSection {
+internal fun ProjectStatsOwnershipSectionUi.toExportSection(): ProjectStatsSection {
     return ProjectStatsSection(
         title = title,
         subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
@@ -3048,7 +3068,7 @@ private fun ProjectStatsOwnershipSectionUi.toExportSection(): ProjectStatsSectio
     )
 }
 
-private fun ProjectStatsWeekDaySectionUi.toExportSection(): ProjectStatsSection {
+internal fun ProjectStatsWeekDaySectionUi.toExportSection(): ProjectStatsSection {
     return ProjectStatsSection(
         title = title,
         subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",

@@ -930,7 +930,7 @@ class UserStatsRepository(
             title = "Доминирующий день недели",
             score = snapshot.weekDayScore,
             headline = snapshot.dominantWeekdayLabel?.uppercase() ?: "НЕТ ДАННЫХ",
-            subtitle = snapshot.dominantWeekdayLabel?.let { "$it самый активный день недели" } ?: "нет данных",
+            subtitle = snapshot.dominantWeekdayLabel?.let { "самый активный день недели" } ?: "нет данных",
             slices = snapshot.weekdays.mapIndexed { index, day ->
                 ProjectStatsDonutSliceUi(
                     label = day.label,
