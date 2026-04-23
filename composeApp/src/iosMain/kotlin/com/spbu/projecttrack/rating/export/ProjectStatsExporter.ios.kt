@@ -2,40 +2,41 @@ package com.spbu.projecttrack.rating.export
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.convert
-import kotlinx.cinterop.usePinned
-import platform.Foundation.NSTemporaryDirectory
-import platform.Foundation.NSURL
-import platform.UIKit.UIActivityViewController
-import platform.UIKit.UIApplication
+import kotlinx.cinterop.*
+import platform.CoreGraphics.*
+import platform.Foundation.*
+import platform.UIKit.*
 import platform.posix.fclose
 import platform.posix.fopen
 import platform.posix.fwrite
 
 @Composable
 actual fun rememberProjectStatsExporter(): ProjectStatsExporter {
-    return remember {
-        IosProjectStatsExporter()
-    }
+    return remember { IosProjectStatsExporter() }
 }
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 private class IosProjectStatsExporter : ProjectStatsExporter {
+
+    private enum class ParaStyle { Title, Heading, Body, Muted }
+
+    private data class Para(
+        val text: String,
+        val style: ParaStyle,
+        val spacingAfter: Double = 4.0,
+        val indent: Double = 0.0,
+    )
+
+    // ─── Entry points ─────────────────────────────────────────────────────────
+
     override suspend fun exportPdf(
         payload: ProjectStatsExportPayload
     ): Result<ProjectStatsExportResult> = runCatching {
         val fileName = "${sanitizeProjectStatsFileName(payload.projectName)}.pdf"
         val path = NSTemporaryDirectory() + fileName
-        val pdf = buildMinimalPdf(buildProjectStatsReportLines(payload))
-        writeTextFile(path, pdf)
-        presentShareSheet(path, fileName, "application/pdf")
-        ProjectStatsExportResult(
-            fileName = fileName,
-            absolutePath = path,
-            mimeType = "application/pdf"
-        )
+        renderPdf(payload).writeToFile(path = path, atomically = true)
+        share(path)
+        ProjectStatsExportResult(fileName = fileName, absolutePath = path, mimeType = "application/pdf")
     }
 
     override suspend fun exportExcelCsv(
@@ -43,196 +44,192 @@ private class IosProjectStatsExporter : ProjectStatsExporter {
     ): Result<ProjectStatsExportResult> = runCatching {
         val fileName = "${sanitizeProjectStatsFileName(payload.projectName)}.csv"
         val path = NSTemporaryDirectory() + fileName
-        writeTextFile(path, buildProjectStatsCsv(payload))
-        presentShareSheet(path, fileName, "text/csv")
-        ProjectStatsExportResult(
-            fileName = fileName,
-            absolutePath = path,
-            mimeType = "text/csv"
+        // UTF-8 BOM ensures Excel opens without an encoding dialog
+        writeTextFile(path, "\uFEFF" + buildProjectStatsCsv(payload))
+        share(path)
+        ProjectStatsExportResult(fileName = fileName, absolutePath = path, mimeType = "text/csv")
+    }
+
+    // ─── PDF (UIKit – full Unicode / Cyrillic support) ────────────────────────
+
+    private fun renderPdf(payload: ProjectStatsExportPayload): NSMutableData {
+        val pw = 595.0; val ph = 842.0
+        val ml = 48.0; val mt = 60.0; val mb = 56.0
+        val cw = pw - ml * 2
+
+        val pdfData = NSMutableData()
+        val pageRect = CGRectMake(0.0, 0.0, pw, ph)
+
+        UIGraphicsBeginPDFContextToData(pdfData, pageRect, null)
+        UIGraphicsBeginPDFPageWithInfo(pageRect, null)
+
+        var y = mt
+
+        buildParas(payload).forEach { para ->
+            val attrStr = makeAttrStr(para)
+            val textH = attrStr.boundingRectWithSize(
+                CGSizeMake(cw - para.indent, 8_000.0),
+                NSStringDrawingUsesLineFragmentOrigin,
+                null
+            ).useContents { size.height }
+
+            if (y + textH + para.spacingAfter > ph - mb) {
+                UIGraphicsBeginPDFPageWithInfo(pageRect, null)
+                y = mt
+            }
+
+            attrStr.drawWithRect(
+                CGRectMake(ml + para.indent, y, cw - para.indent, textH + 2.0),
+                NSStringDrawingUsesLineFragmentOrigin,
+                null
+            )
+            y += textH + para.spacingAfter
+        }
+
+        UIGraphicsEndPDFContext()
+        return pdfData
+    }
+
+    private fun makeAttrStr(para: Para): NSAttributedString {
+        val fontSize: Double
+        val bold: Boolean
+        val r: Double; val g: Double; val b: Double
+        when (para.style) {
+            ParaStyle.Title   -> { fontSize = 22.0; bold = true;  r = 0.624; g = 0.176; b = 0.125 }
+            ParaStyle.Heading -> { fontSize = 13.0; bold = true;  r = 0.624; g = 0.176; b = 0.125 }
+            ParaStyle.Body    -> { fontSize = 11.0; bold = false; r = 0.188; g = 0.188; b = 0.204 }
+            ParaStyle.Muted   -> { fontSize = 10.0; bold = false; r = 0.463; g = 0.463; b = 0.486 }
+        }
+        val font: UIFont = if (bold) UIFont.boldSystemFontOfSize(fontSize) else UIFont.systemFontOfSize(fontSize)
+        val color: UIColor = UIColor.colorWithRed(r, green = g, blue = b, alpha = 1.0)!!
+
+        return NSAttributedString.create(
+            string = para.text,
+            attributes = mapOf(
+                NSFontAttributeName to font,
+                NSForegroundColorAttributeName to color,
+            )
         )
     }
 
+    // ─── Paragraph model ─────────────────────────────────────────────────────
+
+    private fun buildParas(payload: ProjectStatsExportPayload): List<Para> {
+        val list = mutableListOf<Para>()
+
+        list += Para(payload.projectName, ParaStyle.Title, spacingAfter = 8.0)
+
+        val metaParts = buildList {
+            payload.periodLabel?.takeIf { it.isNotBlank() }?.let { add("Период: $it") }
+            payload.customerName?.takeIf { it.isNotBlank() }?.let { add("Заказчик: $it") }
+            payload.generatedAtLabel?.takeIf { it.isNotBlank() }?.let { add("Сформировано: $it") }
+        }
+        if (metaParts.isNotEmpty()) {
+            list += Para(metaParts.joinToString("   ·   "), ParaStyle.Muted, spacingAfter = 3.0)
+        }
+        payload.repositoryUrl?.takeIf { it.isNotBlank() }?.let {
+            list += Para("Репозиторий: $it", ParaStyle.Muted, spacingAfter = 3.0)
+        }
+        payload.description?.takeIf { it.isNotBlank() }?.let {
+            list += Para(it, ParaStyle.Muted, spacingAfter = 6.0)
+        }
+
+        list += Para("─".repeat(68), ParaStyle.Muted, spacingAfter = 12.0)
+
+        if (payload.summaryCards.isNotEmpty()) {
+            list += Para("Ключевые показатели", ParaStyle.Heading, spacingAfter = 5.0)
+            payload.summaryCards.forEach { c ->
+                list += Para(
+                    buildString {
+                        append(c.title).append(": ").append(c.value)
+                        c.subtitle?.takeIf { it.isNotBlank() }?.let { append("  –  $it") }
+                    },
+                    ParaStyle.Body, spacingAfter = 3.0, indent = 14.0
+                )
+            }
+            list += Para("", ParaStyle.Body, spacingAfter = 10.0)
+        }
+
+        if (payload.members.isNotEmpty()) {
+            list += Para("Команда", ParaStyle.Heading, spacingAfter = 5.0)
+            payload.members.forEach { m ->
+                list += Para(
+                    buildString {
+                        append(m.name)
+                        m.role?.takeIf { it.isNotBlank() }?.let { append("  –  $it") }
+                        m.value?.takeIf { it.isNotBlank() }?.let { append(":  $it") }
+                        m.marker?.takeIf { it.isNotBlank() }?.let { append("  [$it]") }
+                    },
+                    ParaStyle.Body, spacingAfter = 3.0, indent = 14.0
+                )
+            }
+            list += Para("", ParaStyle.Body, spacingAfter = 10.0)
+        }
+
+        payload.sections.forEach { section ->
+            list += Para(section.title, ParaStyle.Heading, spacingAfter = 4.0)
+            section.subtitle?.takeIf { it.isNotBlank() }?.let {
+                list += Para(it, ParaStyle.Muted, spacingAfter = 4.0)
+            }
+            section.rows.forEach { row ->
+                list += Para(
+                    buildString {
+                        append(row.label).append(": ").append(row.value)
+                        row.note?.takeIf { it.isNotBlank() }?.let { append("  –  $it") }
+                    },
+                    ParaStyle.Body, spacingAfter = 3.0, indent = 14.0
+                )
+            }
+            section.chart?.let { chart ->
+                list += Para("График: ${chart.title}", ParaStyle.Muted, spacingAfter = 3.0, indent = 8.0)
+                when (chart) {
+                    is ProjectStatsChart.Bar -> chart.points.forEach { p ->
+                        list += Para(
+                            "${p.label}: ${p.value}${p.note?.let { "  –  $it" } ?: ""}",
+                            ParaStyle.Body, spacingAfter = 2.0, indent = 22.0
+                        )
+                    }
+                    is ProjectStatsChart.Line -> chart.points.forEach { p ->
+                        list += Para(
+                            "${p.label}: ${p.value}${p.note?.let { "  –  $it" } ?: ""}",
+                            ParaStyle.Body, spacingAfter = 2.0, indent = 22.0
+                        )
+                    }
+                    is ProjectStatsChart.Donut -> chart.segments.forEach { s ->
+                        list += Para(
+                            "${s.label}: ${s.value}${s.colorHint?.let { "  –  $it" } ?: ""}",
+                            ParaStyle.Body, spacingAfter = 2.0, indent = 22.0
+                        )
+                    }
+                }
+            }
+            section.notes.forEach { note ->
+                list += Para("• $note", ParaStyle.Muted, spacingAfter = 2.0, indent = 14.0)
+            }
+            list += Para("", ParaStyle.Body, spacingAfter = 10.0)
+        }
+
+        return list
+    }
+
+    // ─── I/O ─────────────────────────────────────────────────────────────────
+
     private fun writeTextFile(path: String, content: String) {
         val bytes = content.encodeToByteArray()
-        val file = fopen(path, "wb") ?: error("Не удалось открыть файл для записи: $path")
+        val file = fopen(path, "wb") ?: error("Cannot open for writing: $path")
         try {
             bytes.usePinned { pinned ->
-                val written = fwrite(
-                    pinned.addressOf(0),
-                    1.convert(),
-                    bytes.size.convert(),
-                    file
-                ).toInt()
-                if (written != bytes.size) {
-                    error("Не удалось полностью записать файл: $path")
-                }
+                fwrite(pinned.addressOf(0), 1.convert(), bytes.size.convert(), file)
             }
         } finally {
             fclose(file)
         }
     }
 
-    private fun presentShareSheet(path: String, fileName: String, mimeType: String) {
+    private fun share(path: String) {
         val url = NSURL.fileURLWithPath(path)
-        val controller = UIActivityViewController(
-            activityItems = listOf(url),
-            applicationActivities = null
-        )
-
-        val root = UIApplication.sharedApplication.keyWindow?.rootViewController
-        root?.presentViewController(controller, animated = true, completion = null)
+        val vc = UIActivityViewController(activityItems = listOf(url), applicationActivities = null)
+        UIApplication.sharedApplication.keyWindow?.rootViewController
+            ?.presentViewController(vc, animated = true, completion = null)
     }
-}
-
-private fun buildMinimalPdf(lines: List<String>): String {
-    val pageWidth = 595
-    val pageHeight = 842
-    val topMargin = 72
-    val leftMargin = 48
-    val lineHeight = 16
-    val titleLineHeight = 22
-    val linesPerPage = 44
-    val wrappedLines = lines
-        .flatMap { wrapPdfLine(it, 82) }
-        .ifEmpty { listOf("Статистика проекта") }
-    val pages = wrappedLines.chunked(linesPerPage)
-    val objects = mutableListOf<String>()
-    objects += "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj"
-    val firstPageObjectId = 3
-    val fontObjectId = firstPageObjectId + pages.size * 2
-    val pageObjectIds = pages.indices.map { index -> firstPageObjectId + index * 2 }
-    objects += "2 0 obj << /Type /Pages /Kids [${pageObjectIds.joinToString(" ") { "$it 0 R" }}] /Count ${pages.size} >> endobj"
-
-    pages.forEachIndexed { index, pageLines ->
-        val pageObjectId = firstPageObjectId + index * 2
-        val contentObjectId = pageObjectId + 1
-        val streamContent = buildPageStream(
-            lines = pageLines,
-            leftMargin = leftMargin,
-            pageHeight = pageHeight,
-            topMargin = topMargin,
-            lineHeight = lineHeight,
-            titleLineHeight = titleLineHeight,
-            isFirstPage = index == 0,
-        )
-
-        objects += buildString {
-            append("$pageObjectId 0 obj << /Type /Page /Parent 2 0 R ")
-            append("/MediaBox [0 0 $pageWidth $pageHeight] ")
-            append("/Contents $contentObjectId 0 R ")
-            append("/Resources << /Font << /F1 $fontObjectId 0 R >> >> >> endobj")
-        }
-        objects += "$contentObjectId 0 obj << /Length ${streamContent.encodeToByteArray().size} >> stream\n$streamContent\nendstream endobj"
-    }
-
-    objects += "$fontObjectId 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj"
-
-    val header = "%PDF-1.4\n"
-    val builder = StringBuilder(header)
-    val offsets = mutableListOf<Int>()
-    offsets += 0
-    var currentOffset = header.encodeToByteArray().size
-
-    objects.forEach { objectText ->
-        offsets += currentOffset
-        builder.append(objectText).append('\n')
-        currentOffset = builder.toString().encodeToByteArray().size
-    }
-
-    val xrefOffset = builder.toString().encodeToByteArray().size
-    val xref = buildString {
-        append("xref\n")
-        append("0 ${objects.size + 1}\n")
-        append("0000000000 65535 f \n")
-        offsets.drop(1).forEach { offset ->
-            append(offset.toString().padStart(10, '0')).append(" 00000 n \n")
-        }
-        append("trailer\n")
-        append("<< /Size ${objects.size + 1} /Root 1 0 R >>\n")
-        append("startxref\n")
-        append("$xrefOffset\n")
-        append("%%EOF")
-    }
-
-    return builder.append(xref).toString()
-}
-
-private fun buildPageStream(
-    lines: List<String>,
-    leftMargin: Int,
-    pageHeight: Int,
-    topMargin: Int,
-    lineHeight: Int,
-    titleLineHeight: Int,
-    isFirstPage: Boolean,
-): String {
-    val contentLines = mutableListOf<String>()
-    contentLines += "BT"
-
-    if (isFirstPage && lines.isNotEmpty()) {
-        contentLines += "/F1 18 Tf"
-        contentLines += "$leftMargin ${pageHeight - topMargin} Td"
-        contentLines += "(${escapePdfText(lines.first())}) Tj"
-        if (lines.size > 1) {
-            contentLines += "0 -$titleLineHeight Td"
-            contentLines += "/F1 12 Tf"
-            lines.drop(1).forEachIndexed { index, rawLine ->
-                if (index > 0) {
-                    contentLines += "0 -$lineHeight Td"
-                }
-                rawLine.takeIf { it.isNotBlank() }?.let {
-                    contentLines += "(${escapePdfText(it)}) Tj"
-                }
-            }
-        }
-    } else {
-        contentLines += "/F1 12 Tf"
-        contentLines += "$leftMargin ${pageHeight - topMargin} Td"
-        lines.forEachIndexed { index, rawLine ->
-            if (index > 0) {
-                contentLines += "0 -$lineHeight Td"
-            }
-            rawLine.takeIf { it.isNotBlank() }?.let {
-                contentLines += "(${escapePdfText(it)}) Tj"
-            }
-        }
-    }
-
-    contentLines += "ET"
-    return contentLines.joinToString("\n")
-}
-
-private fun wrapPdfLine(value: String, maxChars: Int): List<String> {
-    if (value.length <= maxChars) return listOf(value)
-    if (value.isBlank()) return listOf("")
-
-    val lines = mutableListOf<String>()
-    var current = ""
-
-    value.split(Regex("\\s+")).forEach { word ->
-        val candidate = if (current.isBlank()) word else "$current $word"
-        if (candidate.length <= maxChars) {
-            current = candidate
-        } else {
-            if (current.isNotBlank()) {
-                lines += current
-            }
-            current = word
-        }
-    }
-
-    if (current.isNotBlank()) {
-        lines += current
-    }
-
-    return lines.ifEmpty { listOf(value) }
-}
-
-private fun escapePdfText(value: String): String {
-    return value
-        .replace("\\", "\\\\")
-        .replace("(", "\\(")
-        .replace(")", "\\)")
-        .replace("\r", " ")
-        .replace("\n", " ")
 }

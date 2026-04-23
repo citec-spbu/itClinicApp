@@ -195,7 +195,7 @@ class RankingRepository(
             val members = buildMembers(detail, githubUrl)
 
             RatingSyncProject(
-                id = project.id,
+                id = project.slug?.takeIf { it.isNotBlank() } ?: project.id,
                 name = project.name,
                 description = detailProject?.description ?: project.description,
                 dateStart = detailProject?.dateStart ?: project.dateStart,

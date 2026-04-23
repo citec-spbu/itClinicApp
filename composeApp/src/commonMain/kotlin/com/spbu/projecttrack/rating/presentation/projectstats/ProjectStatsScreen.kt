@@ -1,17 +1,30 @@
 package com.spbu.projecttrack.rating.presentation.projectstats
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseOutBack
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -25,6 +38,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -59,6 +73,8 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -69,6 +85,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -109,6 +126,7 @@ import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsScr
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsTarget
 import com.spbu.projecttrack.rating.presentation.settings.defaultStatsScreenSectionIds
 import com.spbu.projecttrack.rating.presentation.settings.statsScreenSectionsFromIds
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import androidx.compose.ui.backhandler.BackHandler
@@ -1414,6 +1432,12 @@ private fun BarChart(
         val barWidth = (slotWidth - 10.dp).coerceAtLeast(14.dp)
         val tooltipWidth = with(density) { tooltipSize.width.toDp() }
         val tooltipHalfWidth = tooltipWidth / 2
+        var renderedTooltipIndex by remember(displayPoints) { mutableStateOf<Int?>(null) }
+        LaunchedEffect(selectedIndex) {
+            if (selectedIndex != null) {
+                renderedTooltipIndex = selectedIndex
+            }
+        }
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -1447,38 +1471,31 @@ private fun BarChart(
                                 animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
                                 label = "bar_height_$index"
                             )
+                            val barHeight = when {
+                                animatedFraction <= 0f -> 0.dp
+                                else -> plotHeight * animatedFraction
+                            }
                             Box(
                                 modifier = Modifier
                                     .width(slotWidth)
                                     .fillMaxHeight()
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clickable {
-                                            selectedIndex = if (selectedIndex == index) null else index
-                                        },
-                                    contentAlignment = Alignment.BottomCenter
-                                ) {
-                                    val barHeight = when {
-                                        animatedFraction <= 0f -> 0.dp
-                                        else -> plotHeight * animatedFraction
+                                AnimatedBarSlot(
+                                    selected = selectedIndex == index,
+                                    barWidth = barWidth,
+                                    barHeight = barHeight,
+                                    onClick = {
+                                        selectedIndex = if (selectedIndex == index) null else index
                                     }
-                                    Box(
-                                        modifier = Modifier
-                                            .width(barWidth)
-                                            .height(barHeight)
-                                            .background(Color(0xFFBDBDBD), BarShape)
-                                    )
-                                }
+                                )
                             }
                         }
                     }
                 }
-
-                selectedIndex?.let { index ->
+                renderedTooltipIndex?.let { index ->
                     val centerX = plotStart + slotWidth * index + (slotWidth / 2)
-                    TooltipBubble(
+                    AnimatedTooltipBubble(
+                        visible = selectedIndex != null,
                         text = formatChartTooltip(
                             point = displayPoints[index],
                             tooltipTitle = tooltipTitle,
@@ -1491,7 +1508,7 @@ private fun BarChart(
                                     plotStart,
                                     width - tooltipWidth
                                 ),
-                                y = 18.dp,
+                                y = ChartPlotTopPadding,
                             ),
                     )
                 }
@@ -1532,15 +1549,6 @@ private fun LineChart(
     tooltipTitle: String,
     modifier: Modifier = Modifier
 ) {
-    val displayPoints = remember(points) { condenseChartPoints(points) }
-    var selectedIndex by remember(displayPoints) { mutableStateOf<Int?>(null) }
-    var tooltipSize by remember { mutableStateOf(IntSize.Zero) }
-    val axisScale = remember(displayPoints) {
-        buildChartAxisScale(displayPoints.maxOfOrNull { it.value } ?: 1f)
-    }
-    val maxValue = axisScale.maxValue
-    val density = LocalDensity.current
-
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -1552,10 +1560,29 @@ private fun LineChart(
         val axisLabelGap = ChartYAxisGap
         val plotStart = ChartHorizontalPadding + axisWidth + axisLabelGap
         val plotEndPadding = plotStart
+        val maxVisiblePoints = (((width - plotStart - plotEndPadding) / 28.dp).toInt())
+            .coerceAtLeast(4)
+        val displayPoints = remember(points, maxVisiblePoints) {
+            condenseChartPoints(points, maxVisiblePoints)
+        }
+        var selectedIndex by remember(displayPoints) { mutableStateOf<Int?>(null) }
+        var tooltipSize by remember { mutableStateOf(IntSize.Zero) }
+        val axisScale = remember(displayPoints) {
+            buildChartAxisScale(displayPoints.maxOfOrNull { it.value } ?: 1f)
+        }
+        val maxValue = axisScale.maxValue
+        val density = LocalDensity.current
         val slotWidth = ((width - plotStart - plotEndPadding) / displayPoints.size.coerceAtLeast(1))
             .coerceAtLeast(18.dp)
         val tooltipWidth = with(density) { tooltipSize.width.toDp() }
+        val tooltipHeight = with(density) { tooltipSize.height.toDp() }
         val tooltipHalfWidth = tooltipWidth / 2
+        var renderedTooltipIndex by remember(displayPoints) { mutableStateOf<Int?>(null) }
+        LaunchedEffect(selectedIndex) {
+            if (selectedIndex != null) {
+                renderedTooltipIndex = selectedIndex
+            }
+        }
         val pointPositions = remember(displayPoints, plotHeight, maxValue) {
             displayPoints.mapIndexed { index, point ->
                 val fraction = (point.value / maxValue).coerceIn(0f, 1f)
@@ -1594,69 +1621,38 @@ private fun LineChart(
                         color = AppColors.Color2,
                         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                     )
-
-                    pointPositions.forEachIndexed { index, point ->
-                        drawCircle(
-                            color = if (selectedIndex == index) AppColors.Color3 else AppColors.Color2,
-                            radius = if (selectedIndex == index) 5.dp.toPx() else 4.dp.toPx(),
-                            center = Offset(point.x.dp.toPx(), point.y.dp.toPx())
-                        )
-                    }
+                }
+                pointPositions.forEachIndexed { index, point ->
+                    AnimatedChartPointButton(
+                        center = point,
+                        selected = selectedIndex == index,
+                        onClick = {
+                            selectedIndex = if (selectedIndex == index) null else index
+                        }
+                    )
                 }
 
-                selectedIndex?.let { index ->
+                renderedTooltipIndex?.let { index ->
                     val tooltipX = (pointPositions[index].x.dp - tooltipHalfWidth)
                         .coerceIn(plotStart, width - tooltipWidth)
-                    TooltipBubble(
+                    val pointTopY = (pointPositions[index].y - 18f).dp
+                    val tooltipY = (pointTopY - tooltipHeight - 8.dp)
+                        .coerceAtLeast(ChartPlotTopPadding)
+                    AnimatedTooltipBubble(
+                        visible = selectedIndex != null,
                         text = formatChartTooltip(
                             point = displayPoints[index],
                             tooltipTitle = tooltipTitle,
+                            includeLabel = true,
                         ),
                         onClose = { selectedIndex = null },
                         modifier = Modifier
                             .onSizeChanged { tooltipSize = it }
                             .offset(
                                 x = tooltipX,
-                                y = (pointPositions[index].y - 44f).dp
+                                y = tooltipY,
                             )
                     )
-                }
-
-                pointPositions.forEachIndexed { index, point ->
-                    Box(
-                        modifier = Modifier
-                            .offset(x = (point.x - 16f).dp, y = (point.y - 16f).dp)
-                            .size(32.dp)
-                            .clickable {
-                                selectedIndex = if (selectedIndex == index) null else index
-                            }
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = plotStart, end = plotEndPadding, top = ChartXAxisGap),
-                horizontalArrangement = Arrangement.Start
-            ) {
-                displayPoints.forEach { point ->
-                    Box(
-                        modifier = Modifier.width(slotWidth),
-                        contentAlignment = Alignment.TopCenter,
-                    ) {
-                        Text(
-                            text = point.label,
-                            fontFamily = AppFonts.OpenSansMedium,
-                            fontSize = 11.sp,
-                            lineHeight = 12.sp,
-                            letterSpacing = 0.11.sp,
-                            color = AppColors.Color2,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
                 }
             }
         }
@@ -1731,18 +1727,24 @@ private fun GridBackground(
 private fun formatChartTooltip(
     point: ProjectStatsChartPointUi,
     tooltipTitle: String,
+    includeLabel: Boolean = false,
 ): String {
-    if (tooltipTitle.contains("коммит", ignoreCase = true)) {
+    val valueText = if (tooltipTitle.contains("коммит", ignoreCase = true)) {
         val count = point.value.roundToInt()
-        return "$count ${pluralizeRussian(count, "коммит", "коммита", "коммитов")}"
-    }
-    if (tooltipTitle.contains("Pull Request", ignoreCase = true) &&
+        "$count ${pluralizeRussian(count, "коммит", "коммита", "коммитов")}"
+    } else if (tooltipTitle.contains("Pull Request", ignoreCase = true) &&
         !tooltipTitle.contains("быст", ignoreCase = true)
     ) {
         val count = point.value.roundToInt()
-        return "$count ${if (count == 1) "открытый PR" else "открытых PR"}"
+        "$count ${if (count == 1) "открытый PR" else "открытых PR"}"
+    } else {
+        if (!includeLabel) tooltipTitle else point.hint.ifBlank { tooltipTitle }
     }
-    return point.hint.ifBlank { tooltipTitle }
+
+    if (!includeLabel) return valueText
+
+    val label = point.tooltipLabel.trim()
+    return if (label.isBlank()) valueText else "$label\n$valueText"
 }
 
 private data class ChartAxisScale(
@@ -1777,6 +1779,48 @@ private fun pluralizeRussian(
 }
 
 @Composable
+private fun AnimatedTooltipBubble(
+    visible: Boolean,
+    text: String,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(animationSpec = tween(durationMillis = 180)) +
+            scaleIn(
+                initialScale = 0.88f,
+                animationSpec = spring(
+                    dampingRatio = 0.82f,
+                    stiffness = 560f,
+                ),
+            ) +
+            slideInVertically(
+                initialOffsetY = { -it / 3 },
+                animationSpec = spring(
+                    dampingRatio = 0.86f,
+                    stiffness = 640f,
+                ),
+            ),
+        exit = fadeOut(animationSpec = tween(durationMillis = 140)) +
+            scaleOut(
+                targetScale = 0.92f,
+                animationSpec = tween(durationMillis = 170),
+            ) +
+            slideOutVertically(
+                targetOffsetY = { -it / 5 },
+                animationSpec = tween(durationMillis = 170),
+            ),
+    ) {
+        TooltipBubble(
+            text = text,
+            onClose = onClose,
+        )
+    }
+}
+
+@Composable
 private fun TooltipBubble(
     text: String,
     onClose: () -> Unit,
@@ -1788,26 +1832,375 @@ private fun TooltipBubble(
         color = Color.White,
         shadowElevation = 3.dp
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
+                .padding(start = 8.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = text,
                 fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 10.sp,
-                lineHeight = 20.sp,
+                lineHeight = 14.sp,
                 letterSpacing = 0.1.sp,
                 color = AppColors.Color2,
-                modifier = Modifier.padding(end = 24.dp)
+                modifier = Modifier.weight(1f, fill = false)
             )
+            AnimatedTooltipCloseButton(onClick = onClose)
+        }
+    }
+}
+
+@Composable
+private fun AnimatedTooltipCloseButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    var tapCounter by remember { mutableStateOf(0) }
+    var closePending by remember { mutableStateOf(false) }
+    val tapRotation = remember { Animatable(0f) }
+    val tapScale = remember { Animatable(1f) }
+    val haloProgress = remember { Animatable(0f) }
+
+    LaunchedEffect(tapCounter) {
+        if (tapCounter > 0) {
+            tapRotation.snapTo(0f)
+            tapRotation.animateTo(
+                targetValue = 92f,
+                animationSpec = tween(durationMillis = 170, easing = EaseOutBack),
+            )
+            tapRotation.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = 0.72f,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            )
+        }
+    }
+    LaunchedEffect(tapCounter) {
+        if (tapCounter > 0) {
+            tapScale.snapTo(0.84f)
+            tapScale.animateTo(
+                targetValue = 1.12f,
+                animationSpec = tween(durationMillis = 130, easing = EaseOutBack),
+            )
+            tapScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = 0.76f,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            )
+        }
+    }
+    LaunchedEffect(tapCounter) {
+        if (tapCounter > 0) {
+            haloProgress.snapTo(0f)
+            haloProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 420, easing = EaseOutBack),
+            )
+            haloProgress.snapTo(0f)
+        }
+    }
+    LaunchedEffect(closePending) {
+        if (closePending) {
+            delay(120)
+            onClick()
+            closePending = false
+        }
+    }
+
+    Box(
+        modifier = modifier.size(28.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Emit halo ring on tap
+        if (haloProgress.value > 0f) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        val p = haloProgress.value
+                        val s = 1f + p * 0.9f
+                        scaleX = s
+                        scaleY = s
+                        alpha = (1f - p) * 0.45f
+                    }
+                    .background(AppColors.Color3, CircleShape)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .graphicsLayer {
+                    scaleX = tapScale.value
+                    scaleY = tapScale.value
+                    rotationZ = tapRotation.value
+                }
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = {
+                        if (!closePending) {
+                            tapCounter++
+                            closePending = true
+                        }
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
             Image(
                 painter = painterResource(Res.drawable.stats_tooltip_close),
                 contentDescription = "Закрыть",
+                modifier = Modifier.size(12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnimatedChartPointButton(
+    center: Offset,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val infiniteTransition = rememberInfiniteTransition(label = "chart_point_pulse")
+    var tapCounter by remember { mutableStateOf(0) }
+    val tapScale = remember { Animatable(1f) }
+    val tapBurstProgress = remember { Animatable(0f) }
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 920),
+        ),
+        label = "chart_point_pulse_scale",
+    )
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.18f,
+        targetValue = 0.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 920),
+        ),
+        label = "chart_point_pulse_alpha",
+    )
+    LaunchedEffect(tapCounter) {
+        if (tapCounter > 0) {
+            tapScale.snapTo(0.86f)
+            tapScale.animateTo(
+                targetValue = 1.16f,
+                animationSpec = tween(durationMillis = 145, easing = EaseOutBack),
+            )
+            tapScale.animateTo(
+                targetValue = if (selected) 1.08f else 1f,
+                animationSpec = spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow),
+            )
+        }
+    }
+    LaunchedEffect(tapCounter) {
+        if (tapCounter > 0) {
+            tapBurstProgress.snapTo(0f)
+            tapBurstProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 320),
+            )
+            tapBurstProgress.snapTo(0f)
+        }
+    }
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.08f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 760f),
+        label = "chart_point_scale",
+    )
+    val haloAlpha by animateFloatAsState(
+        targetValue = if (selected) 0.2f else 0f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 700f),
+        label = "chart_point_halo_alpha",
+    )
+    val outerSize by animateDpAsState(
+        targetValue = if (selected) 18.dp else 16.dp,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 780f),
+        label = "chart_point_outer_size",
+    )
+    val innerSize by animateDpAsState(
+        targetValue = if (selected) 8.dp else 6.dp,
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = 820f),
+        label = "chart_point_inner_size",
+    )
+
+    Box(
+        modifier = Modifier
+            .offset(x = (center.x - 18f).dp, y = (center.y - 18f).dp)
+            .size(36.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (tapBurstProgress.value > 0f) {
+            Box(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .size(12.dp)
-                    .clickable(onClick = onClose)
+                    .size(34.dp)
+                    .graphicsLayer {
+                        val progress = tapBurstProgress.value
+                        val burstScale = 0.9f + progress * 0.85f
+                        scaleX = burstScale
+                        scaleY = burstScale
+                        alpha = (1f - progress) * 0.42f
+                    }
+                    .border(1.5.dp, AppColors.Color3.copy(alpha = 0.7f), CircleShape)
+            )
+        }
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .graphicsLayer {
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                    }
+                    .background(AppColors.Color3.copy(alpha = pulseAlpha), CircleShape)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .graphicsLayer {
+                    val combinedScale = scale * tapScale.value
+                    scaleX = combinedScale
+                    scaleY = combinedScale
+                }
+                .background(AppColors.Color3.copy(alpha = haloAlpha), CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = {
+                        tapCounter++
+                        onClick()
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(outerSize)
+                    .graphicsLayer {
+                        val combinedScale = scale * tapScale.value
+                        scaleX = combinedScale
+                        scaleY = combinedScale
+                    }
+                    .background(if (selected) AppColors.Color3 else AppColors.Color2, CircleShape)
+                    .border(2.dp, Color.White, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(innerSize)
+                        .background(Color.White, CircleShape)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnimatedBarSlot(
+    selected: Boolean,
+    barWidth: Dp,
+    barHeight: Dp,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    var tapCounter by remember { mutableStateOf(0) }
+    val tapScale = remember { Animatable(1f) }
+    val burstProgress = remember { Animatable(0f) }
+
+    // Scale bounce on tap
+    LaunchedEffect(tapCounter) {
+        if (tapCounter > 0) {
+            tapScale.snapTo(0.88f)
+            tapScale.animateTo(
+                targetValue = 1.09f,
+                animationSpec = tween(durationMillis = 120, easing = EaseOutBack),
+            )
+            tapScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = 0.74f,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            )
+        }
+    }
+    // Burst ring fade-out on tap
+    LaunchedEffect(tapCounter) {
+        if (tapCounter > 0) {
+            burstProgress.snapTo(0f)
+            burstProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 320),
+            )
+            burstProgress.snapTo(0f)
+        }
+    }
+
+    val barColor by animateColorAsState(
+        targetValue = if (selected) AppColors.Color3 else Color(0xFFBDBDBD),
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 580f),
+        label = "bar_color",
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+            ) {
+                tapCounter++
+                onClick()
+            },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        // Expanding burst ring around the bar on tap
+        if (burstProgress.value > 0f && barHeight > 0.dp) {
+            Box(
+                modifier = Modifier
+                    .width(barWidth + (burstProgress.value * 6f).dp)
+                    .height((barHeight + (burstProgress.value * 4f).dp).coerceAtLeast(4.dp))
+                    .graphicsLayer {
+                        alpha = (1f - burstProgress.value) * 0.50f
+                    }
+                    .border(1.5.dp, AppColors.Color3.copy(alpha = 0.55f), BarShape),
+            )
+        }
+        // The bar itself — scales from its bottom center
+        if (barHeight > 0.dp) {
+            Box(
+                modifier = Modifier
+                    .width(barWidth)
+                    .height(barHeight)
+                    .graphicsLayer {
+                        scaleX = tapScale.value
+                        scaleY = tapScale.value
+                        transformOrigin = TransformOrigin(0.5f, 1f)
+                    }
+                    .background(barColor, BarShape),
+            )
+        } else if (selected) {
+            // Tiny indicator dot for zero-value selected bar
+            Box(
+                modifier = Modifier
+                    .width(barWidth)
+                    .height(3.dp)
+                    .background(barColor, BarShape),
             )
         }
     }
@@ -1828,6 +2221,7 @@ private fun condenseChartPoints(
         val tooltipLabel = if (chunk.size == 1) startLabel else chartRangeTooltipLabel(startLabel, endLabel)
         ProjectStatsChartPointUi(
             label = axisLabel,
+            tooltipLabel = tooltipLabel,
             value = totalValue,
             valueLabel = totalValue.roundToInt().toString(),
             hint = if (chunk.size == 1) {
@@ -1972,21 +2366,19 @@ internal fun FileStatsCard(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(40.dp),
+                                    .height(IntrinsicSize.Min),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = row.fileName,
+                                    text = row.fileName.replace("/", "/\u200B"),
                                     fontFamily = AppFonts.OpenSansMedium,
                                     fontSize = 13.sp,
                                     lineHeight = 20.sp,
                                     letterSpacing = 0.13.sp,
                                     color = AppColors.Color2,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .padding(start = 12.dp, end = 10.dp),
+                                        .padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
                                     textAlign = TextAlign.Start,
                                 )
                                 Box(
@@ -2091,6 +2483,15 @@ internal fun DonutChart(
         val strokeWidth = outerRadius - innerRadius
 
         Canvas(modifier = Modifier.size(chartSize)) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val innerPx = innerRadius.toPx()
+            val outerPx = outerRadius.toPx()
+            val strokeWidthPx = strokeWidth.toPx()
+            // Рисуем дугу по центральной линии кольца, чтобы innerRadius/outerRadius
+            // точно соответствовали реальным границам кольца
+            val arcPathPx = (innerPx + outerPx) / 2f
+
             var startAngle = -90f
             slices.forEach { slice ->
                 val sweep = ((slice.value / total.toFloat()) * 360f) * progress
@@ -2099,40 +2500,40 @@ internal fun DonutChart(
                     startAngle = startAngle,
                     sweepAngle = sweep,
                     useCenter = false,
-                    style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Butt)
+                    topLeft = androidx.compose.ui.geometry.Offset(cx - arcPathPx, cy - arcPathPx),
+                    size = androidx.compose.ui.geometry.Size(arcPathPx * 2f, arcPathPx * 2f),
+                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
                 )
                 startAngle += sweep
             }
         }
 
+        // Подписи: биссектриса сегмента соединяет innerRadius и outerRadius,
+        // её середина = (innerRadius + outerRadius) / 2 — гарантированно внутри кольца
+        val ringRadius = (innerRadius.value + outerRadius.value) / 2f
         var start = -90f
         slices.forEach { slice ->
             val sweep = (slice.value / total.toFloat()) * 360f
-            val middle = start + sweep / 2f
+            val middle = start + sweep / 2f   // середина угловой дуги = биссектриса
             val angle = middle * (PI / 180.0)
-            val radius = innerRadius.value + ((outerRadius - innerRadius).value * 0.72f)
-            val x = kotlin.math.cos(angle).toFloat() * radius
-            val y = kotlin.math.sin(angle).toFloat() * radius
-            val arcLength = 2 * PI.toFloat() * radius * (sweep / 360f)
-            if (
-                slices.size > 1 &&
-                slice.value > 0f &&
-                sweep >= 32f &&
-                arcLength >= slice.percentLabel.length * 9f
-            ) {
+            val x = kotlin.math.cos(angle).toFloat() * ringRadius
+            val y = kotlin.math.sin(angle).toFloat() * ringRadius
+            val arcLength = 2f * PI.toFloat() * ringRadius * (sweep / 360f)
+            val text = slice.percentLabel
+            if (slice.value > 0f && sweep >= 28f && arcLength >= text.length * 9f) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .offset(x = x.dp, y = y.dp)
-                        .defaultMinSize(minWidth = 32.dp),
+                        .defaultMinSize(minWidth = 36.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = slice.percentLabel,
+                        text = text,
                         fontFamily = AppFonts.OpenSansBold,
-                        fontSize = 11.sp,
-                        lineHeight = 12.sp,
-                        letterSpacing = 0.11.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 15.sp,
+                        letterSpacing = 0.sp,
                         color = Color.White,
                         textAlign = TextAlign.Center,
                     )
@@ -2151,7 +2552,9 @@ internal fun FooterActions(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         FooterActionRow(
@@ -2201,14 +2604,34 @@ private fun FooterActionRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 600f),
+        label = "footer_press_scale"
+    )
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        icon()
+        // Фиксированная ширина = самая широкая иконка (Settings, 20dp).
+        // Все иконки центрируются внутри — их центры совпадают, текст начинается с одного X.
+        Box(
+            modifier = Modifier.width(20.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            icon()
+        }
         Text(
             text = text,
             fontFamily = AppFonts.OpenSansMedium,

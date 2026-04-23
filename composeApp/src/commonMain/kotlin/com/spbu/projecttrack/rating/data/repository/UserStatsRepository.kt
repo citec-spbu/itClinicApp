@@ -1,5 +1,6 @@
 package com.spbu.projecttrack.rating.data.repository
 
+import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.projects.data.api.ProjectsApi
 import com.spbu.projecttrack.projects.data.model.Member
 import com.spbu.projecttrack.projects.data.model.Project
@@ -103,7 +104,10 @@ class UserStatsRepository(
                 )
 
                 val metricDetail = resolvedProject.metricDetail
-                    ?: metricApi.getProjectDetail(resolvedProject.projectKey).getOrNull()
+                    ?: fetchMetricProjectDetail(
+                        projectKey = resolvedProject.projectKey,
+                        fallbackProjectId = resolvedProject.project?.id,
+                    )
                     ?: return@coroutineScope Result.failure(
                         RuntimeException("Не удалось загрузить метрики пользователя")
                     )
@@ -350,6 +354,20 @@ class UserStatsRepository(
         return projectsApi.getProjectById(projectKey).getOrNull()
     }
 
+    private suspend fun fetchMetricProjectDetail(
+        projectKey: String,
+        fallbackProjectId: String?,
+    ): MetricProjectDetail? {
+        metricApi.getProjectDetail(projectKey).getOrNull()?.let { return it }
+
+        val fallbackId = fallbackProjectId
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && it != projectKey }
+            ?: return null
+
+        return metricApi.getProjectDetail(fallbackId).getOrNull()
+    }
+
     private fun findRegistryProject(
         projects: List<Project>,
         metricDetail: MetricProjectDetail,
@@ -475,7 +493,7 @@ class UserStatsRepository(
             addAll(issuesRaw.mapNotNull { parseInstant(it.created_at) })
             addAll(issuesRaw.mapNotNull { parseInstant(it.closed_at) })
             addAll(pullRequestsRaw.mapNotNull { parseInstant(it.created_at) })
-            addAll(pullRequestsRaw.mapNotNull { parseInstant(it.closed_at) })
+            addAll(pullRequestsRaw.mapNotNull { pullRequestCompletedAtIso(it)?.let(::parseInstant) })
         }
         val window = resolveWindow(
             selectedStartDate = selectedStartDate,
@@ -491,7 +509,8 @@ class UserStatsRepository(
                 isInWindow(parseInstant(issue.closed_at), window)
         }
         val pullRequests = pullRequestsRaw.filter { pullRequest ->
-            isInWindow(parseInstant(pullRequest.created_at), window)
+            isInWindow(parseInstant(pullRequest.created_at), window) ||
+                isInWindow(pullRequestCompletedAtIso(pullRequest)?.let(::parseInstant), window)
         }
 
         val totalProjectLines = commits.sumOf { commit ->
@@ -548,6 +567,7 @@ class UserStatsRepository(
         teamUsers: List<TeamUserIdentity>,
         selectedUser: TeamUserIdentity,
     ): StatsDetailDataUi {
+        val nowIso = Instant.fromEpochMilliseconds(PlatformTime.currentTimeMillis()).toString()
         val displayNames = teamUsers.associateBy(
             keySelector = { normalizeLogin(it.login) ?: personNameKey(it.displayName) },
             valueTransform = { it.displayName },
@@ -615,6 +635,7 @@ class UserStatsRepository(
                 )
             },
             pullRequests = context.pullRequests.map { pullRequest ->
+                val completedAtIso = pullRequestCompletedAtIso(pullRequest)
                 StatsDetailPullRequestUi(
                     authorId = normalizeLogin(pullRequest.user?.login),
                     authorName = resolveUserDisplayName(pullRequest.user?.login, displayNames),
@@ -624,8 +645,9 @@ class UserStatsRepository(
                     }.filter { it.isNotBlank() },
                     createdAtIso = pullRequest.created_at,
                     createdAtLabel = formatDateTimeLabel(pullRequest.created_at),
-                    closedAtIso = pullRequest.closed_at,
-                    closedAtLabel = formatDateTimeLabel(pullRequest.closed_at),
+                    closedAtIso = completedAtIso,
+                    closedAtLabel = completedAtIso?.let(::formatDateTimeLabel),
+                    effectiveEndAtIso = completedAtIso ?: nowIso,
                     title = pullRequest.title?.trim().takeUnless { it.isNullOrBlank() }
                         ?: pullRequest.number?.let { "Pull Request #$it" }
                         ?: "Pull Request",
@@ -688,7 +710,7 @@ class UserStatsRepository(
             }
         }
 
-        val closedPullRequests = userPullRequests.filter { !it.closed_at.isNullOrBlank() }
+        val closedPullRequests = userPullRequests.filter { pullRequestCompletedAtMillis(it) != null }
         val rapidPullRequests = closedPullRequests.filter {
             isRapidPullRequest(it, rapidThresholdMinutes.toLong() * MILLIS_PER_MINUTE)
         }
@@ -1158,12 +1180,7 @@ class UserStatsRepository(
     }
 
     private fun pullRequestHangScore(pullRequests: List<ProjectPullRequestSnapshot>): Double? {
-        val durations = pullRequests.mapNotNull { request ->
-            val created = parseInstant(request.created_at)?.toEpochMilliseconds() ?: return@mapNotNull null
-            val closed = parseInstant(request.closed_at)?.toEpochMilliseconds() ?: return@mapNotNull null
-            if (closed <= created) return@mapNotNull null
-            closed - created
-        }
+        val durations = pullRequests.mapNotNull(::pullRequestLifetimeMillis)
         if (durations.isEmpty()) return null
 
         val averageHangTime = durations.average()
@@ -1301,8 +1318,44 @@ class UserStatsRepository(
         thresholdMs: Long,
     ): Boolean {
         val created = parseInstant(pullRequest.created_at)?.toEpochMilliseconds() ?: return false
-        val closed = parseInstant(pullRequest.closed_at)?.toEpochMilliseconds() ?: return false
+        val closed = pullRequestCompletedAtMillis(pullRequest) ?: return false
         return closed - created < thresholdMs
+    }
+
+    private fun pullRequestLifetimeMillis(
+        pullRequest: ProjectPullRequestSnapshot,
+        nowMillis: Long = PlatformTime.currentTimeMillis(),
+    ): Long? {
+        val created = parseInstant(pullRequest.created_at)?.toEpochMilliseconds() ?: return null
+        val end = pullRequestCompletedAtMillis(pullRequest)
+            ?: nowMillis.takeIf { pullRequest.state.equals("open", ignoreCase = true) }
+            ?: return null
+        if (end <= created) return null
+        return end - created
+    }
+
+    private fun pullRequestCompletedAtIso(
+        pullRequest: ProjectPullRequestSnapshot,
+    ): String? {
+        val candidates = if (pullRequest.state.equals("open", ignoreCase = true)) {
+            listOf(pullRequest.merged_at, pullRequest.pull_request?.merged_at, pullRequest.closed_at)
+        } else {
+            listOf(
+                pullRequest.merged_at,
+                pullRequest.pull_request?.merged_at,
+                pullRequest.closed_at,
+                pullRequest.updated_at,
+            )
+        }
+        return candidates.firstOrNull { parseInstant(it) != null }
+    }
+
+    private fun pullRequestCompletedAtMillis(
+        pullRequest: ProjectPullRequestSnapshot,
+    ): Long? {
+        return pullRequestCompletedAtIso(pullRequest)
+            ?.let(::parseInstant)
+            ?.toEpochMilliseconds()
     }
 
     private fun resolveWindow(
@@ -1607,6 +1660,9 @@ class UserStatsRepository(
         val assignees: List<ProjectSnapshotUser> = emptyList(),
         val created_at: String? = null,
         val closed_at: String? = null,
+        val merged_at: String? = null,
+        val pull_request: ProjectPullRequestMeta? = null,
+        val updated_at: String? = null,
         val title: String? = null,
         val number: Int? = null,
         val state: String? = null,
@@ -1616,6 +1672,11 @@ class UserStatsRepository(
         val deletions: Int? = null,
         val changed_files: Int? = null,
         val html_url: String? = null,
+    )
+
+    @Serializable
+    private data class ProjectPullRequestMeta(
+        val merged_at: String? = null,
     )
 
     @Serializable

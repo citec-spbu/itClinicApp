@@ -56,7 +56,8 @@ private class AndroidProjectStatsExporter(
         payload: ProjectStatsExportPayload
     ): Result<ProjectStatsExportResult> = runCatching {
         val file = createOutputFile(payload, "csv")
-        file.writeText(buildProjectStatsCsv(payload))
+        // UTF-8 BOM so Excel opens without an encoding dialog
+        file.writeText("\uFEFF" + buildProjectStatsCsv(payload))
         tryShare(file, "text/csv")
         ProjectStatsExportResult(
             fileName = file.name,

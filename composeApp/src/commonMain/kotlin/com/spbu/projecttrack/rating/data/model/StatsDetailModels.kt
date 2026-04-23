@@ -63,6 +63,7 @@ data class StatsDetailPullRequestUi(
     val createdAtLabel: String,
     val closedAtIso: String? = null,
     val closedAtLabel: String? = null,
+    val effectiveEndAtIso: String? = null,
     val title: String,
     val number: Int? = null,
     val state: String? = null,
