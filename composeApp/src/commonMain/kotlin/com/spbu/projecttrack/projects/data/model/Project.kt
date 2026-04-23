@@ -34,7 +34,8 @@ data class Project(
     val dateEnd: String? = null,
     val slug: String? = null,
     val tags: List<Int>? = null,
-    val client: String? = null // Заказчик
+    val client: String? = null, // Заказчик
+    val links: List<ProjectLink> = emptyList(),
 )
 
 @Serializable
@@ -60,7 +61,15 @@ data class ProjectDetail(
     val requirements: List<String>? = null, // Требования проекта
 
     @SerialName("developerRequirements")
-    val executorRequirements: List<String>? = null // Требования для исполнителей
+    val executorRequirements: List<String>? = null, // Требования для исполнителей
+    val links: List<ProjectLink> = emptyList(),
+)
+
+@Serializable
+data class ProjectLink(
+    val id: Int,
+    val platform: String? = null,
+    val link: String? = null,
 )
 
 @Serializable

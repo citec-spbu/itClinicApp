@@ -102,6 +102,7 @@ data class ProjectStatsWeekDaySectionUi(
 
 data class ProjectStatsChartPointUi(
     val label: String,
+    val tooltipLabel: String = label,
     val value: Float,
     val valueLabel: String,
     val hint: String

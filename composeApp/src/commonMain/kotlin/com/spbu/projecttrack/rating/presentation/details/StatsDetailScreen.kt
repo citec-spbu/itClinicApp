@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.rating.common.formatDurationMinutesLabel
 import com.spbu.projecttrack.rating.data.model.ProjectStatsChartPointUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsChartType
 import com.spbu.projecttrack.rating.data.model.ProjectStatsDateRangeUi
@@ -459,7 +460,7 @@ private fun LazyListScope.issueItems(
     val current = selectedSnapshot
     val openIssues = filteredIssues.count { it.closedAtIso == null }
     val closedIssues = filteredIssues.size - openIssues
-    val averageLifetime = formatDurationLabel(buildAverageLifetimeMinutes(filteredIssues.mapNotNull {
+    val averageLifetime = formatDurationMinutesLabel(buildAverageLifetimeMinutes(filteredIssues.mapNotNull {
         durationMinutes(it.createdAtIso, it.closedAtIso)
     }))
     val creatorRows = buildIssueCreatorRows(filteredIssues, effectiveParticipantId)
@@ -610,7 +611,7 @@ private fun LazyListScope.pullRequestItems(
 ) {
     val filteredPullRequests = filterPullRequests(details, effectiveParticipantId)
     val current = selectedSnapshot
-    val durationMinutes = filteredPullRequests.mapNotNull { durationMinutes(it.createdAtIso, it.closedAtIso) }
+    val durationMinutes = filteredPullRequests.mapNotNull { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) }
     val distributionSlices = buildPullRequestLifetimeSlices(durationMinutes)
     val contributorRows = snapshots.values
         .sortedByDescending { it.pullRequestCount }
@@ -634,11 +635,11 @@ private fun LazyListScope.pullRequestItems(
     )
     val fastPullRequests = filteredPullRequests
         .filter { isRapidPullRequest(it, rapidThreshold.totalMinutes) }
-        .sortedBy { durationMinutes(it.createdAtIso, it.closedAtIso) ?: Int.MAX_VALUE }
+        .sortedBy { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) ?: Int.MAX_VALUE }
         .take(5)
     val slowPullRequests = filteredPullRequests
-        .filter { durationMinutes(it.createdAtIso, it.closedAtIso) != null }
-        .sortedByDescending { durationMinutes(it.createdAtIso, it.closedAtIso) ?: Int.MIN_VALUE }
+        .filter { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) != null }
+        .sortedByDescending { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) ?: Int.MIN_VALUE }
         .take(5)
 
     item {
@@ -651,7 +652,7 @@ private fun LazyListScope.pullRequestItems(
     }
     item {
         DoubleMetricRow(
-            leftValue = formatDurationLabel(buildAverageLifetimeMinutes(durationMinutes)),
+            leftValue = formatDurationMinutesLabel(buildAverageLifetimeMinutes(durationMinutes)),
             leftCaption = "ср. время жизни",
             rightValue = filteredPullRequests.size.toString(),
             rightCaption = "всего Pull Request",
@@ -666,12 +667,12 @@ private fun LazyListScope.pullRequestItems(
             )
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
-                value = formatDurationLabel(durationMinutes.minOrNull()),
+                value = formatDurationMinutesLabel(durationMinutes.minOrNull()),
                 caption = "мин. время жизни",
             )
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
-                value = formatDurationLabel(durationMinutes.maxOrNull()),
+                value = formatDurationMinutesLabel(durationMinutes.maxOrNull()),
                 caption = "макс. время жизни",
             )
         }
@@ -713,7 +714,7 @@ private fun LazyListScope.pullRequestItems(
                             add("Создано: ${pullRequest.createdAtLabel}")
                             pullRequest.closedAtLabel?.let { add("Закрыто: $it") }
                         },
-                        trailing = formatDurationLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.closedAtIso)),
+                        trailing = formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso)),
                         link = pullRequest.url,
                     )
                 }
@@ -729,7 +730,7 @@ private fun LazyListScope.pullRequestItems(
                         status = pullRequest.state,
                         metaLines = listOf(
                             "Автор: ${pullRequest.authorName}",
-                            "Время: ${formatDurationLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.closedAtIso))}",
+                            "Время: ${formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso))}",
                         ),
                         link = pullRequest.url,
                     )
@@ -747,7 +748,7 @@ private fun LazyListScope.pullRequestItems(
                         status = pullRequest.state,
                         metaLines = listOf(
                             "Автор: ${pullRequest.authorName}",
-                            "Время: ${formatDurationLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.closedAtIso))}",
+                            "Время: ${formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso))}",
                         ),
                         link = pullRequest.url,
                     )
@@ -845,7 +846,7 @@ private fun LazyListScope.rapidPullRequestItems(
                             "Создано: ${pullRequest.createdAtLabel}",
                             "Закрыто: ${pullRequest.closedAtLabel ?: "—"}",
                         ),
-                        trailing = formatDurationLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.closedAtIso)),
+                        trailing = formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso)),
                         link = pullRequest.url,
                     )
                 }
@@ -2209,7 +2210,7 @@ private fun issueCompletenessScore(issues: List<StatsDetailIssueUi>): Double? {
 }
 
 private fun pullRequestHangScore(pullRequests: List<StatsDetailPullRequestUi>): Double? {
-    val durations = pullRequests.mapNotNull { durationMinutes(it.createdAtIso, it.closedAtIso) }
+    val durations = pullRequests.mapNotNull { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) }
     if (durations.isEmpty()) return null
     val averageMinutes = durations.average()
     val averageMillis = averageMinutes * MILLIS_PER_MINUTE
@@ -2251,7 +2252,7 @@ private fun isRapidPullRequest(
     pullRequest: StatsDetailPullRequestUi,
     thresholdMinutes: Int,
 ): Boolean {
-    val duration = durationMinutes(pullRequest.createdAtIso, pullRequest.closedAtIso) ?: return false
+    val duration = durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso) ?: return false
     return duration < thresholdMinutes
 }
 
@@ -2262,7 +2263,8 @@ private fun durationMinutes(
     val start = parseInstant(startIso)?.toEpochMilliseconds() ?: return null
     val end = parseInstant(endIso)?.toEpochMilliseconds() ?: return null
     if (end <= start) return null
-    return ((end - start) / MILLIS_PER_MINUTE).toInt()
+    val minutes = ((end - start) / MILLIS_PER_MINUTE).toInt()
+    return maxOf(1, minutes)
 }
 
 private fun weekdayLabel(value: String?): String? {
@@ -2289,20 +2291,6 @@ private fun formatDate(date: kotlinx.datetime.LocalDate): String {
     val month = date.monthNumber.toString().padStart(2, '0')
     val year = (date.year % 100).toString().padStart(2, '0')
     return "$day.$month.$year"
-}
-
-private fun formatDurationLabel(minutes: Int?): String {
-    if (minutes == null) return "—"
-    if (minutes < 60) return "$minutes мин"
-    if (minutes < 1440) {
-        val hours = minutes / 60
-        val rest = minutes % 60
-        return if (rest == 0) "$hours ч" else "$hours ч $rest мин"
-    }
-    val days = minutes / 1440
-    val restHours = (minutes % 1440) / 60
-    val dayWord = pluralize(days, "день", "дня", "дней")
-    return if (restHours == 0) "$days $dayWord" else "$days $dayWord $restHours ч"
 }
 
 private fun formatCompactNumber(value: Double): String {

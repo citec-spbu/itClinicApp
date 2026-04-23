@@ -5,12 +5,28 @@ import com.spbu.projecttrack.projects.data.model.ProjectDetail
 
 fun extractGithubUrl(project: Project?): String? {
     if (project == null) return null
-    return extractGithubUrlFromText(project.description, project.shortDescription)
+    return extractGithubUrlFromLinks(project.links)
+        ?: extractGithubUrlFromText(project.description, project.shortDescription)
 }
 
 fun extractGithubUrl(project: ProjectDetail?): String? {
     if (project == null) return null
-    return extractGithubUrlFromText(project.description, project.shortDescription)
+    return extractGithubUrlFromLinks(project.links)
+        ?: extractGithubUrlFromText(project.description, project.shortDescription)
+}
+
+private fun extractGithubUrlFromLinks(links: List<com.spbu.projecttrack.projects.data.model.ProjectLink>): String? {
+    return links.firstNotNullOfOrNull { link ->
+        val value = link.link?.trim().orEmpty()
+        if (value.isBlank()) return@firstNotNullOfOrNull null
+
+        val platform = link.platform?.trim().orEmpty()
+        when {
+            platform.equals("GitHub", ignoreCase = true) -> normalizeUrl(value)
+            value.contains("github.com/", ignoreCase = true) -> normalizeUrl(value)
+            else -> null
+        }
+    }
 }
 
 private fun extractGithubUrlFromText(description: String?, shortDescription: String?): String? {

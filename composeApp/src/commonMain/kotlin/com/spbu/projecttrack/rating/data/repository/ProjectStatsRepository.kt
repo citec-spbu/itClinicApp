@@ -1,5 +1,6 @@
 package com.spbu.projecttrack.rating.data.repository
 
+import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.projects.data.api.ProjectsApi
 import com.spbu.projecttrack.projects.data.model.Member
 import com.spbu.projecttrack.projects.data.model.Project
@@ -7,6 +8,7 @@ import com.spbu.projecttrack.projects.data.model.ProjectDetail
 import com.spbu.projecttrack.projects.data.model.ProjectDetailResponse
 import com.spbu.projecttrack.projects.data.model.User
 import com.spbu.projecttrack.rating.data.api.MetricApi
+import com.spbu.projecttrack.rating.common.formatDurationMillisLabel
 import com.spbu.projecttrack.rating.data.model.MetricProjectDetail
 import com.spbu.projecttrack.rating.data.model.MetricProjectMetric
 import com.spbu.projecttrack.rating.data.model.MetricProjectResource
@@ -99,7 +101,13 @@ class ProjectStatsRepository(
                 val allProjects = projectsDeferred.await().getOrNull()
 
                 val resolvedProject = resolveProject(projectId, projectResponse, metricDetail)
-                val resolvedMetricDetail = resolveMetricDetail(resolvedProject, metricDetail)
+                val resolvedMetricDetail = resolveMetricDetail(
+                    resolvedProject,
+                    metricDetail ?: fetchMetricProjectDetail(
+                        projectKey = projectId,
+                        fallbackProjectId = resolvedProject.id,
+                    ),
+                )
                 val primaryResource = selectResource(
                     resources = resolvedMetricDetail.resources,
                     selectedRepositoryId = selectedRepositoryId,
@@ -216,7 +224,10 @@ class ProjectStatsRepository(
             peers.map { project ->
                 async {
                     val peerId = project.slug?.trim().takeUnless { it.isNullOrBlank() } ?: project.id
-                    val peerDetail = metricApi.getProjectDetail(peerId).getOrNull() ?: return@async null
+                    val peerDetail = fetchMetricProjectDetail(
+                        projectKey = peerId,
+                        fallbackProjectId = project.id,
+                    ) ?: return@async null
                     val primaryResource = selectResource(peerDetail.resources, selectedRepositoryId = null)
                     buildResourceSnapshot(
                         resource = primaryResource,
@@ -445,7 +456,7 @@ class ProjectStatsRepository(
             addAll(issuesRaw.mapNotNull { parseInstant(it.created_at) })
             addAll(issuesRaw.mapNotNull { parseInstant(it.closed_at) })
             addAll(pullRequestsRaw.mapNotNull { parseInstant(it.created_at) })
-            addAll(pullRequestsRaw.mapNotNull { parseInstant(it.closed_at) })
+            addAll(pullRequestsRaw.mapNotNull { pullRequestCompletedAtIso(it)?.let(::parseInstant) })
         }
 
         val window = resolveWindow(
@@ -462,10 +473,11 @@ class ProjectStatsRepository(
                 isInWindow(parseInstant(issue.closed_at), window)
         }
         val pullRequests = pullRequestsRaw.filter { pullRequest ->
-            isInWindow(parseInstant(pullRequest.created_at), window)
+            isInWindow(parseInstant(pullRequest.created_at), window) ||
+                isInWindow(pullRequestCompletedAtIso(pullRequest)?.let(::parseInstant), window)
         }
         val closedPullRequests = pullRequests.filter { pullRequest ->
-            !pullRequest.closed_at.isNullOrBlank()
+            pullRequestCompletedAtMillis(pullRequest) != null
         }
         val rapidPullRequests = closedPullRequests.filter { pullRequest ->
             isRapidPullRequest(pullRequest, rapidThresholdMinutes.toLong() * MILLIS_PER_MINUTE)
@@ -489,7 +501,7 @@ class ProjectStatsRepository(
             hintFormatter = { count -> "$count ${openedPullRequestsLabel(count)}" },
         )
         val rapidPullRequestChart = buildChartPoints(
-            dates = rapidPullRequests.mapNotNull { parseInstant(it.closed_at) },
+            dates = rapidPullRequests.mapNotNull { pullRequestCompletedAtIso(it)?.let(::parseInstant) },
             hintFormatter = { count -> "$count быстрых PR" },
         )
 
@@ -564,6 +576,7 @@ class ProjectStatsRepository(
         members: List<ProjectStatsMemberUi>,
         userNameLookup: Map<String, String>,
     ): StatsDetailDataUi {
+        val nowIso = Instant.fromEpochMilliseconds(PlatformTime.currentTimeMillis()).toString()
         return StatsDetailDataUi(
             participants = buildDetailParticipants(
                 members = members,
@@ -620,6 +633,7 @@ class ProjectStatsRepository(
                 )
             },
             pullRequests = snapshot.pullRequests.map { pullRequest ->
+                val completedAtIso = pullRequestCompletedAtIso(pullRequest)
                 StatsDetailPullRequestUi(
                     authorId = normalizeLogin(pullRequest.user?.login),
                     authorName = resolveUserDisplayName(pullRequest.user?.login, userNameLookup),
@@ -629,8 +643,9 @@ class ProjectStatsRepository(
                     }.filter { it.isNotBlank() },
                     createdAtIso = pullRequest.created_at,
                     createdAtLabel = formatDateTimeLabel(pullRequest.created_at),
-                    closedAtIso = pullRequest.closed_at,
-                    closedAtLabel = formatDateTimeLabel(pullRequest.closed_at),
+                    closedAtIso = completedAtIso,
+                    closedAtLabel = completedAtIso?.let(::formatDateTimeLabel),
+                    effectiveEndAtIso = completedAtIso ?: nowIso,
                     title = pullRequest.title?.trim().takeUnless { it.isNullOrBlank() }
                         ?: pullRequest.number?.let { "Pull Request #$it" }
                         ?: "Pull Request",
@@ -1054,39 +1069,9 @@ class ProjectStatsRepository(
     private fun formatAveragePullRequestLifetime(
         pullRequests: List<ProjectPullRequestSnapshot>,
     ): String? {
-        val durations = pullRequests.mapNotNull { request ->
-            val created = parseInstant(request.created_at)?.toEpochMilliseconds() ?: return@mapNotNull null
-            val closed = parseInstant(request.closed_at)?.toEpochMilliseconds()
-                ?: return@mapNotNull null
-            if (closed <= created) return@mapNotNull null
-            closed - created
-        }
+        val durations = pullRequests.mapNotNull(::pullRequestLifetimeMillis)
         if (durations.isEmpty()) return null
-
-        val averageMinutes = (durations.average() / MILLIS_PER_MINUTE.toDouble()).roundToInt()
-        return when {
-            averageMinutes < 60 -> "$averageMinutes мин"
-            averageMinutes < MINUTES_PER_DAY -> {
-                val hours = averageMinutes / 60
-                val minutes = averageMinutes % 60
-                if (minutes == 0) "$hours ч" else "$hours ч $minutes мин"
-            }
-            else -> {
-                val averageDays = durations.average() / MILLIS_PER_DAY.toDouble()
-                val rounded = round2(averageDays)
-                val value = if (rounded % 1.0 == 0.0) {
-                    rounded.toInt().toString()
-                } else {
-                    rounded.toString().replace('.', ',')
-                }
-                val word = if (rounded % 1.0 == 0.0) {
-                    pluralize(rounded.toInt(), "день", "дня", "дней")
-                } else {
-                    "дня"
-                }
-                "$value $word"
-            }
-        }
+        return formatDurationMillisLabel(durations.average())
     }
 
     private fun openedPullRequestsLabel(count: Int): String {
@@ -1161,6 +1146,20 @@ class ProjectStatsRepository(
             users = emptyList(),
             resources = emptyList(),
         )
+    }
+
+    private suspend fun fetchMetricProjectDetail(
+        projectKey: String,
+        fallbackProjectId: String?,
+    ): MetricProjectDetail? {
+        metricApi.getProjectDetail(projectKey).getOrNull()?.let { return it }
+
+        val fallbackId = fallbackProjectId
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && it != projectKey }
+            ?: return null
+
+        return metricApi.getProjectDetail(fallbackId).getOrNull()
     }
 
     private fun resolveRapidThresholdMinutes(
@@ -1244,12 +1243,7 @@ class ProjectStatsRepository(
     }
 
     private fun pullRequestHangScore(pullRequests: List<ProjectPullRequestSnapshot>): Double? {
-        val durations = pullRequests.mapNotNull { request ->
-            val created = parseInstant(request.created_at)?.toEpochMilliseconds() ?: return@mapNotNull null
-            val closed = parseInstant(request.closed_at)?.toEpochMilliseconds() ?: return@mapNotNull null
-            if (closed <= created) return@mapNotNull null
-            closed - created
-        }
+        val durations = pullRequests.mapNotNull(::pullRequestLifetimeMillis)
 
         if (durations.isEmpty()) return null
 
@@ -1353,8 +1347,44 @@ class ProjectStatsRepository(
         thresholdMs: Long,
     ): Boolean {
         val created = parseInstant(pullRequest.created_at)?.toEpochMilliseconds() ?: return false
-        val closed = parseInstant(pullRequest.closed_at)?.toEpochMilliseconds() ?: return false
+        val closed = pullRequestCompletedAtMillis(pullRequest) ?: return false
         return closed - created < thresholdMs
+    }
+
+    private fun pullRequestLifetimeMillis(
+        pullRequest: ProjectPullRequestSnapshot,
+        nowMillis: Long = PlatformTime.currentTimeMillis(),
+    ): Long? {
+        val created = parseInstant(pullRequest.created_at)?.toEpochMilliseconds() ?: return null
+        val end = pullRequestCompletedAtMillis(pullRequest)
+            ?: nowMillis.takeIf { pullRequest.state.equals("open", ignoreCase = true) }
+            ?: return null
+        if (end <= created) return null
+        return end - created
+    }
+
+    private fun pullRequestCompletedAtIso(
+        pullRequest: ProjectPullRequestSnapshot,
+    ): String? {
+        val candidates = if (pullRequest.state.equals("open", ignoreCase = true)) {
+            listOf(pullRequest.merged_at, pullRequest.pull_request?.merged_at, pullRequest.closed_at)
+        } else {
+            listOf(
+                pullRequest.merged_at,
+                pullRequest.pull_request?.merged_at,
+                pullRequest.closed_at,
+                pullRequest.updated_at,
+            )
+        }
+        return candidates.firstOrNull { parseInstant(it) != null }
+    }
+
+    private fun pullRequestCompletedAtMillis(
+        pullRequest: ProjectPullRequestSnapshot,
+    ): Long? {
+        return pullRequestCompletedAtIso(pullRequest)
+            ?.let(::parseInstant)
+            ?.toEpochMilliseconds()
     }
 
     private fun weekdayLabel(date: String?): String? {
@@ -1698,6 +1728,9 @@ class ProjectStatsRepository(
         val assignees: List<ProjectSnapshotUser> = emptyList(),
         val created_at: String? = null,
         val closed_at: String? = null,
+        val merged_at: String? = null,
+        val pull_request: ProjectPullRequestMeta? = null,
+        val updated_at: String? = null,
         val title: String? = null,
         val number: Int? = null,
         val state: String? = null,
@@ -1707,6 +1740,11 @@ class ProjectStatsRepository(
         val deletions: Int? = null,
         val changed_files: Int? = null,
         val html_url: String? = null,
+    )
+
+    @Serializable
+    private data class ProjectPullRequestMeta(
+        val merged_at: String? = null,
     )
 
     @Serializable
