@@ -57,6 +57,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -96,12 +97,35 @@ import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.stats_footer_excel
 import projecttrack.composeapp.generated.resources.stats_footer_pdf
+import projecttrack.composeapp.generated.resources.stats_tooltip_close
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.draw.clip
+import coil3.compose.AsyncImage
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.IntSize
 
 private val DetailCardShape = RoundedCornerShape(10.dp)
 private val DetailControlShape = RoundedCornerShape(5.dp)
@@ -165,7 +189,7 @@ fun StatsDetailScreen(
                 start = 21.dp,
                 top = StatsTopBarTotalHeight + 8.dp,
                 end = 21.dp,
-                bottom = 10.dp,
+                bottom = 20.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -319,9 +343,22 @@ private fun LazyListScope.commitItems(
     val additions = filteredCommits.sumOf { it.additions }
     val deletions = filteredCommits.sumOf { it.deletions }
     val dailyCounts = buildDailyCounts(filteredCommits.mapNotNull { it.committedAtIso })
-    val averagePerDay = if (dailyCounts.isEmpty()) 0.0 else filteredCommits.size.toDouble() / dailyCounts.size.toDouble()
+    // Делим на реальный диапазон (от первого до последнего коммита включительно),
+    // а не на количество дней с коммитами — иначе получается среднее «в активный день»
+    val commitInstants = filteredCommits.mapNotNull { parseInstant(it.committedAtIso) }
+    val spanDays = if (commitInstants.size < 2) {
+        dailyCounts.size.coerceAtLeast(1)
+    } else {
+        val minMs = commitInstants.minOf { it.toEpochMilliseconds() }
+        val maxMs = commitInstants.maxOf { it.toEpochMilliseconds() }
+        ((maxMs - minMs) / (1000L * 60 * 60 * 24)).toInt() + 1
+    }
+    val averagePerDay = if (filteredCommits.isEmpty()) 0.0
+    else filteredCommits.size.toDouble() / spanDays.toDouble()
     val maxPerDay = dailyCounts.maxOfOrNull { it.count } ?: 0
-    val minPerDay = dailyCounts.minOfOrNull { it.count } ?: 0
+    // Если активных дней меньше чем дней в диапазоне — были дни с 0 коммитами, минимум = 0
+    val minPerDay = if (dailyCounts.size < spanDays) 0
+                   else dailyCounts.minOfOrNull { it.count } ?: 0
     val linePoints = buildLineDeltaPoints(filteredCommits)
     val contributorRows = snapshots.values
         .sortedByDescending { it.commitCount }
@@ -340,6 +377,12 @@ private fun LazyListScope.commitItems(
     val rank = resolveRank(
         overallRank = overallRank,
         overallScope = effectiveParticipantId == null,
+        specificScore = current?.commitsScore,
+        peerScores = peerSnapshots.map { it.commitsScore },
+    )
+    val teamRank = resolveRank(
+        overallRank = null,
+        overallScope = false,
         specificScore = current?.commitsScore,
         peerScores = peerSnapshots.map { it.commitsScore },
     )
@@ -363,28 +406,23 @@ private fun LazyListScope.commitItems(
         )
     }
     item {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = formatCompactNumber(averagePerDay),
-                caption = "ср. коммитов в день",
-            )
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = "+$additions",
-                caption = "добавлено строк",
-            )
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = "-$deletions",
-                caption = "удалено строк",
-            )
-        }
+        SingleMetricCard(
+            value = formatCompactNumber(averagePerDay),
+            caption = "средн. количество коммитов в день",
+        )
+    }
+    item {
+        DoubleMetricRow(
+            leftValue = "+$additions",
+            leftCaption = "добавлено строк",
+            rightValue = "-$deletions",
+            rightCaption = "удалено строк",
+        )
     }
     if (linePoints.isNotEmpty()) {
         item {
             DualLineChartCard(
-                title = "Изменение строк",
+                title = "График изменения строк",
                 points = linePoints,
             )
         }
@@ -419,24 +457,19 @@ private fun LazyListScope.commitItems(
         }
     }
     item {
-        DetailEntityListCard(
+        CommitEntityListCard(
             title = "Список коммитов",
-            items = filteredCommits
+            commits = filteredCommits
                 .sortedByDescending { parseInstant(it.committedAtIso)?.toEpochMilliseconds() ?: Long.MIN_VALUE }
-                .take(20)
-                .map { commit ->
-                    DetailEntityCardData(
-                        title = commit.message,
-                        badge = commit.sha?.take(7),
-                        status = null,
-                        metaLines = listOf(
-                            "Автор: ${commit.authorName}",
-                            "Дата: ${commit.committedAtLabel}",
-                            "Изменения: +${commit.additions} / -${commit.deletions}",
-                        ),
-                        link = commit.url,
-                    )
-                }
+                .take(20),
+        )
+    }
+    item {
+        DoubleMetricRow(
+            leftValue = overallRank?.toString() ?: "—",
+            leftCaption = "место в рейтинге",
+            rightValue = teamRank?.toString() ?: "—",
+            rightCaption = "место в команде",
         )
     }
     item {
@@ -1231,15 +1264,19 @@ private fun DetailValueSelector(
     )
 }
 
+// Цвета графика изменения строк (по Figma)
+private val DualLineAddColor = Color(0xFF27AE60)
+private val DualLineDelColor = Color(0xFF9F2D20)   // = AppColors.Color3
+private val DualChartGridColor = Color(0xFFE3E3E6)
+// Порог совпадения точек: если разница add/del < 12% от максимума — плашка объединяется
+private const val DualLineMergeThreshold = 0.12f
+
 @Composable
 private fun DualLineChartCard(
     title: String,
     points: List<DetailLinePoint>,
     modifier: Modifier = Modifier,
 ) {
-    val maxValue = remember(points) {
-        points.maxOfOrNull { maxOf(it.firstValue, it.secondValue) }?.coerceAtLeast(1) ?: 1
-    }
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
@@ -1248,79 +1285,318 @@ private fun DualLineChartCard(
                 fontSize = 16.sp,
                 color = AppColors.Color2,
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp)
-            ) {
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = 8.dp, bottom = 24.dp)
-                ) {
-                    if (points.isEmpty()) return@Canvas
-                    val widthStep = size.width / (points.size.coerceAtLeast(2) - 1).toFloat()
-                    fun y(value: Int): Float {
-                        val fraction = value.toFloat() / maxValue.toFloat()
-                        return size.height - 32.dp.toPx() - (size.height - 40.dp.toPx()) * fraction
-                    }
-
-                    val addPath = Path()
-                    val deletePath = Path()
-                    points.forEachIndexed { index, point ->
-                        val x = widthStep * index
-                        val addY = y(point.firstValue)
-                        val delY = y(point.secondValue)
-                        if (index == 0) {
-                            addPath.moveTo(x, addY)
-                            deletePath.moveTo(x, delY)
-                        } else {
-                            addPath.lineTo(x, addY)
-                            deletePath.lineTo(x, delY)
-                        }
-                        drawCircle(Color(0xFF11B78B), 4.dp.toPx(), Offset(x, addY))
-                        drawCircle(Color(0xFFC21807), 4.dp.toPx(), Offset(x, delY))
-                    }
-                    drawPath(
-                        path = addPath,
-                        color = Color(0xFF11B78B),
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
-                    )
-                    drawPath(
-                        path = deletePath,
-                        color = Color(0xFFC21807),
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    points.forEach { point ->
-                        Text(
-                            text = point.label,
-                            fontFamily = AppFonts.OpenSansMedium,
-                            fontSize = 12.sp,
-                            color = AppColors.Color2,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
+            if (points.isEmpty()) {
+                Text(
+                    text = "Нет данных",
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 13.sp,
+                    color = AppColors.Color2,
+                )
+            } else {
+                DualLineChart(points = points)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LegendBadge("Добавлено", Color(0xFF11B78B))
-                LegendBadge("Удалено", Color(0xFFC21807))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                DualLineLegendItem(label = "Добавлено строк", color = DualLineAddColor)
+                Spacer(modifier = Modifier.width(20.dp))
+                DualLineLegendItem(label = "Удалено строк", color = DualLineDelColor)
             }
         }
     }
 }
 
 @Composable
-private fun LegendBadge(
-    text: String,
+private fun DualLineChart(points: List<DetailLinePoint>) {
+    val density = LocalDensity.current
+
+    val maxRawValue = remember(points) {
+        (points.maxOfOrNull { maxOf(it.firstValue, it.secondValue) } ?: 1).coerceAtLeast(1)
+    }
+    val axisData = remember(maxRawValue) {
+        val step = ceil(maxRawValue.toFloat() / 3f).toInt().coerceAtLeast(1)
+        val axisMax = step * 3
+        Pair(axisMax.toFloat(), listOf(axisMax, axisMax - step, axisMax - step * 2, 0))
+    }
+    val axisScaleMax = axisData.first
+    val axisLabels = axisData.second
+
+    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
+    var tooltipSize by remember { mutableStateOf(IntSize.Zero) }
+
+    // Константы разметки
+    val chartHeight = 152.dp
+    val axisLabelWidth = 24.dp
+    val axisLabelGap = 4.dp
+    val plotTopPadding = 10.dp
+    val plotBottomPadding = 6.dp
+    // hPadding = 0 — карточка уже даёт горизонтальный паддинг, не дублируем
+    val hPadding = 0.dp
+    val plotEndPadding = 6.dp   // небольшой правый отступ, чтобы крайняя точка не обрезалась
+    val xAxisGap = 4.dp
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val totalWidth = maxWidth
+        val plotStart = hPadding + axisLabelWidth + axisLabelGap
+        val plotWidth = totalWidth - plotStart - plotEndPadding
+        val plotHeight = chartHeight - plotTopPadding - plotBottomPadding
+        val slotWidth = plotWidth / points.size.coerceAtLeast(1)
+
+        // Разреживаем подписи оси X если не помещаются
+        // 64dp на каждую метку — достаточно для "11.02.26" при шрифте 11sp
+        val maxVisibleLabels = ((plotWidth / 64.dp).toInt()).coerceAtLeast(2)
+        val labelStep = if (points.size <= maxVisibleLabels) 1
+        else (points.size.toFloat() / maxVisibleLabels.toFloat()).roundToInt().coerceAtLeast(1)
+        val visibleLabelIndices = remember(points.size, labelStep) {
+            buildSet {
+                var i = 0
+                while (i < points.size) { add(i); i += labelStep }
+                add(points.lastIndex)
+            }
+        }
+
+        // Позиции точек в dp (x, y) — хранятся как Float (dp-magnitude)
+        val addPositions = remember(points, plotStart, slotWidth, plotTopPadding, plotHeight, axisScaleMax) {
+            points.mapIndexed { i, pt ->
+                val x = (plotStart + slotWidth * i + slotWidth / 2).value
+                val frac = (pt.firstValue.toFloat() / axisScaleMax).coerceIn(0f, 1f)
+                val y = (plotTopPadding + plotHeight * (1f - frac)).value
+                Offset(x, y)
+            }
+        }
+        val delPositions = remember(points, plotStart, slotWidth, plotTopPadding, plotHeight, axisScaleMax) {
+            points.mapIndexed { i, pt ->
+                val x = (plotStart + slotWidth * i + slotWidth / 2).value
+                val frac = (pt.secondValue.toFloat() / axisScaleMax).coerceIn(0f, 1f)
+                val y = (plotTopPadding + plotHeight * (1f - frac)).value
+                Offset(x, y)
+            }
+        }
+
+        val tooltipWidth = with(density) { tooltipSize.width.toDp() }
+        val tooltipHeight = with(density) { tooltipSize.height.toDp() }
+
+        Column {
+            Box(modifier = Modifier.fillMaxWidth().height(chartHeight)) {
+
+                // Сетка + оси (как в ChartCard)
+                DualLineChartGrid(
+                    axisLabels = axisLabels,
+                    axisLabelWidth = axisLabelWidth,
+                    axisLabelGap = axisLabelGap,
+                    hPadding = hPadding,
+                    plotStart = plotStart,
+                    plotTopPadding = plotTopPadding,
+                    plotBottomPadding = plotBottomPadding,
+                )
+
+                // Линии + точки
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(addPositions) {
+                            detectTapGestures { tapOffset ->
+                                val tapXDp = with(density) { tapOffset.x.toDp() }
+                                val closest = addPositions.indices.minByOrNull { i ->
+                                    abs((addPositions[i].x - tapXDp.value))
+                                }
+                                selectedIndex = if (selectedIndex == closest) null else closest
+                            }
+                        }
+                ) {
+                    if (addPositions.isEmpty()) return@Canvas
+
+                    val addPath = buildCatmullRomPath(
+                        addPositions.map { Offset(it.x.dp.toPx(), it.y.dp.toPx()) }
+                    )
+                    val delPath = buildCatmullRomPath(
+                        delPositions.map { Offset(it.x.dp.toPx(), it.y.dp.toPx()) }
+                    )
+
+                    drawPath(addPath, DualLineAddColor, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
+                    drawPath(delPath, DualLineDelColor, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
+
+                    // Точки с белым ободком
+                    addPositions.indices.forEach { i ->
+                        val isSelected = i == selectedIndex
+                        val r = if (isSelected) 5.5.dp.toPx() else 4.dp.toPx()
+                        val addPx = Offset(addPositions[i].x.dp.toPx(), addPositions[i].y.dp.toPx())
+                        val delPx = Offset(delPositions[i].x.dp.toPx(), delPositions[i].y.dp.toPx())
+                        drawCircle(Color.White, r + 2.dp.toPx(), addPx)
+                        drawCircle(DualLineAddColor, r, addPx)
+                        drawCircle(Color.White, r + 2.dp.toPx(), delPx)
+                        drawCircle(DualLineDelColor, r, delPx)
+                    }
+                }
+
+                // Тултип при выборе точки
+                selectedIndex?.let { idx ->
+                    val point = points[idx]
+                    val px = addPositions[idx].x.dp
+                    val addYDp = addPositions[idx].y.dp
+                    val delYDp = delPositions[idx].y.dp
+
+                    val isMerged = abs(point.firstValue - point.secondValue).toFloat() / axisScaleMax < DualLineMergeThreshold
+
+                    val upperY = minOf(addYDp, delYDp)
+                    val tooltipX = (px - tooltipWidth / 2)
+                        .coerceIn(plotStart, totalWidth - tooltipWidth - hPadding)
+                    val tooltipY = (upperY - tooltipHeight - 8.dp).coerceAtLeast(plotTopPadding)
+
+                    Row(
+                        modifier = Modifier
+                            .offset(x = tooltipX, y = tooltipY)
+                            .onSizeChanged { tooltipSize = it }
+                            .background(AppColors.Color2.copy(alpha = 0.92f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = point.label,
+                                fontFamily = AppFonts.OpenSansBold,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                color = Color.White,
+                            )
+                            Text(
+                                text = "+${point.firstValue} добавлено",
+                                fontFamily = AppFonts.OpenSansMedium,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                color = DualLineAddColor,
+                            )
+                            Text(
+                                text = "−${point.secondValue} удалено${if (isMerged) " (≈)" else ""}",
+                                fontFamily = AppFonts.OpenSansMedium,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                color = Color(0xFFFF8A80),
+                            )
+                        }
+                        // Кнопка закрытия — штатная иконка из ресурсов
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { selectedIndex = null },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(Res.drawable.stats_tooltip_close),
+                                contentDescription = "Закрыть",
+                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White),
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Подписи оси X — абсолютное позиционирование, каждая метка 60dp шириной,
+            // центрирована над своей точкой. Даты не обрезаются и не переносятся.
+            val labelFixedWidth = 60.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = xAxisGap)
+                    .height(26.dp),
+            ) {
+                visibleLabelIndices.forEach { i ->
+                    val centerX = plotStart + slotWidth * i + slotWidth / 2
+                    val labelX = (centerX - labelFixedWidth / 2)
+                        .coerceAtLeast(0.dp)
+                        .coerceAtMost((totalWidth - labelFixedWidth).coerceAtLeast(0.dp))
+                    Text(
+                        text = points[i].label,
+                        fontFamily = AppFonts.OpenSansMedium,
+                        fontSize = 11.sp,
+                        lineHeight = 12.sp,
+                        letterSpacing = 0.11.sp,
+                        color = AppColors.Color2,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .width(labelFixedWidth)
+                            .offset(x = labelX),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DualLineChartGrid(
+    axisLabels: List<Int>,
+    axisLabelWidth: Dp,
+    axisLabelGap: Dp,
+    hPadding: Dp,
+    plotStart: Dp,
+    plotTopPadding: Dp,
+    plotBottomPadding: Dp,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val plotHeight = maxHeight - plotTopPadding - plotBottomPadding
+        val rowHeight = 16.dp
+        val lastIndex = axisLabels.lastIndex.coerceAtLeast(1)
+
+        axisLabels.forEachIndexed { index, label ->
+            val lineY = plotTopPadding + plotHeight * (index / lastIndex.toFloat())
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(rowHeight)
+                    .padding(start = hPadding, end = hPadding + axisLabelWidth + axisLabelGap)
+                    .offset(y = lineY - rowHeight / 2),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = formatDualAxisLabel(label),
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 12.sp,
+                    lineHeight = 12.sp,
+                    letterSpacing = 0.12.sp,
+                    color = AppColors.Color2,
+                    textAlign = TextAlign.Right,
+                    modifier = Modifier.width(axisLabelWidth),
+                )
+                Spacer(modifier = Modifier.width(axisLabelGap))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (label == 0) 2.dp else 1.dp)
+                        .background(
+                            if (label == 0) AppColors.Color2.copy(alpha = 0.4f)
+                            else DualChartGridColor
+                        )
+                )
+            }
+        }
+
+        // Вертикальная линия оси Y
+        Box(
+            modifier = Modifier
+                .offset(x = plotStart, y = plotTopPadding)
+                .width(1.dp)
+                .height(plotHeight)
+                .background(DualChartGridColor)
+        )
+    }
+}
+
+@Composable
+private fun DualLineLegendItem(
+    label: String,
     color: Color,
     modifier: Modifier = Modifier,
 ) {
@@ -1329,13 +1605,15 @@ private fun LegendBadge(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // Линия со скруглёнными краями
         Box(
             modifier = Modifier
-                .size(10.dp)
-                .background(color, CircleShape)
+                .width(16.dp)
+                .height(2.dp)
+                .background(color, RoundedCornerShape(50))
         )
         Text(
-            text = text,
+            text = label,
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 12.sp,
             color = AppColors.Color2,
@@ -1370,32 +1648,67 @@ private fun DetailFilesCard(
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top,
                         ) {
-                            Text(
-                                text = row.fileName,
-                                fontFamily = AppFonts.OpenSansMedium,
-                                fontSize = 13.sp,
-                                color = AppColors.Color2,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = row.changes.toString(),
-                                fontFamily = AppFonts.OpenSansBold,
-                                fontSize = 13.sp,
-                                color = AppColors.Color3,
-                            )
-                        }
-                        Text(
-                            text = buildString {
-                                append("+${row.additions} / -${row.deletions}")
-                                row.status?.takeIf { it.isNotBlank() }?.let {
-                                    append(" • $it")
+                            // Левая колонка: имя файла + цветные дельты
+                            Column(
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text(
+                                    text = row.fileName,
+                                    fontFamily = AppFonts.OpenSansMedium,
+                                    fontSize = 13.sp,
+                                    color = AppColors.Color2,
+                                )
+                                // "+additions/-deletions" — зелёный/красный
+                                Text(
+                                    text = buildAnnotatedString {
+                                        withStyle(SpanStyle(color = DualLineAddColor)) {
+                                            append("+${row.additions}")
+                                        }
+                                        withStyle(SpanStyle(color = DualLineDelColor)) {
+                                            append("/-${row.deletions}")
+                                        }
+                                    },
+                                    fontFamily = AppFonts.OpenSansMedium,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            // Правая колонка: "N изменений" + статус
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    text = buildAnnotatedString {
+                                        withStyle(SpanStyle(
+                                            fontFamily = AppFonts.OpenSansBold,
+                                            color = AppColors.Color3,
+                                        )) {
+                                            append("${row.changes}")
+                                        }
+                                        withStyle(SpanStyle(
+                                            fontFamily = AppFonts.OpenSansRegular,
+                                            color = AppColors.Color2,
+                                        )) {
+                                            append(" изменений")
+                                        }
+                                    },
+                                    fontSize = 13.sp,
+                                    textAlign = TextAlign.End,
+                                )
+                                row.status?.takeIf { it.isNotBlank() }?.let { status ->
+                                    Text(
+                                        text = status,
+                                        fontFamily = AppFonts.OpenSansBold,
+                                        fontSize = 12.sp,
+                                        color = fileStatusColor(status),
+                                        textAlign = TextAlign.End,
+                                    )
                                 }
-                            },
-                            fontFamily = AppFonts.OpenSansRegular,
-                            fontSize = 12.sp,
-                            color = AppColors.Color2,
-                        )
+                            }
+                        }
                         if (index < rows.lastIndex) {
                             DetailDivider()
                         }
@@ -1404,6 +1717,15 @@ private fun DetailFilesCard(
             }
         }
     }
+}
+
+/** Цвет статуса файла по Figma: added=зелёный, removed=красный, modified=оранжевый */
+private fun fileStatusColor(status: String): Color = when (status.lowercase()) {
+    "added" -> DualLineAddColor
+    "removed" -> DualLineDelColor
+    "modified", "changed" -> Color(0xFFE59500)
+    "renamed", "copied" -> Color(0xFF2980B9)
+    else -> AppColors.Color2
 }
 
 @Composable
@@ -1478,6 +1800,286 @@ private fun DetailTableCard(
                         }
                         if (index < rows.lastIndex) {
                             DetailDivider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Инициалы для аватара из имени автора */
+private fun authorInitials(name: String): String {
+    val parts = name.trim().split(" ")
+    return when {
+        parts.size >= 2 -> "${parts[0].firstOrNull() ?: ""}${parts[1].firstOrNull() ?: ""}".uppercase()
+        parts.size == 1 -> parts[0].take(2).uppercase()
+        else -> "?"
+    }
+}
+
+/** Цвет фона аватара на основе хеша имени */
+private fun authorAvatarColor(name: String): Color {
+    val palette = listOf(
+        Color(0xFF4A90D9), Color(0xFF7B68EE), Color(0xFF2ECC71),
+        Color(0xFFE67E22), Color(0xFF1ABC9C), Color(0xFFE74C3C),
+        Color(0xFF9B59B6), Color(0xFF3498DB),
+    )
+    return palette[kotlin.math.abs(name.hashCode()) % palette.size]
+}
+
+@Composable
+private fun CommitEntityListCard(
+    title: String,
+    commits: List<StatsDetailCommitUi>,
+    modifier: Modifier = Modifier,
+) {
+    // Track which commit indices are expanded
+    var expandedIndices by remember { mutableStateOf(emptySet<Int>()) }
+
+    DetailCard(modifier = modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = title,
+                fontFamily = AppFonts.OpenSansSemiBold,
+                fontSize = 16.sp,
+                color = AppColors.Color2,
+            )
+            if (commits.isEmpty()) {
+                Text(
+                    text = "Нет данных",
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 13.sp,
+                    color = AppColors.Color2,
+                )
+            } else {
+                val uriHandler = LocalUriHandler.current
+                commits.forEachIndexed { index, commit ->
+                    val isExpanded = index in expandedIndices
+                    // Animated chevron rotation: 0° collapsed → 180° expanded
+                    val chevronAngle by animateFloatAsState(
+                        targetValue = if (isExpanded) 180f else 0f,
+                        animationSpec = tween(durationMillis = 250),
+                        label = "chevron_$index",
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                        // ── Main commit row ──
+                        val rowInteraction = remember { MutableInteractionSource() }
+                        val rowPressed by rowInteraction.collectIsPressedAsState()
+                        val rowScale by animateFloatAsState(
+                            targetValue = if (rowPressed) 0.95f else 1f,
+                            animationSpec = spring(dampingRatio = 0.7f, stiffness = 600f),
+                            label = "commit_press_$index",
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer { scaleX = rowScale; scaleY = rowScale }
+                                .clickable(
+                                    interactionSource = rowInteraction,
+                                    indication = null,
+                                ) { expandedIndices = if (isExpanded) expandedIndices - index else expandedIndices + index },
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            // Avatar circle: initials as fallback, real avatar on top when loaded
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(authorAvatarColor(commit.authorName), CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                // Initials — always rendered, hidden by image if it loads
+                                Text(
+                                    text = authorInitials(commit.authorName),
+                                    fontFamily = AppFonts.OpenSansBold,
+                                    fontSize = 14.sp,
+                                    color = Color.White,
+                                )
+                                // Real avatar from GitHub (overlays initials on success)
+                                commit.authorAvatarUrl?.let { url ->
+                                    AsyncImage(
+                                        model = url,
+                                        contentDescription = commit.authorName,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape),
+                                    )
+                                }
+                            }
+
+                            // Content column
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                // Row 1: author name + date + chevron
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = commit.authorName,
+                                        fontFamily = AppFonts.OpenSansSemiBold,
+                                        fontSize = 14.sp,
+                                        color = AppColors.Color2,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            text = commit.committedAtLabel,
+                                            fontFamily = AppFonts.OpenSansRegular,
+                                            fontSize = 12.sp,
+                                            color = AppColors.Color2,
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Outlined.KeyboardArrowDown,
+                                            contentDescription = if (isExpanded) "Свернуть" else "Развернуть",
+                                            tint = AppColors.Color2,
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .graphicsLayer { rotationZ = chevronAngle },
+                                        )
+                                    }
+                                }
+                                // Row 2: commit message
+                                Text(
+                                    text = commit.message,
+                                    fontFamily = AppFonts.OpenSansRegular,
+                                    fontSize = 12.sp,
+                                    color = AppColors.Color2,
+                                    maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                // Row 3: additions/deletions + file count + link
+                                Spacer(Modifier.height(2.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    // Left: "+N / -M  K файлов"
+                                    Text(
+                                        text = buildAnnotatedString {
+                                            withStyle(SpanStyle(color = DualLineAddColor, fontFamily = AppFonts.OpenSansMedium)) {
+                                                append("+${commit.additions}")
+                                            }
+                                            withStyle(SpanStyle(color = AppColors.Color2, fontFamily = AppFonts.OpenSansRegular)) {
+                                                append(" / ")
+                                            }
+                                            withStyle(SpanStyle(color = DualLineDelColor, fontFamily = AppFonts.OpenSansMedium)) {
+                                                append("-${commit.deletions}")
+                                            }
+                                            if (commit.files.isNotEmpty()) {
+                                                withStyle(SpanStyle(color = AppColors.Color2, fontFamily = AppFonts.OpenSansRegular)) {
+                                                    append("  ${commit.files.size} ${pluralize(commit.files.size, "файл", "файла", "файлов")}")
+                                                }
+                                            }
+                                        },
+                                        fontSize = 12.sp,
+                                    )
+                                    // Right: clickable link to commit
+                                    commit.url?.let { url ->
+                                        Text(
+                                            text = "ссылка",
+                                            fontFamily = AppFonts.OpenSansRegular,
+                                            fontSize = 12.sp,
+                                            color = AppColors.Color3,
+                                            style = androidx.compose.ui.text.TextStyle(
+                                                textDecoration = TextDecoration.Underline,
+                                            ),
+                                            modifier = Modifier.clickable { uriHandler.openUri(url) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Expanded files list (animated) ──
+                        AnimatedVisibility(
+                            visible = isExpanded,
+                            enter = fadeIn(tween(200)) + expandVertically(tween(250)),
+                            exit = fadeOut(tween(150)) + shrinkVertically(tween(200)),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(top = 8.dp),
+                            ) {
+                                if (commit.files.isNotEmpty()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFFF8F8FA), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            text = "Изменённые файлы",
+                                            fontFamily = AppFonts.OpenSansSemiBold,
+                                            fontSize = 12.sp,
+                                            color = AppColors.Color2,
+                                        )
+                                        commit.files.forEach { file ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.Top,
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.weight(1f).padding(end = 6.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                                                ) {
+                                                    Text(
+                                                        text = file.fileName.substringAfterLast('/'),
+                                                        fontFamily = AppFonts.OpenSansMedium,
+                                                        fontSize = 11.sp,
+                                                        color = AppColors.Color2,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                    Text(
+                                                        text = buildAnnotatedString {
+                                                            withStyle(SpanStyle(color = DualLineAddColor)) { append("+${file.additions}") }
+                                                            withStyle(SpanStyle(color = DualLineDelColor)) { append(" -${file.deletions}") }
+                                                        },
+                                                        fontSize = 10.sp,
+                                                        fontFamily = AppFonts.OpenSansRegular,
+                                                    )
+                                                }
+                                                file.status?.takeIf { it.isNotBlank() }?.let { status ->
+                                                    Text(
+                                                        text = status,
+                                                        fontFamily = AppFonts.OpenSansBold,
+                                                        fontSize = 10.sp,
+                                                        color = fileStatusColor(status),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Commit message full text when no files
+                                    Text(
+                                        text = "Нет данных о файлах",
+                                        fontFamily = AppFonts.OpenSansRegular,
+                                        fontSize = 12.sp,
+                                        color = AppColors.Color2,
+                                    )
+                                }
+                            }
+                        }
+
+                        if (index < commits.lastIndex) {
+                            Spacer(Modifier.height(8.dp))
+                            DetailDivider()
+                            Spacer(Modifier.height(8.dp))
                         }
                     }
                 }
@@ -1563,7 +2165,7 @@ private fun DetailEntityListCard(
                         }
                         item.link?.let { link ->
                             Text(
-                                text = link,
+                                text = item.linkLabel ?: link,
                                 fontFamily = AppFonts.OpenSansBold,
                                 fontSize = 12.sp,
                                 color = AppColors.Color3,
@@ -1690,35 +2292,36 @@ private fun DetailExportActions(
     onExportExcelClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    DetailCard(modifier = modifier) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            DetailActionRow(
-                text = "Экспорт в PDF",
-                icon = {
-                    Image(
-                        painter = painterResource(Res.drawable.stats_footer_pdf),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .width(16.dp)
-                            .height(22.4.dp),
-                    )
-                },
-                onClick = onExportPdfClick,
-            )
-            DetailActionRow(
-                text = "Экспорт в Excel",
-                icon = {
-                    Image(
-                        painter = painterResource(Res.drawable.stats_footer_excel),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .width(16.dp)
-                            .height(22.4.dp),
-                    )
-                },
-                onClick = onExportExcelClick,
-            )
-        }
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        DetailActionRow(
+            text = "Экспорт в PDF",
+            icon = {
+                Image(
+                    painter = painterResource(Res.drawable.stats_footer_pdf),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .width(16.dp)
+                        .height(22.4.dp),
+                )
+            },
+            onClick = onExportPdfClick,
+        )
+        DetailActionRow(
+            text = "Экспорт в Excel",
+            icon = {
+                Image(
+                    painter = painterResource(Res.drawable.stats_footer_excel),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .width(16.dp)
+                        .height(22.4.dp),
+                )
+            },
+            onClick = onExportExcelClick,
+        )
     }
 }
 
@@ -1729,10 +2332,22 @@ private fun DetailActionRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 600f),
+        label = "export_press_scale",
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -1884,7 +2499,8 @@ private fun buildParticipantSnapshots(
         }
     }
 
-    val totalProjectLines = details.commits.sumOf { it.additions + it.deletions + it.changes }
+    // changes = additions + deletions в GitHub API, поэтому не суммируем — иначе двойной счёт
+    val totalProjectLines = details.commits.sumOf { it.additions + it.deletions }
 
     return participants.mapValues { (_, participant) ->
         val userCommits = details.commits.filter { it.authorId == participant.id }
@@ -1897,7 +2513,7 @@ private fun buildParticipantSnapshots(
         }
         val fileStats = buildFileAggregates(userCommits)
         val weekDays = buildWeekDayStats(userCommits, userIssues, userPullRequests)
-        val linesOwned = userCommits.sumOf { it.additions + it.deletions + it.changes }
+        val linesOwned = userCommits.sumOf { it.additions + it.deletions }
         DetailParticipantSnapshot(
             participant = participant,
             commits = userCommits,
@@ -2005,20 +2621,28 @@ private fun buildChartPoints(
     hintFormatter: (Int) -> String,
 ): List<ProjectStatsChartPointUi> {
     if (dates.isEmpty()) return emptyList()
-    return dates
-        .mapNotNull(::parseInstant)
-        .groupingBy { instant ->
-            val date = instant.toLocalDateTime(TimeZone.UTC).date
-            "${date.dayOfMonth.toString().padStart(2, '0')}.${date.monthNumber.toString().padStart(2, '0')}.${(date.year % 100).toString().padStart(2, '0')}"
+    // Сохраняем epochMs для хронологической сортировки,
+    // иначе groupingBy/LinkedHashMap даёт порядок вставки (не по дате)
+    data class ChartEntry(val label: String, val epochMs: Long, var count: Int)
+    val grouped = linkedMapOf<String, ChartEntry>()
+    dates.mapNotNull { parseInstant(it) }.forEach { instant ->
+        val date = instant.toLocalDateTime(TimeZone.UTC).date
+        val label = "${date.dayOfMonth.toString().padStart(2, '0')}.${date.monthNumber.toString().padStart(2, '0')}.${(date.year % 100).toString().padStart(2, '0')}"
+        val prev = grouped[label]
+        if (prev == null) {
+            grouped[label] = ChartEntry(label, instant.toEpochMilliseconds(), 1)
+        } else {
+            prev.count++
         }
-        .eachCount()
-        .entries
+    }
+    return grouped.values
+        .sortedBy { it.epochMs }
         .map { entry ->
             ProjectStatsChartPointUi(
-                label = entry.key,
-                value = entry.value.toFloat(),
-                valueLabel = entry.value.toString(),
-                hint = hintFormatter(entry.value),
+                label = entry.label,
+                value = entry.count.toFloat(),
+                valueLabel = entry.count.toString(),
+                hint = hintFormatter(entry.count),
             )
         }
 }
@@ -2039,20 +2663,31 @@ private fun buildDailyCounts(dates: List<String>): List<DetailCountPoint> {
 }
 
 private fun buildLineDeltaPoints(commits: List<StatsDetailCommitUi>): List<DetailLinePoint> {
-    val grouped = linkedMapOf<String, Pair<Int, Int>>()
+    // Храним тройку: метка, значения, epoch-дата для сортировки
+    data class Entry(val label: String, var additions: Int, var deletions: Int, val epochMs: Long)
+    val grouped = linkedMapOf<String, Entry>()
     commits.forEach { commit ->
-        val date = parseInstant(commit.committedAtIso)?.toLocalDateTime(TimeZone.UTC)?.date ?: return@forEach
+        val instant = parseInstant(commit.committedAtIso) ?: return@forEach
+        val date = instant.toLocalDateTime(TimeZone.UTC).date
         val key = formatDate(date)
-        val previous = grouped[key] ?: (0 to 0)
-        grouped[key] = (previous.first + commit.additions) to (previous.second + commit.deletions)
+        val epochMs = instant.toEpochMilliseconds()
+        val prev = grouped[key]
+        if (prev == null) {
+            grouped[key] = Entry(key, commit.additions, commit.deletions, epochMs)
+        } else {
+            prev.additions += commit.additions
+            prev.deletions += commit.deletions
+        }
     }
-    return grouped.entries.map { (label, values) ->
-        DetailLinePoint(
-            label = label,
-            firstValue = values.first,
-            secondValue = values.second,
-        )
-    }
+    return grouped.values
+        .sortedBy { it.epochMs }             // хронологический порядок
+        .map { entry ->
+            DetailLinePoint(
+                label = entry.label,
+                firstValue = entry.additions,
+                secondValue = entry.deletions,
+            )
+        }
 }
 
 private fun buildAverageLifetimeMinutes(values: List<Int>): Int? {
@@ -2293,6 +2928,44 @@ private fun formatDate(date: kotlinx.datetime.LocalDate): String {
     return "$day.$month.$year"
 }
 
+/**
+ * Catmull-Rom сплайн для сглаженных линий графика.
+ * Контрольные точки вычисляются так, что кривая проходит через все исходные точки.
+ */
+private fun buildCatmullRomPath(pts: List<Offset>): Path {
+    val path = Path()
+    if (pts.isEmpty()) return path
+    path.moveTo(pts[0].x, pts[0].y)
+    if (pts.size < 2) return path
+    if (pts.size == 2) {
+        path.lineTo(pts[1].x, pts[1].y)
+        return path
+    }
+    for (i in 0 until pts.size - 1) {
+        val p0 = if (i > 0) pts[i - 1] else pts[i]
+        val p1 = pts[i]
+        val p2 = pts[i + 1]
+        val p3 = if (i < pts.size - 2) pts[i + 2] else pts[i + 1]
+        val cp1x = p1.x + (p2.x - p0.x) / 6f
+        val cp1y = p1.y + (p2.y - p0.y) / 6f
+        val cp2x = p2.x - (p3.x - p1.x) / 6f
+        val cp2y = p2.y - (p3.y - p1.y) / 6f
+        path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y)
+    }
+    return path
+}
+
+/** Компактный формат для подписей оси Y: 1500 → "1.5k", 10000 → "10k" */
+private fun formatDualAxisLabel(value: Int): String = when {
+    value == 0 -> "0"
+    value >= 10_000 -> "${value / 1000}k"
+    value >= 1_000 -> {
+        val tenths = (value % 1000) / 100
+        if (tenths == 0) "${value / 1000}k" else "${value / 1000}.${tenths}k"
+    }
+    else -> value.toString()
+}
+
 private fun formatCompactNumber(value: Double): String {
     val rounded = (value * 10.0).roundToInt() / 10.0
     return if (rounded % 1.0 == 0.0) {
@@ -2424,6 +3097,7 @@ private data class DetailEntityCardData(
     val secondary: String? = null,
     val trailing: String? = null,
     val link: String? = null,
+    val linkLabel: String? = null,
 )
 
 private data class DetailTableRow(

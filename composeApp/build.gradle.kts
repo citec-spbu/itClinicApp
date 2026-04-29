@@ -9,10 +9,20 @@ plugins {
     alias(libs.plugins.kotlinx.serialization)
 }
 
+val gitCommitCount: Int by lazy {
+    try {
+        val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(rootProject.projectDir)
+            .start()
+        process.waitFor()
+        process.inputStream.bufferedReader().readLine()?.trim()?.toIntOrNull() ?: 1
+    } catch (e: Exception) { 1 }
+}
+
 val resolvedAndroidVersionCode = providers.gradleProperty("androidVersionCode")
     .orNull
     ?.toIntOrNull()
-    ?: 1
+    ?: gitCommitCount
 
 val resolvedAndroidVersionName = providers.gradleProperty("androidVersionName")
     .orNull
@@ -61,6 +71,8 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

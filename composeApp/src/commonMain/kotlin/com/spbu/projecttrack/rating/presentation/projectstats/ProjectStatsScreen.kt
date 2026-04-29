@@ -310,7 +310,7 @@ fun ProjectStatsScreen(
                     onRapidThresholdChanged = viewModel::updateRapidThreshold,
                     onExportPdfClick = {
                         scope.launch {
-                            val payload = model.toExportPayload()
+                            val payload = model.toSectionExportPayload(detailSection)
                             val result = exporter.exportPdf(payload)
                             val message = result.getOrNull()?.let { export ->
                                 "PDF сохранен: ${export.fileName}"
@@ -320,7 +320,7 @@ fun ProjectStatsScreen(
                     },
                     onExportExcelClick = {
                         scope.launch {
-                            val payload = model.toExportPayload()
+                            val payload = model.toSectionExportPayload(detailSection)
                             val result = exporter.exportExcelCsv(payload)
                             val message = result.getOrNull()?.let { export ->
                                 "CSV сохранен: ${export.fileName}"
@@ -2978,6 +2978,144 @@ private fun ProjectStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
             dominantWeekDay.toExportSection()
         )
     )
+}
+
+private fun ProjectStatsUiModel.toSectionExportPayload(section: StatsScreenSection): ProjectStatsExportPayload {
+    val selectedRepository = repositories.firstOrNull { it.id == selectedRepositoryId }
+    val base = ProjectStatsExportPayload(
+        projectId = projectId,
+        projectName = title,
+        customerName = customer,
+        repositoryUrl = selectedRepository?.title,
+        periodLabel = "${visibleRange.startLabel} - ${visibleRange.endLabel}",
+        generatedAtLabel = "Сейчас",
+        members = members.map { member ->
+            ProjectStatsMemberRow(
+                name = member.name,
+                role = member.role,
+                marker = if (member.isCurrentUser) "Вы" else null
+            )
+        },
+    )
+
+    return when (section) {
+        StatsScreenSection.Commits -> {
+            val allCommits = details.commits
+            val totalAdditions = allCommits.sumOf { it.additions }
+            val totalDeletions = allCommits.sumOf { it.deletions }
+            base.copy(
+                summaryCards = listOf(
+                    ProjectStatsSummaryCard("Коммиты", allCommits.size.toString(), "всего"),
+                    ProjectStatsSummaryCard("Добавлено", "+$totalAdditions", "строк"),
+                    ProjectStatsSummaryCard("Удалено", "-$totalDeletions", "строк"),
+                ),
+                sections = listOf(
+                    ProjectStatsSection(
+                        title = "Список коммитов",
+                        rows = allCommits
+                            .sortedByDescending { it.committedAtIso }
+                            .map { commit ->
+                                ProjectStatsTableRow(
+                                    label = commit.message,
+                                    value = commit.committedAtLabel,
+                                    note = buildString {
+                                        append(commit.authorName)
+                                        append("  +${commit.additions}/-${commit.deletions}")
+                                        if (commit.files.isNotEmpty()) append("  ${commit.files.size} файлов")
+                                        commit.sha?.take(7)?.let { append("  [$it]") }
+                                    }
+                                )
+                            }
+                    )
+                )
+            )
+        }
+
+        StatsScreenSection.Issues -> {
+            val allIssues = details.issues
+            val openCount = allIssues.count { it.closedAtIso == null }
+            val closedCount = allIssues.size - openCount
+            base.copy(
+                summaryCards = listOf(
+                    ProjectStatsSummaryCard("Issue", allIssues.size.toString(), "всего"),
+                    ProjectStatsSummaryCard("Открытых", openCount.toString(), ""),
+                    ProjectStatsSummaryCard("Закрытых", closedCount.toString(), ""),
+                ),
+                sections = listOf(
+                    ProjectStatsSection(
+                        title = "Список Issues",
+                        rows = allIssues
+                            .sortedByDescending { it.createdAtIso }
+                            .map { issue ->
+                                ProjectStatsTableRow(
+                                    label = issue.title,
+                                    value = issue.state?.uppercase() ?: "—",
+                                    note = buildString {
+                                        append(issue.creatorName)
+                                        append("  Создано: ${issue.createdAtLabel}")
+                                        issue.closedAtLabel?.let { append("  Закрыто: $it") }
+                                        issue.number?.let { append("  #$it") }
+                                    }
+                                )
+                            }
+                    )
+                )
+            )
+        }
+
+        StatsScreenSection.PullRequests -> {
+            val allPRs = details.pullRequests
+            val openCount = allPRs.count { it.closedAtIso == null }
+            val closedCount = allPRs.size - openCount
+            base.copy(
+                summaryCards = listOf(
+                    ProjectStatsSummaryCard("Pull Requests", allPRs.size.toString(), "всего"),
+                    ProjectStatsSummaryCard("Открытых", openCount.toString(), ""),
+                    ProjectStatsSummaryCard("Закрытых", closedCount.toString(), ""),
+                ),
+                sections = listOf(
+                    ProjectStatsSection(
+                        title = "Список Pull Requests",
+                        rows = allPRs
+                            .sortedByDescending { it.createdAtIso }
+                            .map { pr ->
+                                ProjectStatsTableRow(
+                                    label = pr.title,
+                                    value = pr.state?.uppercase() ?: "—",
+                                    note = buildString {
+                                        append(pr.authorName)
+                                        append("  Создано: ${pr.createdAtLabel}")
+                                        pr.closedAtLabel?.let { append("  Закрыто: $it") }
+                                        val add = pr.additions; val del = pr.deletions
+                                        if (add != null || del != null) append("  +${add ?: 0}/-${del ?: 0}")
+                                        pr.number?.let { append("  #$it") }
+                                    }
+                                )
+                            }
+                    )
+                )
+            )
+        }
+
+        StatsScreenSection.RapidPullRequests -> base.copy(
+            summaryCards = listOf(
+                ProjectStatsSummaryCard("Быстрые PR", rapidPullRequests.primaryValue, rapidPullRequests.primaryCaption)
+            ),
+            sections = listOf(rapidPullRequests.toExportSection()),
+        )
+
+        StatsScreenSection.CodeChurn -> base.copy(
+            sections = listOf(codeChurn.toExportSection()),
+        )
+
+        StatsScreenSection.CodeOwnership -> base.copy(
+            sections = listOf(codeOwnership.toExportSection()),
+        )
+
+        StatsScreenSection.DominantWeekDay -> base.copy(
+            sections = listOf(dominantWeekDay.toExportSection()),
+        )
+    }
 }
 
 internal fun ProjectStatsMetricSectionUi.toExportSection(): ProjectStatsSection {

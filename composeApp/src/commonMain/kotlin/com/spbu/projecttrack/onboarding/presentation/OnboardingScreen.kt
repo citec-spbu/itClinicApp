@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.platform.appVersionName
 import com.spbu.projecttrack.core.settings.LocalAppStrings
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
@@ -152,6 +153,18 @@ fun OnboardingScreen(
                     .padding(8.dp)
             )
             
+            val version = appVersionName()
+            if (version.isNotBlank()) {
+                Text(
+                    text = version,
+                    fontFamily = openSansBold,
+                    fontSize = 11.sp,
+                    color = ContinueTextColor,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            }
+
             Spacer(modifier = Modifier.weight(1f))
         }
         } // Закрываем внутренний Box с systemBarsPadding
