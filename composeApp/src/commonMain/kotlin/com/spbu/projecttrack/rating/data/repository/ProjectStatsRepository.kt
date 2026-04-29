@@ -446,7 +446,9 @@ class ProjectStatsRepository(
         }
 
         val metricsByName = resource.metrics.associateBy { it.name }
-        val commitsRaw = extractSnapshots<ProjectCommitSnapshot>(metricsByName[METRIC_COMMITS])
+        val commitsRaw = deduplicateCommits(
+            extractSnapshots<ProjectCommitSnapshot>(metricsByName[METRIC_COMMITS])
+        )
         val issuesRaw = extractSnapshots<ProjectIssueSnapshot>(metricsByName[METRIC_ISSUES])
         val pullRequestsRaw = deduplicatePullRequests(
             extractSnapshots<ProjectPullRequestSnapshot>(metricsByName[METRIC_PULL_REQUESTS])
@@ -589,6 +591,7 @@ class ProjectStatsRepository(
                 StatsDetailCommitUi(
                     authorId = normalizeLogin(commit.author?.login),
                     authorName = resolveUserDisplayName(commit.author?.login, userNameLookup),
+                    authorAvatarUrl = commit.author?.avatar_url,
                     message = commit.commit?.message?.trim().takeUnless { it.isNullOrBlank() }
                         ?: commit.sha?.take(7)?.let { "Commit $it" }
                         ?: "Commit",
@@ -796,6 +799,18 @@ class ProjectStatsRepository(
             }
     }
 
+    private fun deduplicateCommits(
+        commits: List<ProjectCommitSnapshot>,
+    ): List<ProjectCommitSnapshot> {
+        // Prefer the entry with more file details (non-empty files list)
+        return commits
+            .groupBy { it.sha?.trim()?.lowercase() ?: it.commit?.message?.trim() ?: "" }
+            .values
+            .map { duplicates ->
+                duplicates.maxByOrNull { it.files.size } ?: duplicates.first()
+            }
+    }
+
     private fun deduplicatePullRequests(
         pullRequests: List<ProjectPullRequestSnapshot>,
     ): List<ProjectPullRequestSnapshot> {
@@ -871,8 +886,8 @@ class ProjectStatsRepository(
             val delta = commit.files.sumOf { file ->
                 val additions = file.additions ?: 0
                 val deletions = file.deletions ?: 0
-                val changes = file.changes ?: 0
-                additions + deletions + changes
+                // changes = additions + deletions в GitHub API — не суммируем, иначе двойной счёт
+                additions + deletions
             }
 
             if (delta <= 0) return@forEach
@@ -1277,8 +1292,8 @@ class ProjectStatsRepository(
             commit.files.forEach { file ->
                 val additions = file.additions ?: 0
                 val deletions = file.deletions ?: 0
-                val changes = file.changes ?: 0
-                val lineDelta = additions + deletions + changes
+                // changes = additions + deletions в GitHub API — не суммируем
+                val lineDelta = additions + deletions
                 if (lineDelta <= 0) return@forEach
 
                 userLines[login] = (userLines[login] ?: 0) + lineDelta
@@ -1686,6 +1701,7 @@ class ProjectStatsRepository(
     @Serializable
     private data class ProjectCommitAuthorSnapshot(
         val login: String? = null,
+        val avatar_url: String? = null,
     )
 
     @Serializable

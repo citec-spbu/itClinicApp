@@ -3,6 +3,8 @@ package com.spbu.projecttrack.rating.export
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import kotlinx.cinterop.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import platform.CoreGraphics.*
 import platform.Foundation.*
 import platform.UIKit.*
@@ -18,6 +20,8 @@ actual fun rememberProjectStatsExporter(): ProjectStatsExporter {
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 private class IosProjectStatsExporter : ProjectStatsExporter {
 
+    private var shareWindow: UIWindow? = null
+
     private enum class ParaStyle { Title, Heading, Body, Muted }
 
     private data class Para(
@@ -31,12 +35,24 @@ private class IosProjectStatsExporter : ProjectStatsExporter {
 
     override suspend fun exportPdf(
         payload: ProjectStatsExportPayload
-    ): Result<ProjectStatsExportResult> = runCatching {
-        val fileName = "${sanitizeProjectStatsFileName(payload.projectName)}.pdf"
-        val path = NSTemporaryDirectory() + fileName
-        renderPdf(payload).writeToFile(path = path, atomically = true)
-        share(path)
-        ProjectStatsExportResult(fileName = fileName, absolutePath = path, mimeType = "application/pdf")
+    ): Result<ProjectStatsExportResult> {
+        println("PDF_IOS: exportPdf called")
+        val result = runCatching {
+            val fileName = "${sanitizeProjectStatsFileName(payload.projectName)}.pdf"
+            val path = NSTemporaryDirectory() + fileName
+            println("PDF_IOS: rendering on Default...")
+            val pdfData = withContext(Dispatchers.Default) { renderPdf(payload) }
+            println("PDF_IOS: render done, ${pdfData.length} bytes, writing file...")
+            pdfData.writeToFile(path = path, atomically = true)
+            // Шедулим share на следующий тик главной очереди — без withContext(Main),
+            // чтобы не блокировать очередь изнутри самой же очереди.
+            println("PDF_IOS: scheduling share on main queue...")
+            NSOperationQueue.mainQueue.addOperationWithBlock { share(path) }
+            println("PDF_IOS: share scheduled, returning result")
+            ProjectStatsExportResult(fileName = fileName, absolutePath = path, mimeType = "application/pdf")
+        }
+        result.onFailure { println("PDF_IOS: ERROR ${it::class.simpleName}: ${it.message}") }
+        return result
     }
 
     override suspend fun exportExcelCsv(
@@ -44,9 +60,11 @@ private class IosProjectStatsExporter : ProjectStatsExporter {
     ): Result<ProjectStatsExportResult> = runCatching {
         val fileName = "${sanitizeProjectStatsFileName(payload.projectName)}.csv"
         val path = NSTemporaryDirectory() + fileName
-        // UTF-8 BOM ensures Excel opens without an encoding dialog
-        writeTextFile(path, "\uFEFF" + buildProjectStatsCsv(payload))
-        share(path)
+        withContext(Dispatchers.Default) {
+            // UTF-8 BOM ensures Excel opens without an encoding dialog
+            writeTextFile(path, "﻿" + buildProjectStatsCsv(payload))
+        }
+        withContext(Dispatchers.Main) { share(path) }
         ProjectStatsExportResult(fileName = fileName, absolutePath = path, mimeType = "text/csv")
     }
 
@@ -227,9 +245,36 @@ private class IosProjectStatsExporter : ProjectStatsExporter {
     }
 
     private fun share(path: String) {
+        println("PDF_IOS: share() start")
         val url = NSURL.fileURLWithPath(path)
-        val vc = UIActivityViewController(activityItems = listOf(url), applicationActivities = null)
-        UIApplication.sharedApplication.keyWindow?.rootViewController
-            ?.presentViewController(vc, animated = true, completion = null)
+        val activityVc = UIActivityViewController(activityItems = listOf(url), applicationActivities = null)
+
+        // Ищем topViewController в текущем key window — мы уже на следующем тике
+        // после Compose (пришли сюда через addOperationWithBlock), поэтому рендер завершён.
+        val rootVc = UIApplication.sharedApplication.keyWindow?.rootViewController
+        var topVc: UIViewController? = rootVc
+        while (topVc?.presentedViewController != null) {
+            topVc = topVc!!.presentedViewController
+        }
+        println("PDF_IOS: share() topVc=${topVc ?: "null"}")
+
+        if (topVc == null) {
+            println("PDF_IOS: share() ERROR: no topVc found")
+            return
+        }
+
+        // iPad требует popover
+        activityVc.popoverPresentationController?.sourceView = topVc.view
+        activityVc.popoverPresentationController?.sourceRect = CGRectMake(
+            topVc.view.bounds.useContents { size.width / 2 },
+            topVc.view.bounds.useContents { size.height / 2 },
+            0.0, 0.0
+        )
+
+        println("PDF_IOS: share() calling presentViewController")
+        topVc.presentViewController(activityVc, animated = true, completion = {
+            println("PDF_IOS: share() present completion")
+        })
+        println("PDF_IOS: share() presentViewController called")
     }
 }

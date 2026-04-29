@@ -297,23 +297,27 @@ private class AndroidProjectStatsExporter(
 
         val lines = mutableListOf<String>()
         val words = text.split(Regex("\\s+"))
-        var currentLine = ""
+        val spaceWidth = paint.measureText(" ")
+
+        val currentWords = mutableListOf<String>()
+        var currentWidth = 0f
 
         words.forEach { word ->
-            val candidate = if (currentLine.isBlank()) word else "$currentLine $word"
-            if (paint.measureText(candidate) <= maxWidth) {
-                currentLine = candidate
+            val wordWidth = paint.measureText(word)
+            val neededWidth = if (currentWords.isEmpty()) wordWidth
+                              else currentWidth + spaceWidth + wordWidth
+            if (neededWidth <= maxWidth) {
+                currentWords += word
+                currentWidth = neededWidth
             } else {
-                if (currentLine.isNotBlank()) {
-                    lines += currentLine
-                }
-                currentLine = word
+                if (currentWords.isNotEmpty()) lines += currentWords.joinToString(" ")
+                currentWords.clear()
+                currentWords += word
+                currentWidth = wordWidth
             }
         }
 
-        if (currentLine.isNotBlank()) {
-            lines += currentLine
-        }
+        if (currentWords.isNotEmpty()) lines += currentWords.joinToString(" ")
 
         return lines.ifEmpty { listOf(text) }
     }

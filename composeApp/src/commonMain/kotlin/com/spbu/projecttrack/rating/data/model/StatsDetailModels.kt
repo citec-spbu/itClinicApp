@@ -18,6 +18,7 @@ data class StatsDetailParticipantUi(
 data class StatsDetailCommitUi(
     val authorId: String? = null,
     val authorName: String,
+    val authorAvatarUrl: String? = null,
     val message: String,
     val committedAtIso: String? = null,
     val committedAtLabel: String,

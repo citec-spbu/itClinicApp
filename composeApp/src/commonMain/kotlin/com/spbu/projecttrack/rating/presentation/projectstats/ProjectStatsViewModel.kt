@@ -7,7 +7,9 @@ import com.spbu.projecttrack.rating.data.repository.ProjectStatsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed class ProjectStatsUiState {
     data object Loading : ProjectStatsUiState()
@@ -97,14 +99,16 @@ class ProjectStatsViewModel(
                 _uiState.value = ProjectStatsUiState.Loading
             }
 
-            val result = repository.loadProjectStats(
-                projectId = projectId,
-                selectedRepositoryId = selectedRepositoryId,
-                selectedStartDate = selectedStartDate,
-                selectedEndDate = selectedEndDate,
-                selectedRapidThresholdMinutes = rapidThresholdMinutes,
-                forceRefresh = forceRefresh,
-            )
+            val result = withContext(Dispatchers.Default) {
+                repository.loadProjectStats(
+                    projectId = projectId,
+                    selectedRepositoryId = selectedRepositoryId,
+                    selectedStartDate = selectedStartDate,
+                    selectedEndDate = selectedEndDate,
+                    selectedRapidThresholdMinutes = rapidThresholdMinutes,
+                    forceRefresh = forceRefresh,
+                )
+            }
 
             result.onSuccess { model ->
                 hasLoaded = true
