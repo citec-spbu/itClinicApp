@@ -3,8 +3,12 @@ package com.spbu.projecttrack.rating.presentation.userstats
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -71,6 +75,7 @@ import com.spbu.projecttrack.rating.data.model.ProjectStatsIssueSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsMetricSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsOwnershipSectionUi
 import com.spbu.projecttrack.rating.data.model.UserStatsUiModel
+import com.spbu.projecttrack.rating.data.model.filterByParticipant
 import com.spbu.projecttrack.rating.presentation.details.StatsDetailScreen
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSection
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsScreen
@@ -85,13 +90,13 @@ import com.spbu.projecttrack.rating.export.rememberProjectStatsExporter
 import com.spbu.projecttrack.rating.presentation.projectstats.ActionPillButton
 import com.spbu.projecttrack.rating.presentation.projectstats.AnimatedSection
 import com.spbu.projecttrack.rating.presentation.projectstats.ChartCard
-import com.spbu.projecttrack.rating.presentation.projectstats.CompactStatsCard
 import com.spbu.projecttrack.rating.presentation.projectstats.DominantWeekDaySection
 import com.spbu.projecttrack.rating.presentation.projectstats.DoubleMetricRow
 import com.spbu.projecttrack.rating.presentation.projectstats.EmptyDetailedInfoCard
 import com.spbu.projecttrack.rating.presentation.projectstats.ErrorState
 import com.spbu.projecttrack.rating.presentation.projectstats.FileStatsCard
 import com.spbu.projecttrack.rating.presentation.projectstats.FooterActions
+import com.spbu.projecttrack.rating.presentation.projectstats.IssueProgressCard
 import com.spbu.projecttrack.rating.presentation.projectstats.RepositorySelectorCard
 import com.spbu.projecttrack.rating.presentation.projectstats.ScoreCard
 import com.spbu.projecttrack.rating.presentation.projectstats.SectionHeader
@@ -106,6 +111,7 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import androidx.compose.ui.backhandler.BackHandler
 import projecttrack.composeapp.generated.resources.Res
+import projecttrack.composeapp.generated.resources.spbu_logo
 
 private val UserStatsCardShape = RoundedCornerShape(10.dp)
 private val UserStatsButtonShape = RoundedCornerShape(10.dp)
@@ -129,11 +135,28 @@ fun UserStatsScreen(
     val exporter = rememberProjectStatsExporter()
     var showSettingsScreen by remember { mutableStateOf(false) }
     var activeDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
+    var renderedDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
     var activeSectionIds by rememberSaveable { mutableStateOf(defaultStatsScreenSectionIds()) }
     val activeSections = remember(activeSectionIds) { statsScreenSectionsFromIds(activeSectionIds) }
+    val detailTransitionState = remember { MutableTransitionState(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.load()
+    }
+
+    LaunchedEffect(activeDetailSection) {
+        if (activeDetailSection != null) {
+            renderedDetailSection = activeDetailSection
+            detailTransitionState.targetState = true
+        } else {
+            detailTransitionState.targetState = false
+        }
+    }
+
+    LaunchedEffect(detailTransitionState.isIdle, detailTransitionState.currentState, activeDetailSection) {
+        if (detailTransitionState.isIdle && !detailTransitionState.currentState && activeDetailSection == null) {
+            renderedDetailSection = null
+        }
     }
 
     BackHandler(enabled = activeDetailSection != null || showSettingsScreen) {
@@ -153,7 +176,15 @@ fun UserStatsScreen(
                 .fillMaxSize()
                 .background(Color.White)
         ) {
-            StatsBackgroundLogo()
+            Image(
+                painter = painterResource(Res.drawable.spbu_logo),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.Center),
+                contentScale = ContentScale.Fit,
+                alpha = 1.0f,
+            )
 
             when (val state = uiState) {
                 UserStatsUiState.Loading -> {
@@ -222,61 +253,74 @@ fun UserStatsScreen(
                 )
             }
 
-            val detailSection = activeDetailSection
-            if (detailSection != null && uiState is UserStatsUiState.Success) {
-                val model = (uiState as UserStatsUiState.Success).data
-                StatsDetailScreen(
-                    section = detailSection,
-                    repositories = model.repositories,
-                    selectedRepositoryId = model.selectedRepositoryId,
-                    visibleRange = model.visibleRange,
-                    rapidThreshold = model.rapidThreshold,
-                    details = model.details,
-                    allowParticipantFilter = false,
-                    initialParticipantId = model.details.defaultParticipantId,
-                    overallRank = when (detailSection) {
-                        StatsScreenSection.Commits -> model.commits.rank
-                        StatsScreenSection.Issues -> model.issues.rank
-                        StatsScreenSection.PullRequests -> model.pullRequests.rank
-                        StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.rank
-                        StatsScreenSection.CodeChurn -> model.codeChurn.rank
-                        StatsScreenSection.CodeOwnership -> model.codeOwnership.rank
-                        StatsScreenSection.DominantWeekDay -> null
-                    },
-                    overallScore = when (detailSection) {
-                        StatsScreenSection.Commits -> model.commits.score
-                        StatsScreenSection.Issues -> model.issues.score
-                        StatsScreenSection.PullRequests -> model.pullRequests.score
-                        StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.score
-                        StatsScreenSection.CodeChurn -> model.codeChurn.score
-                        StatsScreenSection.CodeOwnership -> model.codeOwnership.score
-                        StatsScreenSection.DominantWeekDay -> model.dominantWeekDay.score
-                    },
-                    onBackClick = { activeDetailSection = null },
-                    onRepositorySelected = viewModel::selectRepository,
-                    onDateRangeSelected = viewModel::selectDateRange,
-                    onRapidThresholdChanged = viewModel::updateRapidThreshold,
-                    onExportPdfClick = {
-                        scope.launch {
-                            val payload = model.toSectionExportPayload(detailSection)
-                            val result = exporter.exportPdf(payload)
-                            val message = result.getOrNull()?.let { export ->
-                                "PDF сохранен: ${export.fileName}"
-                            } ?: "Не удалось экспортировать PDF"
-                            snackbarHostState.showSnackbar(message)
-                        }
-                    },
-                    onExportExcelClick = {
-                        scope.launch {
-                            val payload = model.toSectionExportPayload(detailSection)
-                            val result = exporter.exportExcelCsv(payload)
-                            val message = result.getOrNull()?.let { export ->
-                                "CSV сохранен: ${export.fileName}"
-                            } ?: "Не удалось экспортировать Excel"
-                            snackbarHostState.showSnackbar(message)
-                        }
-                    },
-                )
+            AnimatedVisibility(
+                visibleState = detailTransitionState,
+                enter = slideInHorizontally(animationSpec = tween(300)) { it } + fadeIn(tween(300)),
+                exit = slideOutHorizontally(animationSpec = tween(300)) { it } + fadeOut(tween(300)),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                val detailSection = renderedDetailSection
+                if (detailSection != null && uiState is UserStatsUiState.Success) {
+                    val model = (uiState as UserStatsUiState.Success).data
+                    StatsDetailScreen(
+                        section = detailSection,
+                        repositories = model.repositories,
+                        selectedRepositoryId = model.selectedRepositoryId,
+                        visibleRange = model.visibleRange,
+                        rapidThreshold = model.rapidThreshold,
+                        details = model.details,
+                        allowParticipantFilter = false,
+                        initialParticipantId = model.details.defaultParticipantId,
+                        overallRank = when (detailSection) {
+                            StatsScreenSection.Commits -> model.commits.rank
+                            StatsScreenSection.Issues -> model.issues.rank
+                            StatsScreenSection.PullRequests -> model.pullRequests.rank
+                            StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.rank
+                            StatsScreenSection.CodeChurn -> model.codeChurn.rank
+                            StatsScreenSection.CodeOwnership -> model.codeOwnership.rank
+                            StatsScreenSection.DominantWeekDay -> null
+                        },
+                        overallScore = when (detailSection) {
+                            StatsScreenSection.Commits -> model.commits.score
+                            StatsScreenSection.Issues -> model.issues.score
+                            StatsScreenSection.PullRequests -> model.pullRequests.score
+                            StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.score
+                            StatsScreenSection.CodeChurn -> model.codeChurn.score
+                            StatsScreenSection.CodeOwnership -> model.codeOwnership.score
+                            StatsScreenSection.DominantWeekDay -> model.dominantWeekDay.score
+                        },
+                        onBackClick = { activeDetailSection = null },
+                        onRepositorySelected = viewModel::selectRepository,
+                        onDateRangeSelected = viewModel::selectDateRange,
+                        onRapidThresholdChanged = viewModel::updateRapidThreshold,
+                        onExportPdfClick = { participantId ->
+                            scope.launch {
+                                val payload = model.toSectionExportPayload(
+                                    section = detailSection,
+                                    participantId = participantId,
+                                )
+                                val result = exporter.exportPdf(payload)
+                                val message = result.getOrNull()?.let { export ->
+                                    "PDF сохранен: ${export.fileName}"
+                                } ?: "Не удалось экспортировать PDF"
+                                snackbarHostState.showSnackbar(message)
+                            }
+                        },
+                        onExportExcelClick = { participantId ->
+                            scope.launch {
+                                val payload = model.toSectionExportPayload(
+                                    section = detailSection,
+                                    participantId = participantId,
+                                )
+                                val result = exporter.exportExcelCsv(payload)
+                                val message = result.getOrNull()?.let { export ->
+                                    "CSV сохранен: ${export.fileName}"
+                                } ?: "Не удалось экспортировать Excel"
+                                snackbarHostState.showSnackbar(message)
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -609,35 +653,11 @@ private fun PersonalIssueSection(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            CompactStatsCard(modifier = Modifier.weight(1f)) {
-                Column(
-                    modifier = Modifier.fillMaxHeight(),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(30.dp)
-                            .background(Color(0xFFE9E9E9), RoundedCornerShape(6.dp))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(section.progress.coerceIn(0f, 1f))
-                                .height(30.dp)
-                                .background(AppColors.Color3, RoundedCornerShape(6.dp))
-                        )
-                    }
-                    Text(
-                        text = section.remainingText,
-                        fontFamily = AppFonts.OpenSansMedium,
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
-                        color = AppColors.Color2,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+            IssueProgressCard(
+                progress = section.progress,
+                remainingText = section.remainingText,
+                modifier = Modifier.weight(1f),
+            )
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = section.rank?.toString() ?: "—",
@@ -770,7 +790,7 @@ private fun UserStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
         generatedAtLabel = "Сейчас",
         summaryCards = listOf(
             ProjectStatsSummaryCard("Коммиты", commits.primaryValue, commits.primaryCaption),
-            ProjectStatsSummaryCard("Issue", issues.openIssues.toString(), "открытых"),
+            ProjectStatsSummaryCard("Issue", (issues.openIssues + issues.closedIssues).toString(), "всего"),
             ProjectStatsSummaryCard("Pull Requests", pullRequests.primaryValue, pullRequests.primaryCaption),
             ProjectStatsSummaryCard("Быстрые PR", rapidPullRequests.primaryValue, rapidPullRequests.primaryCaption)
         ),
@@ -786,7 +806,10 @@ private fun UserStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
     )
 }
 
-private fun UserStatsUiModel.toSectionExportPayload(section: StatsScreenSection): ProjectStatsExportPayload {
+private fun UserStatsUiModel.toSectionExportPayload(
+    section: StatsScreenSection,
+    participantId: String? = details.defaultParticipantId,
+): ProjectStatsExportPayload {
     val selectedRepository = repositories.firstOrNull { it.id == selectedRepositoryId }
     val base = ProjectStatsExportPayload(
         projectId = userId,
@@ -797,8 +820,6 @@ private fun UserStatsUiModel.toSectionExportPayload(section: StatsScreenSection)
         periodLabel = "${visibleRange.startLabel} - ${visibleRange.endLabel}",
         generatedAtLabel = "Сейчас",
     )
-    // Применяем тот же фильтр по участнику, что и на экране деталей
-    val participantId = details.defaultParticipantId
 
     return when (section) {
         StatsScreenSection.Commits -> {
@@ -837,9 +858,8 @@ private fun UserStatsUiModel.toSectionExportPayload(section: StatsScreenSection)
         }
 
         StatsScreenSection.Issues -> {
-            val allIssues = details.issues
-                .let { if (participantId != null) it.filter { i -> i.creatorId == participantId } else it }
-            val openCount = allIssues.count { it.closedAtIso == null }
+            val allIssues = details.issues.filterByParticipant(participantId)
+            val openCount = allIssues.count { it.closedAtIso.isNullOrBlank() }
             val closedCount = allIssues.size - openCount
             base.copy(
                 summaryCards = listOf(
@@ -872,7 +892,7 @@ private fun UserStatsUiModel.toSectionExportPayload(section: StatsScreenSection)
         StatsScreenSection.PullRequests -> {
             val allPRs = details.pullRequests
                 .let { if (participantId != null) it.filter { pr -> pr.authorId == participantId } else it }
-            val openCount = allPRs.count { it.closedAtIso == null }
+            val openCount = allPRs.count { it.closedAtIso.isNullOrBlank() }
             val closedCount = allPRs.size - openCount
             base.copy(
                 summaryCards = listOf(

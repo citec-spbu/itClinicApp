@@ -41,8 +41,10 @@ data class StatsDetailCommitFileUi(
 data class StatsDetailIssueUi(
     val creatorId: String? = null,
     val creatorName: String,
+    val creatorAvatarUrl: String? = null,
     val assigneeIds: List<String> = emptyList(),
     val assigneeNames: List<String> = emptyList(),
+    val assigneeAvatarUrls: List<String?> = emptyList(),
     val createdAtIso: String? = null,
     val createdAtLabel: String,
     val closedAtIso: String? = null,
@@ -52,6 +54,8 @@ data class StatsDetailIssueUi(
     val state: String? = null,
     val labels: List<String> = emptyList(),
     val comments: Int? = null,
+    val thumbsUpCount: Int? = null,
+    val thumbsDownCount: Int? = null,
     val url: String? = null,
 )
 

@@ -7,6 +7,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,8 +30,10 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -54,6 +58,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -77,14 +82,18 @@ import com.spbu.projecttrack.rating.data.model.StatsDetailDataUi
 import com.spbu.projecttrack.rating.data.model.StatsDetailIssueUi
 import com.spbu.projecttrack.rating.data.model.StatsDetailParticipantUi
 import com.spbu.projecttrack.rating.data.model.StatsDetailPullRequestUi
+import com.spbu.projecttrack.rating.data.model.filterByParticipant
 import com.spbu.projecttrack.rating.presentation.projectstats.ChartCard
 import com.spbu.projecttrack.rating.presentation.projectstats.DonutChart
 import com.spbu.projecttrack.rating.presentation.projectstats.DoubleMetricRow
 import com.spbu.projecttrack.rating.presentation.projectstats.DropdownSelector
 import com.spbu.projecttrack.rating.presentation.projectstats.EmptyDetailedInfoCard
+import com.spbu.projecttrack.rating.presentation.projectstats.IssueProgressCard
 import com.spbu.projecttrack.rating.presentation.projectstats.RepositorySelectorCard
 import com.spbu.projecttrack.rating.presentation.projectstats.ScoreCard
 import com.spbu.projecttrack.rating.presentation.projectstats.SingleMetricCard
+import com.spbu.projecttrack.rating.presentation.projectstats.formatScoreValue
+import com.spbu.projecttrack.rating.presentation.projectstats.projectScoreColor
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsBackgroundLogo
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsDateRangePickerDialog
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBar
@@ -95,8 +104,13 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
+import projecttrack.composeapp.generated.resources.search_icon
 import projecttrack.composeapp.generated.resources.stats_footer_excel
 import projecttrack.composeapp.generated.resources.stats_footer_pdf
+import projecttrack.composeapp.generated.resources.stats_issue_comments_logo
+import projecttrack.composeapp.generated.resources.stats_issue_dislike_logo
+import projecttrack.composeapp.generated.resources.stats_issue_like_logo
+import projecttrack.composeapp.generated.resources.spbu_logo
 import projecttrack.composeapp.generated.resources.stats_tooltip_close
 import kotlin.math.PI
 import kotlin.math.abs
@@ -110,6 +124,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.draw.clip
@@ -134,6 +151,23 @@ private val DetailAccentGradient = Brush.verticalGradient(
 )
 private const val AllParticipantsId = "__all__"
 
+private enum class IssueStateFilter(
+    val key: String,
+    val label: String,
+) {
+    All("all", "Все"),
+    Open("open", "Открытые"),
+    Closed("closed", "Закрытые");
+
+    companion object {
+        val options: List<Pair<String, String>> = entries.map { it.key to it.label }
+
+        fun fromKey(key: String?): IssueStateFilter {
+            return entries.firstOrNull { it.key == key } ?: All
+        }
+    }
+}
+
 @Composable
 fun StatsDetailScreen(
     section: StatsScreenSection,
@@ -150,11 +184,12 @@ fun StatsDetailScreen(
     onRepositorySelected: (String) -> Unit,
     onDateRangeSelected: (String, String) -> Unit,
     onRapidThresholdChanged: (Int, Int, Int) -> Unit,
-    onExportPdfClick: () -> Unit,
-    onExportExcelClick: () -> Unit,
+    onExportPdfClick: (String?) -> Unit,
+    onExportExcelClick: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showDateRangePicker by remember { mutableStateOf(false) }
+    var showAllIssues by rememberSaveable(section.id) { mutableStateOf(false) }
     val startParticipant = remember(section, allowParticipantFilter, initialParticipantId, details.defaultParticipantId) {
         when {
             allowParticipantFilter -> initialParticipantId ?: AllParticipantsId
@@ -171,13 +206,25 @@ fun StatsDetailScreen(
     val effectiveParticipantId = selectedParticipantId?.takeUnless { it == AllParticipantsId }
     val selectedSnapshot = effectiveParticipantId?.let(participantSnapshots::get)
     val peerSnapshots = participantSnapshots.filterKeys { it != effectiveParticipantId }.values.toList()
+    val issueListForOverlay = remember(section, details, effectiveParticipantId) {
+        if (section == StatsScreenSection.Issues) filterIssues(details, effectiveParticipantId)
+        else emptyList()
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
     ) {
-        StatsBackgroundLogo()
+        Image(
+            painter = painterResource(Res.drawable.spbu_logo),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .align(Alignment.Center),
+            contentScale = ContentScale.Fit,
+            alpha = 1.0f,
+        )
 
         LazyColumn(
             modifier = Modifier
@@ -190,7 +237,7 @@ fun StatsDetailScreen(
                 top = StatsTopBarTotalHeight + 8.dp,
                 end = 21.dp,
                 bottom = 20.dp,
-            ),
+                ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
@@ -224,84 +271,85 @@ fun StatsDetailScreen(
             }
 
             when (section) {
-                StatsScreenSection.Commits -> commitItems(
-                    snapshots = participantSnapshots,
-                    selectedSnapshot = selectedSnapshot,
-                    peerSnapshots = peerSnapshots,
-                    effectiveParticipantId = effectiveParticipantId,
-                    overallRank = overallRank,
-                    overallScore = overallScore,
-                    details = details,
-                )
+                    StatsScreenSection.Commits -> commitItems(
+                        snapshots = participantSnapshots,
+                        selectedSnapshot = selectedSnapshot,
+                        peerSnapshots = peerSnapshots,
+                        effectiveParticipantId = effectiveParticipantId,
+                        overallRank = overallRank,
+                        overallScore = overallScore,
+                        details = details,
+                    )
 
-                StatsScreenSection.Issues -> issueItems(
-                    snapshots = participantSnapshots,
-                    selectedSnapshot = selectedSnapshot,
-                    peerSnapshots = peerSnapshots,
-                    effectiveParticipantId = effectiveParticipantId,
-                    overallRank = overallRank,
-                    overallScore = overallScore,
-                    details = details,
-                )
+                    StatsScreenSection.Issues -> issueItems(
+                        snapshots = participantSnapshots,
+                        selectedSnapshot = selectedSnapshot,
+                        peerSnapshots = peerSnapshots,
+                        effectiveParticipantId = effectiveParticipantId,
+                        overallRank = overallRank,
+                        overallScore = overallScore,
+                        details = details,
+                        onShowAllClick = { showAllIssues = true },
+                    )
 
-                StatsScreenSection.PullRequests -> pullRequestItems(
-                    snapshots = participantSnapshots,
-                    selectedSnapshot = selectedSnapshot,
-                    peerSnapshots = peerSnapshots,
-                    effectiveParticipantId = effectiveParticipantId,
-                    overallRank = overallRank,
-                    overallScore = overallScore,
-                    details = details,
-                    rapidThreshold = rapidThreshold,
-                )
+                    StatsScreenSection.PullRequests -> pullRequestItems(
+                        snapshots = participantSnapshots,
+                        selectedSnapshot = selectedSnapshot,
+                        peerSnapshots = peerSnapshots,
+                        effectiveParticipantId = effectiveParticipantId,
+                        overallRank = overallRank,
+                        overallScore = overallScore,
+                        details = details,
+                        rapidThreshold = rapidThreshold,
+                    )
 
-                StatsScreenSection.RapidPullRequests -> rapidPullRequestItems(
-                    snapshots = participantSnapshots,
-                    selectedSnapshot = selectedSnapshot,
-                    peerSnapshots = peerSnapshots,
-                    effectiveParticipantId = effectiveParticipantId,
-                    overallRank = overallRank,
-                    overallScore = overallScore,
-                    details = details,
-                    rapidThreshold = rapidThreshold,
-                    onRapidThresholdChanged = onRapidThresholdChanged,
-                )
+                    StatsScreenSection.RapidPullRequests -> rapidPullRequestItems(
+                        snapshots = participantSnapshots,
+                        selectedSnapshot = selectedSnapshot,
+                        peerSnapshots = peerSnapshots,
+                        effectiveParticipantId = effectiveParticipantId,
+                        overallRank = overallRank,
+                        overallScore = overallScore,
+                        details = details,
+                        rapidThreshold = rapidThreshold,
+                        onRapidThresholdChanged = onRapidThresholdChanged,
+                    )
 
-                StatsScreenSection.CodeChurn -> codeChurnItems(
-                    snapshots = participantSnapshots,
-                    selectedSnapshot = selectedSnapshot,
-                    peerSnapshots = peerSnapshots,
-                    effectiveParticipantId = effectiveParticipantId,
-                    overallRank = overallRank,
-                    overallScore = overallScore,
-                    details = details,
-                )
+                    StatsScreenSection.CodeChurn -> codeChurnItems(
+                        snapshots = participantSnapshots,
+                        selectedSnapshot = selectedSnapshot,
+                        peerSnapshots = peerSnapshots,
+                        effectiveParticipantId = effectiveParticipantId,
+                        overallRank = overallRank,
+                        overallScore = overallScore,
+                        details = details,
+                    )
 
-                StatsScreenSection.CodeOwnership -> ownershipItems(
-                    snapshots = participantSnapshots,
-                    selectedSnapshot = selectedSnapshot,
-                    peerSnapshots = peerSnapshots,
-                    effectiveParticipantId = effectiveParticipantId,
-                    overallRank = overallRank,
-                    overallScore = overallScore,
-                    details = details,
-                )
+                    StatsScreenSection.CodeOwnership -> ownershipItems(
+                        snapshots = participantSnapshots,
+                        selectedSnapshot = selectedSnapshot,
+                        peerSnapshots = peerSnapshots,
+                        effectiveParticipantId = effectiveParticipantId,
+                        overallRank = overallRank,
+                        overallScore = overallScore,
+                        details = details,
+                    )
 
-                StatsScreenSection.DominantWeekDay -> dominantWeekDayItems(
-                    snapshots = participantSnapshots,
-                    selectedSnapshot = selectedSnapshot,
-                    peerSnapshots = peerSnapshots,
-                    effectiveParticipantId = effectiveParticipantId,
-                    overallRank = overallRank,
-                    overallScore = overallScore,
-                    details = details,
-                )
-            }
+                    StatsScreenSection.DominantWeekDay -> dominantWeekDayItems(
+                        snapshots = participantSnapshots,
+                        selectedSnapshot = selectedSnapshot,
+                        peerSnapshots = peerSnapshots,
+                        effectiveParticipantId = effectiveParticipantId,
+                        overallRank = overallRank,
+                        overallScore = overallScore,
+                        details = details,
+                    )
+                }
 
             item {
                 DetailExportActions(
-                    onExportPdfClick = onExportPdfClick,
-                    onExportExcelClick = onExportExcelClick,
+                    onExportPdfClick = { onExportPdfClick(effectiveParticipantId) },
+                    onExportExcelClick = { onExportExcelClick(effectiveParticipantId) },
                 )
             }
         }
@@ -313,6 +361,18 @@ fun StatsDetailScreen(
             titleLineHeight = if (section == StatsScreenSection.DominantWeekDay) 20.sp else 28.sp,
             modifier = Modifier.align(Alignment.TopCenter)
         )
+
+        AnimatedVisibility(
+            visible = showAllIssues && section == StatsScreenSection.Issues,
+            enter = slideInHorizontally(animationSpec = tween(300)) { it } + fadeIn(tween(300)),
+            exit = slideOutHorizontally(animationSpec = tween(300)) { it } + fadeOut(tween(300)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            AllIssuesOverlay(
+                issues = issueListForOverlay,
+                onBackClick = { showAllIssues = false },
+            )
+        }
     }
 
     if (showDateRangePicker) {
@@ -488,22 +548,33 @@ private fun LazyListScope.issueItems(
     overallRank: Int?,
     overallScore: Double?,
     details: StatsDetailDataUi,
+    onShowAllClick: () -> Unit,
 ) {
     val filteredIssues = filterIssues(details, effectiveParticipantId)
+    val sortedIssues = sortIssuesByNewest(filteredIssues)
     val current = selectedSnapshot
-    val openIssues = filteredIssues.count { it.closedAtIso == null }
+    val openIssues = filteredIssues.count { it.closedAtIso.isNullOrBlank() }
     val closedIssues = filteredIssues.size - openIssues
+    val issueProgress = if (filteredIssues.isEmpty()) 0f else closedIssues.toFloat() / filteredIssues.size.toFloat()
     val averageLifetime = formatDurationMinutesLabel(buildAverageLifetimeMinutes(filteredIssues.mapNotNull {
         durationMinutes(it.createdAtIso, it.closedAtIso)
     }))
+    val issueRemainingText = when {
+        filteredIssues.isEmpty() && effectiveParticipantId == null -> "Подробной информации по Issue нет"
+        filteredIssues.isEmpty() -> "Нет активных Issue"
+        openIssues > 0 -> "Закройте еще $openIssues Issue"
+        else -> "Все Issue закрыты"
+    }
     val creatorRows = buildIssueCreatorRows(filteredIssues, effectiveParticipantId)
     val assigneeRows = buildIssueAssigneeRows(filteredIssues, effectiveParticipantId)
     val participantRows = snapshots.values
         .sortedByDescending { it.issueCount }
         .map {
+            val issueValue = if (it.issueCount == 0) "0"
+                             else "${it.openIssueCount}/${it.closedIssueCount}"
             DetailTableRow(
                 title = appendYouSuffix(it.participant.name, it.participant.id == effectiveParticipantId),
-                values = listOf("${it.openIssueCount} / ${it.closedIssueCount}"),
+                values = listOf(issueValue),
                 highlight = it.participant.id == effectiveParticipantId,
             )
         }
@@ -513,9 +584,9 @@ private fun LazyListScope.issueItems(
         overallScope = effectiveParticipantId == null,
         specificScore = current?.issueScore,
     )
-    val rank = resolveRank(
-        overallRank = overallRank,
-        overallScope = effectiveParticipantId == null,
+    val teamRank = resolveRank(
+        overallRank = null,
+        overallScope = false,
         specificScore = current?.issueScore,
         peerScores = peerSnapshots.map { it.issueScore },
     )
@@ -530,7 +601,7 @@ private fun LazyListScope.issueItems(
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = averageLifetime,
-                caption = "ср. время жизни",
+                caption = "ср. время жизни Issue",
             )
         }
     }
@@ -544,22 +615,15 @@ private fun LazyListScope.issueItems(
     }
     item {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            DetailCard(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = when {
-                        filteredIssues.isEmpty() -> "Нет активных Issue"
-                        openIssues > 0 -> "Закройте еще $openIssues Issue"
-                        else -> "Все Issue закрыты"
-                    },
-                    fontFamily = AppFonts.OpenSansMedium,
-                    fontSize = 13.sp,
-                    color = AppColors.Color2,
-                )
-            }
+            IssueProgressCard(
+                progress = issueProgress,
+                remainingText = issueRemainingText,
+                modifier = Modifier.weight(1f),
+            )
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
-                value = rank?.toString() ?: "—",
-                caption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
+                value = overallRank?.toString() ?: "—",
+                caption = "место в рейтинге",
             )
         }
     }
@@ -567,68 +631,72 @@ private fun LazyListScope.issueItems(
         item {
             DetailTableCard(
                 title = "Количество назначенных Issue",
-                headers = listOf("Откр./Закр."),
+                subtitle = "(открытые/закрытые)",
+                headers = emptyList(),
                 rows = participantRows,
             )
         }
     }
     item {
-        DetailEntityListCard(
+        DetailIssueSection(
             title = "Список Issues",
-            items = filteredIssues
-                .sortedByDescending { parseInstant(it.createdAtIso)?.toEpochMilliseconds() ?: Long.MIN_VALUE }
-                .take(20)
-                .map { issue ->
-                    DetailEntityCardData(
-                        title = issue.title,
-                        badge = issue.labels.firstOrNull(),
-                        status = issue.state,
-                        metaLines = buildList {
-                            add("Создатель: ${issue.creatorName}")
-                            if (issue.assigneeNames.isNotEmpty()) {
-                                add("Исполнители: ${issue.assigneeNames.joinToString()}")
-                            }
-                            add("Создано: ${issue.createdAtLabel}")
-                            issue.closedAtLabel?.let { add("Закрыто: $it") }
-                        },
-                        secondary = issue.number?.let { "#$it" },
-                        trailing = issue.comments?.let { "$it комментариев" },
-                        link = issue.url,
-                    )
-                }
+            issues = sortedIssues.take(1),
+            actionLabel = if (sortedIssues.isNotEmpty()) "Смотреть все" else null,
+            onActionClick = onShowAllClick,
         )
     }
     if (creatorRows.isNotEmpty()) {
         item {
-            DetailTableCard(
+            DetailPersonSection(
                 title = "Создатели Issues",
-                headers = listOf("Кол-во"),
                 rows = creatorRows,
             )
         }
     }
     if (assigneeRows.isNotEmpty()) {
         item {
-            DetailTableCard(
+            DetailPersonSection(
                 title = "Исполнители Issues",
-                headers = listOf("Кол-во"),
                 rows = assigneeRows,
             )
         }
     }
     if (labelChips.isNotEmpty()) {
         item {
-            DetailChipSection(
+            DetailLabelSection(
                 title = "Метки",
                 chips = labelChips,
             )
         }
     }
+    if (effectiveParticipantId != null) {
+        item {
+            SingleMetricCard(
+                value = teamRank?.toString() ?: "—",
+                caption = "место в команде",
+            )
+        }
+    }
     item {
-        ScoreCard(
-            score = score,
-            title = "оценка Issue",
-        )
+        DetailCard {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val scoreText = score?.let(::formatScoreValue) ?: "—"
+                Text(
+                    text = scoreText,
+                    fontFamily = AppFonts.OpenSansBold,
+                    fontSize = 32.sp,
+                    lineHeight = 32.sp,
+                    color = projectScoreColor(score),
+                )
+                Text(
+                    text = "оценка Issue",
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 14.sp,
+                    lineHeight = 16.sp,
+                    color = AppColors.Color2,
+                )
+            }
+        }
     }
 }
 
@@ -1734,15 +1802,26 @@ private fun DetailTableCard(
     headers: List<String>,
     rows: List<DetailTableRow>,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
 ) {
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = title,
-                fontFamily = AppFonts.OpenSansSemiBold,
-                fontSize = 16.sp,
-                color = AppColors.Color2,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = title,
+                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontSize = 16.sp,
+                    color = AppColors.Color2,
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        fontFamily = AppFonts.OpenSansRegular,
+                        fontSize = 13.sp,
+                        color = AppColors.Color2,
+                    )
+                }
+            }
             if (rows.isEmpty()) {
                 Text(
                     text = "Нет данных",
@@ -1751,26 +1830,28 @@ private fun DetailTableCard(
                     color = AppColors.Color2,
                 )
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "Название",
-                        fontFamily = AppFonts.OpenSansBold,
-                        fontSize = 12.sp,
-                        color = AppColors.Color2,
-                        modifier = Modifier.weight(1f),
-                    )
-                    headers.forEach { header ->
+                if (subtitle == null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
                         Text(
-                            text = header,
+                            text = "Название",
                             fontFamily = AppFonts.OpenSansBold,
                             fontSize = 12.sp,
                             color = AppColors.Color2,
-                            textAlign = TextAlign.End,
-                            modifier = Modifier.widthIn(min = 72.dp),
+                            modifier = Modifier.weight(1f),
                         )
+                        headers.forEach { header ->
+                            Text(
+                                text = header,
+                                fontFamily = AppFonts.OpenSansBold,
+                                fontSize = 12.sp,
+                                color = AppColors.Color2,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.widthIn(min = 72.dp),
+                            )
+                        }
                     }
                 }
                 rows.forEachIndexed { index, row ->
@@ -2089,6 +2170,627 @@ private fun CommitEntityListCard(
 }
 
 @Composable
+private fun AllIssuesOverlay(
+    issues: List<StatsDetailIssueUi>,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val focusManager = LocalFocusManager.current
+    var searchText by remember { mutableStateOf("") }
+    var stateFilterKey by remember { mutableStateOf(IssueStateFilter.All.key) }
+    val stateFilter = IssueStateFilter.fromKey(stateFilterKey)
+    val filteredIssues = remember(issues, searchText, stateFilter) {
+        filterAllIssues(issues, searchText, stateFilter)
+    }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.White),
+    ) {
+        // Лого СПбГУ по центру — как на экране авторизации
+        Image(
+            painter = painterResource(Res.drawable.spbu_logo),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .align(Alignment.Center),
+            contentScale = ContentScale.Fit,
+            alpha = 1.0f,
+        )
+
+        // LazyColumn fills the full screen → clipping boundary is the screen edges,
+        // so item shadows are never clipped when scrolling to the top.
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { focusManager.clearFocus() })
+                },
+            contentPadding = PaddingValues(
+                top = StatsTopBarTotalHeight + 8.dp,
+                bottom = 20.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // Search + filter scroll together with the list
+            item(key = "search_header") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 21.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DetailIssueSearchBar(
+                        searchText = searchText,
+                        onSearchTextChange = { searchText = it },
+                    )
+                    DetailDropdownSelector(
+                        title = "Состояние",
+                        value = stateFilter.label,
+                        options = IssueStateFilter.options,
+                        onSelected = { stateFilterKey = it ?: IssueStateFilter.All.key },
+                        selectedKey = stateFilterKey,
+                    )
+                }
+            }
+
+            if (filteredIssues.isEmpty()) {
+                item {
+                    Box(Modifier.padding(horizontal = 21.dp)) {
+                        DetailCard {
+                            Text(
+                                text = if (searchText.isBlank() && stateFilter == IssueStateFilter.All) {
+                                    "Нет данных"
+                                } else {
+                                    "Ничего не найдено"
+                                },
+                                fontFamily = AppFonts.OpenSansMedium,
+                                fontSize = 13.sp,
+                                color = AppColors.Color2,
+                            )
+                        }
+                    }
+                }
+            } else {
+                items(
+                    items = filteredIssues,
+                    key = { issue -> issueStableKey(issue) },
+                ) { issue ->
+                    Box(Modifier.padding(horizontal = 21.dp)) {
+                        DetailIssueCard(issue = issue)
+                    }
+                }
+            }
+        }
+
+        // Top bar drawn last — sits above everything
+        StatsTopBar(
+            title = "Все Issues",
+            onBackClick = {
+                focusManager.clearFocus()
+                onBackClick()
+            },
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+    }
+}
+
+@Composable
+private fun DetailIssueSearchBar(
+    searchText: String,
+    onSearchTextChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .background(
+                color = Color(0xFFFEFEFE),
+                shape = RoundedCornerShape(20.dp),
+            )
+            .border(
+                width = 1.dp,
+                color = Color(0xFFE3E3E6),
+                shape = RoundedCornerShape(20.dp),
+            )
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            painter = painterResource(Res.drawable.search_icon),
+            contentDescription = "Поиск",
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        BasicTextField(
+            value = searchText,
+            onValueChange = onSearchTextChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            textStyle = TextStyle(
+                fontFamily = AppFonts.OpenSansSemiBold,
+                fontSize = 16.sp,
+                color = AppColors.Color2,
+                letterSpacing = 0.16.sp,
+            ),
+            decorationBox = { innerTextField ->
+                if (searchText.isBlank()) {
+                    Text(
+                        text = "Поиск",
+                        fontFamily = AppFonts.OpenSansSemiBold,
+                        fontSize = 16.sp,
+                        color = AppColors.Color1,
+                        letterSpacing = 0.16.sp,
+                    )
+                }
+                innerTextField()
+            },
+        )
+    }
+}
+
+@Composable
+private fun DetailIssueSection(
+    title: String,
+    issues: List<StatsDetailIssueUi>,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onActionClick: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = 14.sp,
+                color = Color.Black,
+            )
+            if (actionLabel != null && onActionClick != null) {
+                AnimatedClickableText(
+                    text = actionLabel,
+                    onClick = onActionClick,
+                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontSize = 12.sp,
+                    color = AppColors.Color2,
+                )
+            }
+        }
+        if (issues.isEmpty()) {
+            DetailCard {
+                Text(
+                    text = "Нет данных",
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 13.sp,
+                    color = AppColors.Color2,
+                )
+            }
+        } else {
+            issues.forEach { issue ->
+                DetailIssueCard(issue = issue)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailIssueCard(
+    issue: StatsDetailIssueUi,
+    modifier: Modifier = Modifier,
+) {
+    val uriHandler = LocalUriHandler.current
+    val creator = remember(issue.creatorId, issue.creatorName, issue.creatorAvatarUrl) {
+        DetailIssueParticipantUi(
+            id = issue.creatorId,
+            name = issue.creatorName,
+            avatarUrl = resolveGithubAvatarUrl(issue.creatorId, issue.creatorAvatarUrl),
+        )
+    }
+    val assignees = remember(issue.assigneeIds, issue.assigneeNames, issue.assigneeAvatarUrls) {
+        issue.assigneeNames.mapIndexed { index, name ->
+            DetailIssueParticipantUi(
+                id = issue.assigneeIds.getOrNull(index),
+                name = name,
+                avatarUrl = resolveGithubAvatarUrl(
+                    issue.assigneeIds.getOrNull(index),
+                    issue.assigneeAvatarUrls.getOrNull(index),
+                ),
+            )
+        }
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = DetailCardShape,
+        color = Color.White,
+        shadowElevation = 8.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = issue.title,
+                        fontFamily = AppFonts.OpenSansBold,
+                        fontSize = 16.sp,
+                        lineHeight = 20.sp,
+                        color = Color.Black,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        issue.number?.let { number ->
+                            Text(
+                                text = "#$number",
+                                fontFamily = AppFonts.OpenSansMedium,
+                                fontSize = 15.sp,
+                                lineHeight = 20.sp,
+                                color = AppColors.Color2,
+                            )
+                        }
+                    }
+                    if (issue.labels.isNotEmpty()) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            issue.labels.forEach { label ->
+                                IssueBadge(
+                                    text = label,
+                                    backgroundColor = Color(0xFF209F31),
+                                    textColor = Color.White,
+                                )
+                            }
+                        }
+                    }
+                }
+                issue.state?.takeIf { it.isNotBlank() }?.let { state ->
+                    IssueBadge(
+                        text = state.lowercase(),
+                        backgroundColor = issueStatusBackgroundColor(state),
+                        textColor = Color.White,
+                    )
+                }
+            }
+
+            DetailDivider()
+
+            IssueParticipantsSection(
+                title = "Создатель",
+                participants = listOf(creator),
+            )
+            IssueParticipantsSection(
+                title = "Назначенные",
+                participants = assignees,
+                emptyText = "Не назначено",
+            )
+
+            DetailDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                IssueDateColumn(
+                    title = "Дата создания",
+                    value = issue.createdAtLabel,
+                    modifier = Modifier.weight(1f),
+                )
+                IssueDateColumn(
+                    title = "Дата закрытия",
+                    value = issue.closedAtLabel ?: "—",
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            DetailDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IssueFooterMetric(
+                    icon = {
+                        Image(
+                            painter = painterResource(Res.drawable.stats_issue_comments_logo),
+                            contentDescription = "Комментарии",
+                            modifier = Modifier.size(15.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    },
+                    value = formatIssueMetricValue(issue.comments),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                IssueFooterMetric(
+                    icon = {
+                        Image(
+                            painter = painterResource(Res.drawable.stats_issue_like_logo),
+                            contentDescription = "Положительные реакции",
+                            modifier = Modifier
+                                .width(15.dp)
+                                .height(17.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    },
+                    value = formatIssueMetricValue(issue.thumbsUpCount),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                IssueFooterMetric(
+                    icon = {
+                        Image(
+                            painter = painterResource(Res.drawable.stats_issue_dislike_logo),
+                            contentDescription = "Отрицательные реакции",
+                            modifier = Modifier
+                                .width(15.dp)
+                                .height(17.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    },
+                    value = formatIssueMetricValue(issue.thumbsDownCount),
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                issue.url?.let { url ->
+                    AnimatedClickableText(
+                        text = "ссылка ›",
+                        onClick = { uriHandler.openUri(url) },
+                        fontFamily = AppFonts.OpenSansRegular,
+                        fontSize = 12.sp,
+                        lineHeight = 20.sp,
+                        color = AppColors.Color1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IssueBadge(
+    text: String,
+    backgroundColor: Color,
+    textColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(5.dp),
+        color = backgroundColor,
+    ) {
+        Text(
+            text = text,
+            fontFamily = AppFonts.OpenSansBold,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            color = textColor,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun IssueParticipantsSection(
+    title: String,
+    participants: List<DetailIssueParticipantUi>,
+    modifier: Modifier = Modifier,
+    emptyText: String = "Нет данных",
+) {
+    val visibleParticipants = participants.filter { it.name.isNotBlank() }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = title,
+            fontFamily = AppFonts.OpenSansMedium,
+            fontSize = 15.sp,
+            lineHeight = 20.sp,
+            color = AppColors.Color2,
+        )
+        if (visibleParticipants.isEmpty()) {
+            Text(
+                text = emptyText,
+                fontFamily = AppFonts.OpenSansRegular,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = AppColors.Color1,
+            )
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                maxItemsInEachRow = 2,
+            ) {
+                visibleParticipants.forEach { participant ->
+                    IssueParticipantItem(
+                        participant = participant,
+                        modifier = if (visibleParticipants.size == 1) {
+                            Modifier.fillMaxWidth()
+                        } else {
+                            Modifier.widthIn(min = 156.dp, max = 168.dp)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IssueParticipantItem(
+    participant: DetailIssueParticipantUi,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        IssueParticipantAvatar(
+            name = participant.name,
+            avatarUrl = participant.avatarUrl,
+        )
+        Text(
+            text = participant.name,
+            fontFamily = AppFonts.OpenSansRegular,
+            fontSize = 14.sp,
+            lineHeight = 18.sp,
+            color = AppColors.Color2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun IssueDateColumn(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = title,
+            fontFamily = AppFonts.OpenSansMedium,
+            fontSize = 15.sp,
+            lineHeight = 20.sp,
+            color = AppColors.Color2,
+        )
+        Text(
+            text = value,
+            fontFamily = AppFonts.OpenSansRegular,
+            fontSize = 12.sp,
+            lineHeight = 20.sp,
+            color = AppColors.Color2,
+        )
+    }
+}
+
+@Composable
+private fun IssueFooterMetric(
+    icon: @Composable () -> Unit,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        icon()
+        Text(
+            text = value,
+            fontFamily = AppFonts.OpenSansMedium,
+            fontSize = 15.sp,
+            lineHeight = 20.sp,
+            color = AppColors.Color2,
+        )
+    }
+}
+
+@Composable
+private fun IssueParticipantAvatar(
+    name: String,
+    avatarUrl: String?,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .background(authorAvatarColor(name), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = authorInitials(name),
+            fontFamily = AppFonts.OpenSansBold,
+            fontSize = 12.sp,
+            color = Color.White,
+        )
+        avatarUrl?.let { url ->
+            AsyncImage(
+                model = url,
+                contentDescription = name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnimatedClickableText(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    fontFamily: androidx.compose.ui.text.font.FontFamily = AppFonts.OpenSansRegular,
+    fontSize: androidx.compose.ui.unit.TextUnit = 12.sp,
+    lineHeight: androidx.compose.ui.unit.TextUnit = fontSize,
+    color: Color = AppColors.Color2,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.93f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 500f),
+        label = "issue_click_scale",
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (isPressed) 0.74f else 1f,
+        animationSpec = tween(durationMillis = 120),
+        label = "issue_click_alpha",
+    )
+
+    Text(
+        text = text,
+        fontFamily = fontFamily,
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        color = color,
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                this.alpha = alpha
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+    )
+}
+
+@Composable
 private fun DetailEntityListCard(
     title: String,
     items: List<DetailEntityCardData>,
@@ -2206,6 +2908,153 @@ private fun DetailChipSection(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DetailPersonSection(
+    title: String,
+    rows: List<DetailPersonRow>,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = title,
+            fontFamily = AppFonts.OpenSansBold,
+            fontSize = 14.sp,
+            color = Color.Black,
+        )
+        rows.forEach { row ->
+            DetailPersonCard(row = row)
+        }
+    }
+}
+
+@Composable
+private fun DetailPersonCard(
+    row: DetailPersonRow,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(60.dp),
+        shape = RoundedCornerShape(5.dp),
+        color = Color.White,
+        shadowElevation = 4.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(authorAvatarColor(row.name), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = authorInitials(row.name),
+                    fontFamily = AppFonts.OpenSansBold,
+                    fontSize = 12.sp,
+                    color = Color.White,
+                )
+                row.avatarUrl?.let { url ->
+                    AsyncImage(
+                        model = url,
+                        contentDescription = row.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape),
+                    )
+                }
+            }
+            Text(
+                text = row.name,
+                fontFamily = if (row.isCurrentUser) AppFonts.OpenSansBold else AppFonts.OpenSansMedium,
+                fontSize = 13.sp,
+                color = AppColors.Color2,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = row.value,
+                fontFamily = AppFonts.OpenSansMedium,
+                fontSize = 12.sp,
+                color = AppColors.Color2,
+            )
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun DetailLabelSection(
+    title: String,
+    chips: List<DetailLabelChipUi>,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = title,
+            fontFamily = AppFonts.OpenSansBold,
+            fontSize = 14.sp,
+            color = Color.Black,
+        )
+        // FlowRow — метки переносятся, как в Figma
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            chips.forEach { chip ->
+                DetailLabelBadge(chip = chip)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailLabelBadge(
+    chip: DetailLabelChipUi,
+    modifier: Modifier = Modifier,
+) {
+    // Figma: chip с именем метки + серый текст "- N issue" рядом
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(5.dp),
+            color = Color(0xFF209F31),
+        ) {
+            Text(
+                text = chip.label,
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+            )
+        }
+        Text(
+            text = "- ${chip.count} issue",
+            fontFamily = AppFonts.OpenSansMedium,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            color = AppColors.Color2,
+        )
     }
 }
 
@@ -2436,11 +3285,90 @@ private fun filterIssues(
     details: StatsDetailDataUi,
     participantId: String?,
 ): List<StatsDetailIssueUi> {
-    if (participantId == null) return details.issues
-    return details.issues.filter { issue ->
-        issue.creatorId == participantId || issue.assigneeIds.contains(participantId)
+    return details.issues.filterByParticipant(participantId)
+}
+
+private fun sortIssuesByNewest(
+    issues: List<StatsDetailIssueUi>,
+): List<StatsDetailIssueUi> {
+    return issues
+        .distinctBy(::issueStableKey)
+        .sortedByDescending { parseInstant(it.createdAtIso)?.toEpochMilliseconds() ?: Long.MIN_VALUE }
+}
+
+private fun issueStableKey(issue: StatsDetailIssueUi): String {
+    val number = issue.number
+    if (number != null) return "number:$number"
+    val url = issue.url?.trim()?.lowercase()
+    if (!url.isNullOrBlank()) return "url:$url"
+    return buildString {
+        append(issue.creatorId ?: issue.creatorName.lowercase())
+        append(':')
+        append(issue.title.trim().lowercase())
+        append(':')
+        append(issue.createdAtIso ?: "")
     }
 }
+
+private fun issueStatusBackgroundColor(state: String): Color {
+    return when (state.trim().lowercase()) {
+        "closed" -> AppColors.Color3
+        "open" -> Color(0xFF209F31)
+        else -> AppColors.Color2
+    }
+}
+
+private fun resolveGithubAvatarUrl(
+    userId: String?,
+    avatarUrl: String?,
+): String? {
+    val normalizedAvatarUrl = avatarUrl?.trim()?.takeIf { it.isNotBlank() }
+    if (normalizedAvatarUrl != null) return normalizedAvatarUrl
+    val normalizedUserId = userId?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    return "https://github.com/$normalizedUserId.png?size=80"
+}
+
+private fun filterAllIssues(
+    issues: List<StatsDetailIssueUi>,
+    searchText: String,
+    stateFilter: IssueStateFilter,
+): List<StatsDetailIssueUi> {
+    val normalizedQuery = searchText.trim().lowercase()
+    return sortIssuesByNewest(issues).filter { issue ->
+        issueMatchesStateFilter(issue, stateFilter) &&
+            issueMatchesSearch(issue, normalizedQuery)
+    }
+}
+
+private fun issueMatchesStateFilter(
+    issue: StatsDetailIssueUi,
+    stateFilter: IssueStateFilter,
+): Boolean {
+    return when (stateFilter) {
+        IssueStateFilter.All -> true
+        IssueStateFilter.Open -> issue.state?.trim()?.equals("open", ignoreCase = true) == true
+        IssueStateFilter.Closed -> issue.state?.trim()?.equals("closed", ignoreCase = true) == true
+    }
+}
+
+private fun issueMatchesSearch(
+    issue: StatsDetailIssueUi,
+    normalizedQuery: String,
+): Boolean {
+    if (normalizedQuery.isBlank()) return true
+    val haystack = buildList {
+        add(issue.title)
+        add(issue.creatorName)
+        add(issue.state.orEmpty())
+        addAll(issue.assigneeNames)
+        addAll(issue.labels)
+        issue.number?.let { add("#$it") }
+        issue.number?.let { add(it.toString()) }
+    }.joinToString(separator = "\n") { it.lowercase() }
+    return haystack.contains(normalizedQuery)
+}
+
+private fun formatIssueMetricValue(value: Int?): String = value?.toString() ?: "—"
 
 private fun filterPullRequests(
     details: StatsDetailDataUi,
@@ -2504,9 +3432,7 @@ private fun buildParticipantSnapshots(
 
     return participants.mapValues { (_, participant) ->
         val userCommits = details.commits.filter { it.authorId == participant.id }
-        val userIssues = details.issues.filter {
-            it.creatorId == participant.id || it.assigneeIds.contains(participant.id)
-        }
+        val userIssues = details.issues.filterByParticipant(participant.id)
         val userPullRequests = details.pullRequests.filter { it.authorId == participant.id }
         val rapidPullRequests = userPullRequests.filter {
             isRapidPullRequest(it, rapidThresholdMinutes)
@@ -2525,8 +3451,8 @@ private fun buildParticipantSnapshots(
             linesOwned = linesOwned,
             commitCount = userCommits.size,
             issueCount = userIssues.size,
-            openIssueCount = userIssues.count { it.closedAtIso == null },
-            closedIssueCount = userIssues.count { it.closedAtIso != null },
+            openIssueCount = userIssues.count { it.closedAtIso.isNullOrBlank() },
+            closedIssueCount = userIssues.count { !it.closedAtIso.isNullOrBlank() },
             pullRequestCount = userPullRequests.size,
             rapidPullRequestCount = rapidPullRequests.size,
             commitsScore = totalCommitsScore(userCommits),
@@ -2746,16 +3672,28 @@ private fun buildFileChurnSlices(
 private fun buildIssueCreatorRows(
     issues: List<StatsDetailIssueUi>,
     effectiveParticipantId: String?,
-): List<DetailTableRow> {
-    return issues.groupingBy { it.creatorName }
-        .eachCount()
-        .entries
-        .sortedByDescending { it.value }
-        .map { entry ->
-            DetailTableRow(
-                title = appendYouSuffix(entry.key, issues.any { it.creatorId == effectiveParticipantId && it.creatorName == entry.key }),
-                values = listOf(entry.value.toString()),
-                highlight = issues.any { it.creatorId == effectiveParticipantId && it.creatorName == entry.key },
+): List<DetailPersonRow> {
+    val counts = linkedMapOf<DetailIssueParticipantKey, Int>()
+    val avatarUrls = linkedMapOf<DetailIssueParticipantKey, String?>()
+    issues.forEach { issue ->
+        val key = DetailIssueParticipantKey(id = issue.creatorId, name = issue.creatorName)
+        counts[key] = (counts[key] ?: 0) + 1
+        if (avatarUrls[key] == null) {
+            avatarUrls[key] = resolveGithubAvatarUrl(issue.creatorId, issue.creatorAvatarUrl)
+        }
+    }
+    return counts.entries
+        .sortedWith(
+            compareByDescending<Map.Entry<DetailIssueParticipantKey, Int>> { it.value }
+                .thenBy { it.key.name.lowercase() }
+        )
+        .map { (key, count) ->
+            DetailPersonRow(
+                id = key.id,
+                name = appendYouSuffix(key.name, key.id == effectiveParticipantId),
+                avatarUrl = avatarUrls[key],
+                value = "создано $count Issue",
+                isCurrentUser = key.id == effectiveParticipantId,
             )
         }
 }
@@ -2763,32 +3701,55 @@ private fun buildIssueCreatorRows(
 private fun buildIssueAssigneeRows(
     issues: List<StatsDetailIssueUi>,
     effectiveParticipantId: String?,
-): List<DetailTableRow> {
-    val counts = linkedMapOf<String, Int>()
+): List<DetailPersonRow> {
+    val closedCounts = linkedMapOf<DetailIssueParticipantKey, Int>()
+    val avatarUrls = linkedMapOf<DetailIssueParticipantKey, String?>()
     issues.forEach { issue ->
-        issue.assigneeNames.forEach { assignee ->
-            counts[assignee] = (counts[assignee] ?: 0) + 1
+        val isClosed = !issue.closedAtIso.isNullOrBlank()
+        if (issue.assigneeIds.isEmpty()) {
+            issue.assigneeNames.forEach { assigneeName ->
+                val key = DetailIssueParticipantKey(id = null, name = assigneeName)
+                if (isClosed) closedCounts[key] = (closedCounts[key] ?: 0) + 1
+                else closedCounts.getOrPut(key) { 0 } // ensure key exists even with 0
+            }
+        } else {
+            issue.assigneeIds.forEachIndexed { index, assigneeId ->
+                val assigneeName = issue.assigneeNames.getOrNull(index) ?: assigneeId
+                val key = DetailIssueParticipantKey(id = assigneeId, name = assigneeName)
+                if (isClosed) closedCounts[key] = (closedCounts[key] ?: 0) + 1
+                else closedCounts.getOrPut(key) { 0 }
+                if (avatarUrls[key] == null) {
+                    avatarUrls[key] = resolveGithubAvatarUrl(
+                        assigneeId,
+                        issue.assigneeAvatarUrls.getOrNull(index),
+                    )
+                }
+            }
         }
     }
-    return counts.entries.sortedByDescending { it.value }.map { entry ->
-        DetailTableRow(
-            title = appendYouSuffix(entry.key, issues.any { issue ->
-                issue.assigneeIds.contains(effectiveParticipantId) && issue.assigneeNames.contains(entry.key)
-            }),
-            values = listOf(entry.value.toString()),
-            highlight = issues.any { issue ->
-                issue.assigneeIds.contains(effectiveParticipantId) && issue.assigneeNames.contains(entry.key)
-            },
+    return closedCounts.entries
+        .sortedWith(
+            compareByDescending<Map.Entry<DetailIssueParticipantKey, Int>> { it.value }
+                .thenBy { it.key.name.lowercase() }
         )
-    }
+        .map { (key, closedCount) ->
+            DetailPersonRow(
+                id = key.id,
+                name = appendYouSuffix(key.name, key.id == effectiveParticipantId),
+                avatarUrl = avatarUrls[key],
+                value = "закрыто $closedCount Issue",
+                isCurrentUser = key.id == effectiveParticipantId,
+            )
+        }
 }
 
-private fun buildLabelChips(issues: List<StatsDetailIssueUi>): List<String> {
+private fun buildLabelChips(issues: List<StatsDetailIssueUi>): List<DetailLabelChipUi> {
     val counts = linkedMapOf<String, Int>()
     issues.flatMap { it.labels }.forEach { label ->
         counts[label] = (counts[label] ?: 0) + 1
     }
-    return counts.entries.sortedByDescending { it.value }.take(10).map { "${it.key} ${it.value}" }
+    return counts.entries.sortedByDescending { it.value }.take(10)
+        .map { DetailLabelChipUi(label = it.key, count = it.value) }
 }
 
 private fun buildOwnershipRows(
@@ -2840,7 +3801,7 @@ private fun totalCommitsScore(commits: List<StatsDetailCommitUi>): Double? {
 
 private fun issueCompletenessScore(issues: List<StatsDetailIssueUi>): Double? {
     if (issues.isEmpty()) return null
-    val closed = issues.count { it.closedAtIso != null }
+    val closed = issues.count { !it.closedAtIso.isNullOrBlank() }
     return round2((closed.toDouble() / issues.size) * 3 + 2)
 }
 
@@ -3100,6 +4061,17 @@ private data class DetailEntityCardData(
     val linkLabel: String? = null,
 )
 
+private data class DetailIssueParticipantKey(
+    val id: String?,
+    val name: String,
+)
+
+private data class DetailIssueParticipantUi(
+    val id: String?,
+    val name: String,
+    val avatarUrl: String?,
+)
+
 private data class DetailTableRow(
     val title: String,
     val values: List<String>,
@@ -3111,4 +4083,17 @@ private data class DetailOwnershipRow(
     val name: String,
     val commits: Int,
     val lines: Int,
+)
+
+private data class DetailPersonRow(
+    val id: String?,
+    val name: String,
+    val avatarUrl: String? = null,
+    val value: String,
+    val isCurrentUser: Boolean = false,
+)
+
+private data class DetailLabelChipUi(
+    val label: String,
+    val count: Int,
 )
