@@ -40,6 +40,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -483,7 +484,9 @@ class UserStatsRepository(
 
         val metricsByName = resource.metrics.associateBy { it.name }
         val commitsRaw = extractSnapshots<ProjectCommitSnapshot>(metricsByName[METRIC_COMMITS])
-        val issuesRaw = extractSnapshots<ProjectIssueSnapshot>(metricsByName[METRIC_ISSUES])
+        val issuesRaw = deduplicateIssues(
+            extractSnapshots<ProjectIssueSnapshot>(metricsByName[METRIC_ISSUES])
+        )
         val pullRequestsRaw = deduplicatePullRequests(
             extractSnapshots<ProjectPullRequestSnapshot>(metricsByName[METRIC_PULL_REQUESTS])
         )
@@ -611,13 +614,21 @@ class UserStatsRepository(
                 )
             },
             issues = context.issues.map { issue ->
+                val assignees = issue.assignees.mapNotNull { assignee ->
+                    val assigneeId = normalizeLogin(assignee.login) ?: return@mapNotNull null
+                    Triple(
+                        assigneeId,
+                        resolveUserDisplayName(assignee.login, displayNames),
+                        assignee.avatar_url,
+                    )
+                }
                 StatsDetailIssueUi(
                     creatorId = normalizeLogin(issue.user?.login),
                     creatorName = resolveUserDisplayName(issue.user?.login, displayNames),
-                    assigneeIds = issue.assignees.mapNotNull { normalizeLogin(it.login) },
-                    assigneeNames = issue.assignees.map {
-                        resolveUserDisplayName(it.login, displayNames)
-                    }.filter { it.isNotBlank() },
+                    creatorAvatarUrl = issue.user?.avatar_url,
+                    assigneeIds = assignees.map { it.first },
+                    assigneeNames = assignees.map { it.second },
+                    assigneeAvatarUrls = assignees.map { it.third },
                     createdAtIso = issue.created_at,
                     createdAtLabel = formatDateTimeLabel(issue.created_at),
                     closedAtIso = issue.closed_at,
@@ -631,18 +642,22 @@ class UserStatsRepository(
                         label.name?.trim()?.takeIf { it.isNotBlank() }
                     },
                     comments = issue.comments,
+                    thumbsUpCount = issue.reactions?.plusOne,
+                    thumbsDownCount = issue.reactions?.minusOne,
                     url = issue.html_url,
                 )
             },
             pullRequests = context.pullRequests.map { pullRequest ->
                 val completedAtIso = pullRequestCompletedAtIso(pullRequest)
+                val assignees = pullRequest.assignees.mapNotNull { assignee ->
+                    val assigneeId = normalizeLogin(assignee.login) ?: return@mapNotNull null
+                    assigneeId to resolveUserDisplayName(assignee.login, displayNames)
+                }
                 StatsDetailPullRequestUi(
                     authorId = normalizeLogin(pullRequest.user?.login),
                     authorName = resolveUserDisplayName(pullRequest.user?.login, displayNames),
-                    assigneeIds = pullRequest.assignees.mapNotNull { normalizeLogin(it.login) },
-                    assigneeNames = pullRequest.assignees.map {
-                        resolveUserDisplayName(it.login, displayNames)
-                    }.filter { it.isNotBlank() },
+                    assigneeIds = assignees.map { it.first },
+                    assigneeNames = assignees.map { it.second },
                     createdAtIso = pullRequest.created_at,
                     createdAtLabel = formatDateTimeLabel(pullRequest.created_at),
                     closedAtIso = completedAtIso,
@@ -1295,6 +1310,69 @@ class UserStatsRepository(
             ).count { it != null }
     }
 
+    private fun deduplicateIssues(
+        issues: List<ProjectIssueSnapshot>,
+    ): List<ProjectIssueSnapshot> {
+        return issues
+            .groupBy(::issueIdentityKey)
+            .values
+            .map { duplicates ->
+                duplicates.reduce(::preferIssueSnapshot)
+            }
+    }
+
+    private fun issueIdentityKey(
+        issue: ProjectIssueSnapshot,
+    ): String {
+        val number = issue.number
+        if (number != null) return "number:$number"
+
+        val url = issue.html_url?.trim()?.lowercase()
+        if (!url.isNullOrBlank()) return "url:$url"
+
+        val author = issue.user?.login?.trim()?.lowercase().orEmpty()
+        val title = issue.title?.trim()?.lowercase().orEmpty()
+        val createdAt = issue.created_at?.trim().orEmpty()
+        return "fallback:$author|$title|$createdAt"
+    }
+
+    private fun preferIssueSnapshot(
+        current: ProjectIssueSnapshot,
+        candidate: ProjectIssueSnapshot,
+    ): ProjectIssueSnapshot {
+        val currentScore = issueSnapshotScore(current)
+        val candidateScore = issueSnapshotScore(candidate)
+        return when {
+            candidateScore > currentScore -> candidate
+            candidateScore < currentScore -> current
+            else -> {
+                val currentClosed = parseInstant(current.closed_at)?.toEpochMilliseconds() ?: Long.MIN_VALUE
+                val candidateClosed = parseInstant(candidate.closed_at)?.toEpochMilliseconds() ?: Long.MIN_VALUE
+                if (candidateClosed >= currentClosed) candidate else current
+            }
+        }
+    }
+
+    private fun issueSnapshotScore(
+        issue: ProjectIssueSnapshot,
+    ): Int {
+        return listOf(
+            issue.created_at,
+            issue.closed_at,
+            issue.title,
+            issue.state,
+            issue.html_url,
+        ).count { !it.isNullOrBlank() } +
+            listOf(
+                issue.number,
+                issue.comments,
+                issue.reactions?.plusOne,
+                issue.reactions?.minusOne,
+            ).count { it != null } +
+            if (issue.labels.isNotEmpty()) 1 else 0 +
+            if (issue.assignees.isNotEmpty()) 1 else 0
+    }
+
     private fun parseRapidThresholdMinutes(resource: MetricProjectResource?): Int? {
         val metric = resource?.metrics?.firstOrNull { it.name == METRIC_RAPID_PULL_REQUESTS } ?: return null
         val threshold = metric.params.firstOrNull { it.name == "rapidPullRequestsThreshold" }?.value ?: return null
@@ -1650,8 +1728,17 @@ class UserStatsRepository(
         val number: Int? = null,
         val state: String? = null,
         val comments: Int? = null,
+        val reactions: ProjectIssueReactionsSnapshot? = null,
         val html_url: String? = null,
         val labels: List<ProjectSnapshotLabel> = emptyList(),
+    )
+
+    @Serializable
+    private data class ProjectIssueReactionsSnapshot(
+        @SerialName("+1")
+        val plusOne: Int? = null,
+        @SerialName("-1")
+        val minusOne: Int? = null,
     )
 
     @Serializable
@@ -1682,6 +1769,7 @@ class UserStatsRepository(
     @Serializable
     private data class ProjectSnapshotUser(
         val login: String? = null,
+        val avatar_url: String? = null,
     )
 
     @Serializable

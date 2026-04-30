@@ -6,6 +6,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Animatable
@@ -111,6 +114,7 @@ import com.spbu.projecttrack.rating.data.model.ProjectStatsMetricSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsOwnershipSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsUiModel
 import com.spbu.projecttrack.rating.data.model.ProjectStatsWeekDaySectionUi
+import com.spbu.projecttrack.rating.data.model.filterByParticipant
 import com.spbu.projecttrack.rating.export.ProjectStatsChart
 import com.spbu.projecttrack.rating.export.ProjectStatsChartPoint
 import com.spbu.projecttrack.rating.export.ProjectStatsChartSegment
@@ -180,11 +184,28 @@ fun ProjectStatsScreen(
     val exporter = rememberProjectStatsExporter()
     var showSettingsScreen by remember { mutableStateOf(false) }
     var activeDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
+    var renderedDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
     var activeSectionIds by rememberSaveable { mutableStateOf(defaultStatsScreenSectionIds()) }
     val activeSections = remember(activeSectionIds) { statsScreenSectionsFromIds(activeSectionIds) }
+    val detailTransitionState = remember { MutableTransitionState(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.load()
+    }
+
+    LaunchedEffect(activeDetailSection) {
+        if (activeDetailSection != null) {
+            renderedDetailSection = activeDetailSection
+            detailTransitionState.targetState = true
+        } else {
+            detailTransitionState.targetState = false
+        }
+    }
+
+    LaunchedEffect(detailTransitionState.isIdle, detailTransitionState.currentState, activeDetailSection) {
+        if (detailTransitionState.isIdle && !detailTransitionState.currentState && activeDetailSection == null) {
+            renderedDetailSection = null
+        }
     }
 
     BackHandler(enabled = activeDetailSection != null || showSettingsScreen) {
@@ -204,7 +225,13 @@ fun ProjectStatsScreen(
                 .fillMaxSize()
                 .background(Color.White)
         ) {
-            StatsBackgroundLogo()
+            Image(
+                painter = painterResource(Res.drawable.spbu_logo),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().align(Alignment.Center),
+                contentScale = ContentScale.Fit,
+                alpha = 1.0f,
+            )
 
             when (val state = uiState) {
                 ProjectStatsUiState.Loading -> {
@@ -274,61 +301,74 @@ fun ProjectStatsScreen(
                 )
             }
 
-            val detailSection = activeDetailSection
-            if (detailSection != null && uiState is ProjectStatsUiState.Success) {
-                val model = (uiState as ProjectStatsUiState.Success).data
-                StatsDetailScreen(
-                    section = detailSection,
-                    repositories = model.repositories,
-                    selectedRepositoryId = model.selectedRepositoryId,
-                    visibleRange = model.visibleRange,
-                    rapidThreshold = model.rapidThreshold,
-                    details = model.details,
-                    allowParticipantFilter = true,
-                    initialParticipantId = null,
-                    overallRank = when (detailSection) {
-                        StatsScreenSection.Commits -> model.commits.rank
-                        StatsScreenSection.Issues -> model.issues.rank
-                        StatsScreenSection.PullRequests -> model.pullRequests.rank
-                        StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.rank
-                        StatsScreenSection.CodeChurn -> model.codeChurn.rank
-                        StatsScreenSection.CodeOwnership -> model.codeOwnership.rank
-                        StatsScreenSection.DominantWeekDay -> null
-                    },
-                    overallScore = when (detailSection) {
-                        StatsScreenSection.Commits -> model.commits.score
-                        StatsScreenSection.Issues -> model.issues.score
-                        StatsScreenSection.PullRequests -> model.pullRequests.score
-                        StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.score
-                        StatsScreenSection.CodeChurn -> model.codeChurn.score
-                        StatsScreenSection.CodeOwnership -> model.codeOwnership.score
-                        StatsScreenSection.DominantWeekDay -> model.dominantWeekDay.score
-                    },
-                    onBackClick = { activeDetailSection = null },
-                    onRepositorySelected = viewModel::selectRepository,
-                    onDateRangeSelected = viewModel::selectDateRange,
-                    onRapidThresholdChanged = viewModel::updateRapidThreshold,
-                    onExportPdfClick = {
-                        scope.launch {
-                            val payload = model.toSectionExportPayload(detailSection)
-                            val result = exporter.exportPdf(payload)
-                            val message = result.getOrNull()?.let { export ->
-                                "PDF сохранен: ${export.fileName}"
-                            } ?: "Не удалось экспортировать PDF"
-                            snackbarHostState.showSnackbar(message)
-                        }
-                    },
-                    onExportExcelClick = {
-                        scope.launch {
-                            val payload = model.toSectionExportPayload(detailSection)
-                            val result = exporter.exportExcelCsv(payload)
-                            val message = result.getOrNull()?.let { export ->
-                                "CSV сохранен: ${export.fileName}"
-                            } ?: "Не удалось экспортировать Excel"
-                            snackbarHostState.showSnackbar(message)
-                        }
-                    },
-                )
+            AnimatedVisibility(
+                visibleState = detailTransitionState,
+                enter = slideInHorizontally(animationSpec = tween(300)) { it } + fadeIn(tween(300)),
+                exit = slideOutHorizontally(animationSpec = tween(300)) { it } + fadeOut(tween(300)),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                val detailSection = renderedDetailSection
+                if (detailSection != null && uiState is ProjectStatsUiState.Success) {
+                    val model = (uiState as ProjectStatsUiState.Success).data
+                    StatsDetailScreen(
+                        section = detailSection,
+                        repositories = model.repositories,
+                        selectedRepositoryId = model.selectedRepositoryId,
+                        visibleRange = model.visibleRange,
+                        rapidThreshold = model.rapidThreshold,
+                        details = model.details,
+                        allowParticipantFilter = true,
+                        initialParticipantId = null,
+                        overallRank = when (detailSection) {
+                            StatsScreenSection.Commits -> model.commits.rank
+                            StatsScreenSection.Issues -> model.issues.rank
+                            StatsScreenSection.PullRequests -> model.pullRequests.rank
+                            StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.rank
+                            StatsScreenSection.CodeChurn -> model.codeChurn.rank
+                            StatsScreenSection.CodeOwnership -> model.codeOwnership.rank
+                            StatsScreenSection.DominantWeekDay -> null
+                        },
+                        overallScore = when (detailSection) {
+                            StatsScreenSection.Commits -> model.commits.score
+                            StatsScreenSection.Issues -> model.issues.score
+                            StatsScreenSection.PullRequests -> model.pullRequests.score
+                            StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.score
+                            StatsScreenSection.CodeChurn -> model.codeChurn.score
+                            StatsScreenSection.CodeOwnership -> model.codeOwnership.score
+                            StatsScreenSection.DominantWeekDay -> model.dominantWeekDay.score
+                        },
+                        onBackClick = { activeDetailSection = null },
+                        onRepositorySelected = viewModel::selectRepository,
+                        onDateRangeSelected = viewModel::selectDateRange,
+                        onRapidThresholdChanged = viewModel::updateRapidThreshold,
+                        onExportPdfClick = { participantId ->
+                            scope.launch {
+                                val payload = model.toSectionExportPayload(
+                                    section = detailSection,
+                                    participantId = participantId,
+                                )
+                                val result = exporter.exportPdf(payload)
+                                val message = result.getOrNull()?.let { export ->
+                                    "PDF сохранен: ${export.fileName}"
+                                } ?: "Не удалось экспортировать PDF"
+                                snackbarHostState.showSnackbar(message)
+                            }
+                        },
+                        onExportExcelClick = { participantId ->
+                            scope.launch {
+                                val payload = model.toSectionExportPayload(
+                                    section = detailSection,
+                                    participantId = participantId,
+                                )
+                                val result = exporter.exportExcelCsv(payload)
+                                val message = result.getOrNull()?.let { export ->
+                                    "CSV сохранен: ${export.fileName}"
+                                } ?: "Не удалось экспортировать Excel"
+                                snackbarHostState.showSnackbar(message)
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -615,6 +655,14 @@ internal fun StatsTopBar(
     titleLineHeight: androidx.compose.ui.unit.TextUnit = 20.sp,
     modifier: Modifier = Modifier
 ) {
+    val backInteractionSource = remember { MutableInteractionSource() }
+    val backPressed by backInteractionSource.collectIsPressedAsState()
+    val backScale by animateFloatAsState(
+        targetValue = if (backPressed) 0.9f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "stats_topbar_back_scale"
+    )
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = Color.White,
@@ -633,7 +681,15 @@ internal fun StatsTopBar(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .size(24.dp)
-                    .clickable(onClick = onBackClick)
+                    .graphicsLayer {
+                        scaleX = backScale
+                        scaleY = backScale
+                    }
+                    .clickable(
+                        interactionSource = backInteractionSource,
+                        indication = null,
+                        onClick = onBackClick,
+                    )
             )
             Text(
                 text = title,
@@ -887,37 +943,11 @@ private fun IssueSection(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            CompactStatsCard(
-                modifier = Modifier.weight(1f)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxHeight(),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(30.dp)
-                            .background(Color(0xFFE9E9E9), RoundedCornerShape(6.dp))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(section.progress.coerceIn(0f, 1f))
-                                .height(30.dp)
-                                .background(AppColors.Color3, RoundedCornerShape(6.dp))
-                        )
-                    }
-                    Text(
-                        text = section.remainingText,
-                        fontFamily = AppFonts.OpenSansMedium,
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
-                        color = AppColors.Color2,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+            IssueProgressCard(
+                progress = section.progress,
+                remainingText = section.remainingText,
+                modifier = Modifier.weight(1f),
+            )
 
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
@@ -1211,12 +1241,33 @@ internal fun ActionPillButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 650f),
+        label = "action_pill_scale"
+    )
+    val shadowElevation by animateDpAsState(
+        targetValue = if (isPressed) 4.dp else 8.dp,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 700f),
+        label = "action_pill_shadow"
+    )
+
     Surface(
         modifier = modifier
-            .clickable(onClick = onClick),
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
         shape = ActionButtonShape,
         color = Color.Transparent,
-        shadowElevation = 8.dp
+        shadowElevation = shadowElevation
     ) {
         Box(
             modifier = Modifier
@@ -1328,6 +1379,43 @@ internal fun SingleMetricCard(
                 text = caption,
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
+                lineHeight = 16.sp,
+                color = AppColors.Color2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+internal fun IssueProgressCard(
+    progress: Float,
+    remainingText: String,
+    modifier: Modifier = Modifier,
+) {
+    CompactStatsCard(modifier = modifier) {
+        Column(
+            modifier = Modifier.fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(30.dp)
+                    .background(Color(0xFFE9E9E9), RoundedCornerShape(6.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .height(30.dp)
+                        .background(AppColors.Color3, RoundedCornerShape(6.dp))
+                )
+            }
+            Text(
+                text = remainingText,
+                fontFamily = AppFonts.OpenSansMedium,
+                fontSize = 13.sp,
                 lineHeight = 16.sp,
                 color = AppColors.Color2,
                 maxLines = 1,
@@ -2957,7 +3045,7 @@ private fun ProjectStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
         generatedAtLabel = "Сейчас",
         summaryCards = listOf(
             ProjectStatsSummaryCard("Коммиты", commits.primaryValue, commits.primaryCaption),
-            ProjectStatsSummaryCard("Issue", issues.openIssues.toString(), "открытых"),
+            ProjectStatsSummaryCard("Issue", (issues.openIssues + issues.closedIssues).toString(), "всего"),
             ProjectStatsSummaryCard("Pull Requests", pullRequests.primaryValue, pullRequests.primaryCaption),
             ProjectStatsSummaryCard("Быстрые PR", rapidPullRequests.primaryValue, rapidPullRequests.primaryCaption)
         ),
@@ -2980,7 +3068,10 @@ private fun ProjectStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
     )
 }
 
-private fun ProjectStatsUiModel.toSectionExportPayload(section: StatsScreenSection): ProjectStatsExportPayload {
+private fun ProjectStatsUiModel.toSectionExportPayload(
+    section: StatsScreenSection,
+    participantId: String? = null,
+): ProjectStatsExportPayload {
     val selectedRepository = repositories.firstOrNull { it.id == selectedRepositoryId }
     val base = ProjectStatsExportPayload(
         projectId = projectId,
@@ -3001,6 +3092,7 @@ private fun ProjectStatsUiModel.toSectionExportPayload(section: StatsScreenSecti
     return when (section) {
         StatsScreenSection.Commits -> {
             val allCommits = details.commits
+                .let { if (participantId != null) it.filter { commit -> commit.authorId == participantId } else it }
             val totalAdditions = allCommits.sumOf { it.additions }
             val totalDeletions = allCommits.sumOf { it.deletions }
             base.copy(
@@ -3032,40 +3124,105 @@ private fun ProjectStatsUiModel.toSectionExportPayload(section: StatsScreenSecti
         }
 
         StatsScreenSection.Issues -> {
-            val allIssues = details.issues
-            val openCount = allIssues.count { it.closedAtIso == null }
+            val allIssues = details.issues.filterByParticipant(participantId)
+            val openCount = allIssues.count { it.closedAtIso.isNullOrBlank() }
             val closedCount = allIssues.size - openCount
+
+            // Создатели: сколько Issues создал каждый
+            val creatorCounts = linkedMapOf<String, Int>()
+            allIssues.forEach { issue ->
+                val name = issue.creatorName.ifBlank { issue.creatorId ?: "Неизвестно" }
+                creatorCounts[name] = (creatorCounts[name] ?: 0) + 1
+            }
+
+            // Исполнители: сколько Issues закрыл каждый
+            val assigneeClosedCounts = linkedMapOf<String, Int>()
+            allIssues.forEach { issue ->
+                val isClosed = !issue.closedAtIso.isNullOrBlank()
+                val names = if (issue.assigneeNames.isNotEmpty()) issue.assigneeNames
+                            else issue.assigneeIds
+                names.forEach { name ->
+                    if (isClosed) assigneeClosedCounts[name] = (assigneeClosedCounts[name] ?: 0) + 1
+                    else assigneeClosedCounts.getOrPut(name) { 0 }
+                }
+            }
+
+            // Метки: сколько Issues с каждой меткой
+            val labelCounts = linkedMapOf<String, Int>()
+            allIssues.flatMap { it.labels }.forEach { label ->
+                labelCounts[label] = (labelCounts[label] ?: 0) + 1
+            }
+
+            val sections = buildList {
+                add(ProjectStatsSection(
+                    title = "Список Issues",
+                    rows = allIssues
+                        .sortedByDescending { it.createdAtIso }
+                        .map { issue ->
+                            ProjectStatsTableRow(
+                                label = issue.title,
+                                value = issue.state?.uppercase() ?: "—",
+                                note = buildString {
+                                    append(issue.creatorName)
+                                    append("  Создано: ${issue.createdAtLabel}")
+                                    issue.closedAtLabel?.let { append("  Закрыто: $it") }
+                                    if (issue.assigneeNames.isNotEmpty()) {
+                                        append("  Исполнители: ${issue.assigneeNames.joinToString()}")
+                                    }
+                                    if (issue.labels.isNotEmpty()) {
+                                        append("  Метки: ${issue.labels.joinToString()}")
+                                    }
+                                    issue.number?.let { append("  #$it") }
+                                }
+                            )
+                        }
+                ))
+                if (creatorCounts.isNotEmpty()) {
+                    add(ProjectStatsSection(
+                        title = "Создатели Issues",
+                        rows = creatorCounts.entries
+                            .sortedByDescending { it.value }
+                            .map { (name, count) ->
+                                ProjectStatsTableRow(label = name, value = "создано $count Issue")
+                            }
+                    ))
+                }
+                if (assigneeClosedCounts.isNotEmpty()) {
+                    add(ProjectStatsSection(
+                        title = "Исполнители Issues",
+                        rows = assigneeClosedCounts.entries
+                            .sortedByDescending { it.value }
+                            .map { (name, closedCount) ->
+                                ProjectStatsTableRow(label = name, value = "закрыто $closedCount Issue")
+                            }
+                    ))
+                }
+                if (labelCounts.isNotEmpty()) {
+                    add(ProjectStatsSection(
+                        title = "Метки",
+                        rows = labelCounts.entries
+                            .sortedByDescending { it.value }
+                            .map { (label, count) ->
+                                ProjectStatsTableRow(label = label, value = "$count issue")
+                            }
+                    ))
+                }
+            }
+
             base.copy(
                 summaryCards = listOf(
                     ProjectStatsSummaryCard("Issue", allIssues.size.toString(), "всего"),
                     ProjectStatsSummaryCard("Открытых", openCount.toString(), ""),
                     ProjectStatsSummaryCard("Закрытых", closedCount.toString(), ""),
                 ),
-                sections = listOf(
-                    ProjectStatsSection(
-                        title = "Список Issues",
-                        rows = allIssues
-                            .sortedByDescending { it.createdAtIso }
-                            .map { issue ->
-                                ProjectStatsTableRow(
-                                    label = issue.title,
-                                    value = issue.state?.uppercase() ?: "—",
-                                    note = buildString {
-                                        append(issue.creatorName)
-                                        append("  Создано: ${issue.createdAtLabel}")
-                                        issue.closedAtLabel?.let { append("  Закрыто: $it") }
-                                        issue.number?.let { append("  #$it") }
-                                    }
-                                )
-                            }
-                    )
-                )
+                sections = sections,
             )
         }
 
         StatsScreenSection.PullRequests -> {
             val allPRs = details.pullRequests
-            val openCount = allPRs.count { it.closedAtIso == null }
+                .let { if (participantId != null) it.filter { pr -> pr.authorId == participantId } else it }
+            val openCount = allPRs.count { it.closedAtIso.isNullOrBlank() }
             val closedCount = allPRs.size - openCount
             base.copy(
                 summaryCards = listOf(
