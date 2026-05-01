@@ -726,7 +726,7 @@ private fun PersonalCodeChurnSection(
             title = section.title,
             onDetailsClick = onDetailsClick
         )
-        FileStatsCard(rows = section.fileRows)
+        FileStatsCard(rows = section.fileRows.take(5))
         DoubleMetricRow(
             leftValue = section.changedFilesCount.toString(),
             leftCaption = "изменено файлов",

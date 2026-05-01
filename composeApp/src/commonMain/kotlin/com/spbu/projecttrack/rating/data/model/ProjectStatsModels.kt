@@ -82,7 +82,9 @@ data class ProjectStatsCodeChurnSectionUi(
     val changedFilesCount: Int,
     val rank: Int?,
     val fileRows: List<ProjectStatsFileRowUi>,
-    val tableRows: List<ProjectStatsMetricRowUi>
+    val tableRows: List<ProjectStatsMetricRowUi>,
+    val slices: List<ProjectStatsDonutSliceUi> = emptyList(),
+    val mostChangedFileName: String? = null,
 )
 
 data class ProjectStatsOwnershipSectionUi(
