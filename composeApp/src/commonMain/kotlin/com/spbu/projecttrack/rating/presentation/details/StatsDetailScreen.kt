@@ -103,6 +103,7 @@ import com.spbu.projecttrack.rating.presentation.projectstats.StatsBackgroundLog
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsDateRangePickerDialog
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBar
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBarTotalHeight
+import com.spbu.projecttrack.rating.presentation.projectstats.WeekDayDistributionCard
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSection
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -1178,7 +1179,7 @@ private fun LazyListScope.dominantWeekDayItems(
     val slices = weekDays.mapIndexed { index, item ->
         ProjectStatsDonutSliceUi(
             label = item.label,
-            secondaryLabel = "${item.count} действий",
+            secondaryLabel = "${item.count} ${pluralize(item.count, "действие", "действия", "действий")}",
             percentLabel = percentLabel(item.count, total),
             value = item.count.toFloat(),
             colorHex = weekdayPalette[index % weekdayPalette.size],
@@ -1198,29 +1199,42 @@ private fun LazyListScope.dominantWeekDayItems(
     )
     val dominant = weekDays.maxByOrNull { it.count }
     val leastActive = weekDays.minByOrNull { it.count }
+    val hasActivity = total > 0
+    val dominantLabel = dominant?.label?.takeIf { hasActivity }?.uppercase() ?: "НЕТ ДАННЫХ"
+    val leastActiveLabel = leastActive?.label?.takeIf { hasActivity }?.uppercase() ?: "НЕТ ДАННЫХ"
 
     if (slices.isNotEmpty()) {
         item {
-            DetailDonutCard(
-                title = "Распределение активности по дням",
-                slices = slices,
-                highlightId = dominant?.label,
-            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "Распределение активности по дням",
+                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
+                    color = Color.Black,
+                )
+                WeekDayDistributionCard(
+                    slices = slices,
+                    emptyText = "Действий ещё не было",
+                )
+            }
         }
     }
     item {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            DetailHighlightCard(
-                modifier = Modifier.weight(1f),
-                title = "Самый активный день",
-                value = dominant?.label?.uppercase() ?: "НЕТ ДАННЫХ",
-            )
-            DetailHighlightCard(
-                modifier = Modifier.weight(1f),
-                title = "Самый неактивный день",
-                value = leastActive?.label?.uppercase() ?: "НЕТ ДАННЫХ",
-            )
-        }
+        DetailHighlightCard(
+            modifier = Modifier.fillMaxWidth(),
+            title = "самый активный день недели",
+            value = dominantLabel,
+        )
+    }
+    item {
+        DetailHighlightCard(
+            modifier = Modifier.fillMaxWidth(),
+            title = "самый неактивный день недели",
+            value = leastActiveLabel,
+        )
     }
     item {
         SingleMetricCard(
@@ -3694,55 +3708,6 @@ private fun DetailLabelBadge(
             lineHeight = 20.sp,
             color = AppColors.Color2,
         )
-    }
-}
-
-@Composable
-private fun DetailDonutCard(
-    title: String,
-    slices: List<ProjectStatsDonutSliceUi>,
-    highlightId: String?,
-    modifier: Modifier = Modifier,
-) {
-    DetailCard(modifier = modifier) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(
-                text = title,
-                fontFamily = AppFonts.OpenSansSemiBold,
-                fontSize = 16.sp,
-                color = AppColors.Color2,
-            )
-            DonutChart(slices = slices)
-            slices.forEach { slice ->
-                val labelFontFamily = if (slice.label == highlightId || slice.highlight) {
-                    AppFonts.OpenSansBold
-                } else {
-                    AppFonts.OpenSansRegular
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .background(Color(slice.colorHex), CircleShape)
-                    )
-                    Text(
-                        text = buildAnnotatedString {
-                            append(slice.label)
-                            append(" ")
-                            withStyle(SpanStyle(color = AppColors.Color3, fontFamily = AppFonts.OpenSansBold)) {
-                                append(slice.secondaryLabel)
-                            }
-                        },
-                        fontFamily = labelFontFamily,
-                        fontSize = 13.sp,
-                        color = AppColors.Color2,
-                    )
-                }
-            }
-        }
     }
 }
 
