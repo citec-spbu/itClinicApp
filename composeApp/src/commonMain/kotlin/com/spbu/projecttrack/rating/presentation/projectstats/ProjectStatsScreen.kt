@@ -113,6 +113,8 @@ import com.spbu.projecttrack.rating.data.model.ProjectStatsMemberUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsMetricRowUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsMetricSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsOwnershipSectionUi
+import com.spbu.projecttrack.rating.data.model.StatsDetailDataUi
+import com.spbu.projecttrack.rating.data.model.StatsDetailParticipantUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsUiModel
 import com.spbu.projecttrack.rating.data.model.ProjectStatsWeekDaySectionUi
 import com.spbu.projecttrack.rating.data.model.filterByParticipant
@@ -3343,14 +3345,119 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
             sections = listOf(codeChurn.toExportSection()),
         )
 
-        StatsScreenSection.CodeOwnership -> base.copy(
-            sections = listOf(codeOwnership.toExportSection()),
-        )
+        StatsScreenSection.CodeOwnership -> {
+            val ownershipRows = buildOwnershipExportRows(details)
+            val totalLines = ownershipRows.sumOf { it.lines }
+            val selectedRow = ownershipRows.firstOrNull { it.id == participantId }
+            val score = when {
+                participantId == null -> codeOwnership.score
+                selectedRow != null && totalLines > 0 && selectedRow.lines > 0 -> round2(
+                    (2 + 3 * (selectedRow.lines.toDouble() / totalLines.toDouble())).coerceIn(0.0, 5.0)
+                )
+                else -> null
+            }
+            val rank = when {
+                participantId == null -> codeOwnership.rank
+                score == null -> null
+                else -> ownershipRows
+                    .mapNotNull { row ->
+                        if (totalLines > 0 && row.lines > 0) {
+                            round2((2 + 3 * (row.lines.toDouble() / totalLines.toDouble())).coerceIn(0.0, 5.0))
+                        } else {
+                            null
+                        }
+                    }
+                    .sortedDescending()
+                    .indexOfFirst { it == score }
+                    .takeIf { it >= 0 }
+                    ?.plus(1)
+            }
+            val rankingLabel = if (participantId == null) "Место в рейтинге" else "Место в команде"
+
+            base.copy(
+                summaryCards = listOf(
+                    ProjectStatsSummaryCard("Всего строк", totalLines.toString(), "владение кодом"),
+                    ProjectStatsSummaryCard(rankingLabel, rank?.toString() ?: "—"),
+                    ProjectStatsSummaryCard("Оценка владения кодом", score?.let(::formatScoreValue) ?: "—"),
+                ),
+                sections = buildList {
+                    add(
+                        ProjectStatsSection(
+                            title = "Владение кодом",
+                            subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
+                            rows = listOf(
+                                ProjectStatsTableRow("Всего строк", totalLines.toString()),
+                                ProjectStatsTableRow(rankingLabel, rank?.toString() ?: "—"),
+                            ),
+                            chart = ownershipRows.takeIf { it.isNotEmpty() }?.let { rows ->
+                                ProjectStatsChart.Donut(
+                                    title = "Распределение владения кодом",
+                                    segments = rows.map { row ->
+                                        ProjectStatsChartSegment(
+                                            label = if (row.isCurrentUser) "${row.name} (Вы)" else row.name,
+                                            value = row.lines.toDouble(),
+                                            colorHint = percentLabel(row.lines, totalLines),
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    )
+                    if (ownershipRows.isNotEmpty()) {
+                        add(
+                            ProjectStatsSection(
+                                title = "Таблица участников",
+                                rows = ownershipRows.map { row ->
+                                    ProjectStatsTableRow(
+                                        label = if (row.isCurrentUser) "${row.name} (Вы)" else row.name,
+                                        value = "${row.changes} изменений",
+                                        note = "+${row.additions}/-${row.deletions}  ${row.lines} строк",
+                                    )
+                                }
+                            )
+                        )
+                    }
+                },
+            )
+        }
 
         StatsScreenSection.DominantWeekDay -> base.copy(
             sections = listOf(dominantWeekDay.toExportSection()),
         )
     }
+}
+
+private fun buildOwnershipExportRows(details: StatsDetailDataUi): List<OwnershipExportRow> {
+    val participants = linkedMapOf<String, StatsDetailParticipantUi>()
+    details.participants.forEach { participant ->
+        participants[participant.id] = participant
+    }
+    details.commits.forEach { commit ->
+        val authorId = commit.authorId ?: return@forEach
+        if (!participants.containsKey(authorId)) {
+            participants[authorId] = StatsDetailParticipantUi(
+                id = authorId,
+                name = commit.authorName,
+                subtitle = "Участник",
+                isCurrentUser = authorId == details.defaultParticipantId,
+            )
+        }
+    }
+
+    return participants.values
+        .map { participant ->
+            val participantCommits = details.commits.filter { it.authorId == participant.id }
+            OwnershipExportRow(
+                id = participant.id,
+                name = participant.name,
+                isCurrentUser = participant.isCurrentUser || participant.id == details.defaultParticipantId,
+                additions = participantCommits.sumOf { it.additions },
+                deletions = participantCommits.sumOf { it.deletions },
+                changes = participantCommits.size,
+                lines = participantCommits.sumOf { it.additions + it.deletions },
+            )
+        }
+        .sortedByDescending { it.lines }
 }
 
 internal fun ProjectStatsMetricSectionUi.toExportSection(): ProjectStatsSection {
@@ -3479,3 +3586,20 @@ internal fun ProjectStatsWeekDaySectionUi.toExportSection(): ProjectStatsSection
         )
     )
 }
+
+private data class OwnershipExportRow(
+    val id: String,
+    val name: String,
+    val isCurrentUser: Boolean,
+    val additions: Int,
+    val deletions: Int,
+    val changes: Int,
+    val lines: Int,
+)
+
+private fun percentLabel(value: Int, total: Int): String {
+    if (total <= 0) return "0%"
+    return "${((value.toDouble() / total.toDouble()) * 100.0).roundToInt()}%"
+}
+
+private fun round2(value: Double): Double = ((value * 100.0).roundToInt() / 100.0)

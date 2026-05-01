@@ -1101,7 +1101,7 @@ private fun LazyListScope.ownershipItems(
     overallScore: Double?,
     details: StatsDetailDataUi,
 ) {
-    val ownershipRows = buildOwnershipRows(details, snapshots)
+    val ownershipRows = buildOwnershipRows(snapshots)
     val totalLines = ownershipRows.sumOf { it.lines }
     val slices = ownershipRows.mapIndexed { index, row ->
         ProjectStatsDonutSliceUi(
@@ -1127,41 +1127,30 @@ private fun LazyListScope.ownershipItems(
 
     if (slices.isNotEmpty()) {
         item {
-            DetailDonutCard(
-                title = "Распределение владения кодом",
+            DetailOwnershipDonutCard(
                 slices = slices,
-                highlightId = null,
+                rows = ownershipRows,
             )
         }
     }
     item {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = totalLines.toString(),
-                caption = "всего строк",
-            )
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = rank?.toString() ?: "—",
-                caption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
-            )
-        }
+        DetailMetricStatementCard(
+            value = totalLines.toString(),
+            caption = "всего строк",
+        )
     }
     if (ownershipRows.isNotEmpty()) {
         item {
-            DetailTableCard(
-                title = "Участники",
-                headers = listOf("Коммиты", "Строки"),
-                rows = ownershipRows.map {
-                    DetailTableRow(
-                        title = appendYouSuffix(it.name, it.id == effectiveParticipantId),
-                        values = listOf(it.commits.toString(), it.lines.toString()),
-                        highlight = it.id == effectiveParticipantId,
-                    )
-                }
+            DetailOwnershipParticipantsTableCard(
+                rows = ownershipRows,
             )
         }
+    }
+    item {
+        DetailMetricStatementCard(
+            value = rank?.toString() ?: "—",
+            caption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
+        )
     }
     item {
         ScoreCard(
@@ -3758,6 +3747,61 @@ private fun DetailDonutCard(
 }
 
 @Composable
+private fun DetailOwnershipDonutCard(
+    slices: List<ProjectStatsDonutSliceUi>,
+    rows: List<DetailOwnershipRow>,
+    modifier: Modifier = Modifier,
+) {
+    DetailCard(modifier = modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            DonutChart(slices = slices)
+            rows.forEachIndexed { index, row ->
+                val slice = slices.getOrNull(index) ?: return@forEachIndexed
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(Color(slice.colorHex), CircleShape)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = buildAnnotatedString {
+                                append(row.name)
+                                if (row.isCurrentUser) {
+                                    append(" ")
+                                    withStyle(
+                                        SpanStyle(
+                                            color = AppColors.Color3,
+                                            fontFamily = AppFonts.OpenSansBold,
+                                        )
+                                    ) {
+                                        append("(Вы)")
+                                    }
+                                }
+                            },
+                            fontFamily = AppFonts.OpenSansRegular,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
+                            color = AppColors.Color2,
+                        )
+                        Text(
+                            text = "${row.lines} строк",
+                            fontFamily = AppFonts.OpenSansBold,
+                            fontSize = 12.sp,
+                            lineHeight = 20.sp,
+                            color = AppColors.Color2,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CodeChurnDonutCard(
     slices: List<ProjectStatsDonutSliceUi>,
     highlightId: String?,
@@ -3859,6 +3903,150 @@ private fun DetailMetricStatementCard(
                 )
             },
         )
+    }
+}
+
+@Composable
+private fun DetailOwnershipParticipantsTableCard(
+    rows: List<DetailOwnershipRow>,
+    modifier: Modifier = Modifier,
+) {
+    DetailCard(modifier = modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = "Таблица участников",
+                fontFamily = AppFonts.OpenSansSemiBold,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                color = AppColors.Color2,
+            )
+            if (rows.isEmpty()) {
+                Text(
+                    text = "Нет данных",
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 13.sp,
+                    color = AppColors.Color2,
+                )
+            } else {
+                DetailDivider()
+                rows.forEachIndexed { index, row ->
+                    DetailOwnershipParticipantRow(row = row)
+                    if (index < rows.lastIndex) {
+                        DetailDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailOwnershipParticipantRow(
+    row: DetailOwnershipRow,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = row.name,
+                fontFamily = AppFonts.OpenSansMedium,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = AppColors.Color2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(
+                        SpanStyle(
+                            color = DualLineAddColor,
+                            fontFamily = AppFonts.OpenSansMedium,
+                        )
+                    ) {
+                        append("+${row.additions}")
+                    }
+                    withStyle(
+                        SpanStyle(
+                            color = AppColors.Color2,
+                            fontFamily = AppFonts.OpenSansMedium,
+                        )
+                    ) {
+                        append("/")
+                    }
+                    withStyle(
+                        SpanStyle(
+                            color = DualLineDelColor,
+                            fontFamily = AppFonts.OpenSansMedium,
+                        )
+                    ) {
+                        append("-${row.deletions}")
+                    }
+                },
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+            )
+        }
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(
+                        SpanStyle(
+                            color = AppColors.Color3,
+                            fontFamily = AppFonts.OpenSansBold,
+                        )
+                    ) {
+                        append(row.changes.toString())
+                    }
+                    withStyle(
+                        SpanStyle(
+                            color = AppColors.Color2,
+                            fontFamily = AppFonts.OpenSansMedium,
+                        )
+                    ) {
+                        append(" ${pluralize(row.changes, "изменение", "изменения", "изменений")}")
+                    }
+                },
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                textAlign = TextAlign.End,
+            )
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(
+                        SpanStyle(
+                            color = AppColors.Color3,
+                            fontFamily = AppFonts.OpenSansBold,
+                        )
+                    ) {
+                        append(row.lines.toString())
+                    }
+                    withStyle(
+                        SpanStyle(
+                            color = AppColors.Color2,
+                            fontFamily = AppFonts.OpenSansMedium,
+                        )
+                    ) {
+                        append(" ${pluralize(row.lines, "строка", "строки", "строк")}")
+                    }
+                },
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                textAlign = TextAlign.End,
+            )
+        }
     }
 }
 
@@ -4735,7 +4923,6 @@ private fun buildLabelChips(issues: List<StatsDetailIssueUi>): List<DetailLabelC
 }
 
 private fun buildOwnershipRows(
-    details: StatsDetailDataUi,
     snapshots: Map<String, DetailParticipantSnapshot>,
 ): List<DetailOwnershipRow> {
     return snapshots.values
@@ -4744,7 +4931,10 @@ private fun buildOwnershipRows(
             DetailOwnershipRow(
                 id = snapshot.participant.id,
                 name = snapshot.participant.name,
-                commits = snapshot.commitCount,
+                isCurrentUser = snapshot.participant.isCurrentUser,
+                additions = snapshot.commits.sumOf { it.additions },
+                deletions = snapshot.commits.sumOf { it.deletions },
+                changes = snapshot.commitCount,
                 lines = snapshot.linesOwned,
             )
         }
@@ -5065,7 +5255,10 @@ private data class DetailTableRow(
 private data class DetailOwnershipRow(
     val id: String,
     val name: String,
-    val commits: Int,
+    val isCurrentUser: Boolean,
+    val additions: Int,
+    val deletions: Int,
+    val changes: Int,
     val lines: Int,
 )
 
