@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -190,6 +191,7 @@ fun StatsDetailScreen(
 ) {
     var showDateRangePicker by remember { mutableStateOf(false) }
     var showAllIssues by rememberSaveable(section.id) { mutableStateOf(false) }
+    var showAllPullRequests by rememberSaveable(section.id) { mutableStateOf(false) }
     val startParticipant = remember(section, allowParticipantFilter, initialParticipantId, details.defaultParticipantId) {
         when {
             allowParticipantFilter -> initialParticipantId ?: AllParticipantsId
@@ -208,6 +210,10 @@ fun StatsDetailScreen(
     val peerSnapshots = participantSnapshots.filterKeys { it != effectiveParticipantId }.values.toList()
     val issueListForOverlay = remember(section, details, effectiveParticipantId) {
         if (section == StatsScreenSection.Issues) filterIssues(details, effectiveParticipantId)
+        else emptyList()
+    }
+    val pullRequestListForOverlay = remember(section, details, effectiveParticipantId) {
+        if (section == StatsScreenSection.PullRequests) filterPullRequests(details, effectiveParticipantId)
         else emptyList()
     }
 
@@ -301,6 +307,7 @@ fun StatsDetailScreen(
                         overallScore = overallScore,
                         details = details,
                         rapidThreshold = rapidThreshold,
+                        onShowAllClick = { showAllPullRequests = true },
                     )
 
                     StatsScreenSection.RapidPullRequests -> rapidPullRequestItems(
@@ -371,6 +378,18 @@ fun StatsDetailScreen(
             AllIssuesOverlay(
                 issues = issueListForOverlay,
                 onBackClick = { showAllIssues = false },
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showAllPullRequests && section == StatsScreenSection.PullRequests,
+            enter = slideInHorizontally(animationSpec = tween(300)) { it } + fadeIn(tween(300)),
+            exit = slideOutHorizontally(animationSpec = tween(300)) { it } + fadeOut(tween(300)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            AllPullRequestsOverlay(
+                pullRequests = pullRequestListForOverlay,
+                onBackClick = { showAllPullRequests = false },
             )
         }
     }
@@ -709,11 +728,15 @@ private fun LazyListScope.pullRequestItems(
     overallScore: Double?,
     details: StatsDetailDataUi,
     rapidThreshold: ProjectStatsThresholdUi,
+    onShowAllClick: () -> Unit,
 ) {
     val filteredPullRequests = filterPullRequests(details, effectiveParticipantId)
+    val sortedPullRequests = sortPullRequestsByNewest(filteredPullRequests)
     val current = selectedSnapshot
-    val durationMinutes = filteredPullRequests.mapNotNull { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) }
-    val distributionSlices = buildPullRequestLifetimeSlices(durationMinutes)
+    val lifetimeMinutes = filteredPullRequests.mapNotNull {
+        durationMinutes(it.createdAtIso, it.effectiveEndAtIso)
+    }
+    val distributionSlices = buildPullRequestLifetimeSlices(lifetimeMinutes)
     val contributorRows = snapshots.values
         .sortedByDescending { it.pullRequestCount }
         .map {
@@ -728,20 +751,21 @@ private fun LazyListScope.pullRequestItems(
         overallScope = effectiveParticipantId == null,
         specificScore = current?.pullRequestScore,
     )
-    val rank = resolveRank(
-        overallRank = overallRank,
-        overallScope = effectiveParticipantId == null,
+    val teamRank = resolveRank(
+        overallRank = null,
+        overallScope = false,
         specificScore = current?.pullRequestScore,
         peerScores = peerSnapshots.map { it.pullRequestScore },
     )
-    val fastPullRequests = filteredPullRequests
+    val fastPullRequests = sortedPullRequests
         .filter { isRapidPullRequest(it, rapidThreshold.totalMinutes) }
         .sortedBy { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) ?: Int.MAX_VALUE }
         .take(5)
-    val slowPullRequests = filteredPullRequests
+    val slowPullRequests = sortedPullRequests
         .filter { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) != null }
         .sortedByDescending { durationMinutes(it.createdAtIso, it.effectiveEndAtIso) ?: Int.MIN_VALUE }
         .take(5)
+    val dominantLifetimeLabel = distributionSlices.maxByOrNull { it.value }?.label
 
     item {
         ChartCard(
@@ -752,108 +776,85 @@ private fun LazyListScope.pullRequestItems(
         )
     }
     item {
-        DoubleMetricRow(
-            leftValue = formatDurationMinutesLabel(buildAverageLifetimeMinutes(durationMinutes)),
-            leftCaption = "ср. время жизни",
-            rightValue = filteredPullRequests.size.toString(),
-            rightCaption = "всего Pull Request",
+        DetailMetricStatementCard(
+            value = formatDurationMinutesLabel(buildAverageLifetimeMinutes(lifetimeMinutes)),
+            caption = "среднее время жизни Pull Request",
         )
     }
     item {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = rank?.toString() ?: "—",
-                caption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
-            )
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = formatDurationMinutesLabel(durationMinutes.minOrNull()),
-                caption = "мин. время жизни",
-            )
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = formatDurationMinutesLabel(durationMinutes.maxOrNull()),
-                caption = "макс. время жизни",
-            )
-        }
+        DoubleMetricRow(
+            leftValue = filteredPullRequests.size.toString(),
+            leftCaption = "всего Pull Request",
+            rightValue = overallRank?.toString() ?: "—",
+            rightCaption = "место в рейтинге",
+        )
     }
     if (contributorRows.isNotEmpty()) {
         item {
             DetailTableCard(
                 title = "Количество Pull Request",
-                headers = listOf("Кол-во"),
+                headers = emptyList(),
                 rows = contributorRows,
             )
         }
     }
+    item {
+        DetailMetricStatementCard(
+            value = formatDurationMinutesLabel(lifetimeMinutes.minOrNull()),
+            caption = "минимальное время жизни Pull Request",
+        )
+    }
+    item {
+        DetailMetricStatementCard(
+            value = formatDurationMinutesLabel(lifetimeMinutes.maxOrNull()),
+            caption = "максимальное время жизни Pull Request",
+        )
+    }
     if (distributionSlices.isNotEmpty()) {
         item {
-            DetailDonutCard(
+            DetailPullRequestLifetimeSection(
                 title = "Распределение времени жизни PR",
                 slices = distributionSlices,
-                highlightId = distributionSlices.maxByOrNull { it.value }?.label,
             )
+        }
+        dominantLifetimeLabel?.let { label ->
+            item {
+                DetailMetricStatementCard(
+                    value = formatPullRequestLifetimeHighlightLabel(label),
+                    caption = "самое актуальное время жизни PR",
+                )
+            }
         }
     }
     item {
-        DetailEntityListCard(
+        DetailPullRequestSection(
             title = "Список Pull Requests",
-            items = filteredPullRequests
-                .sortedByDescending { parseInstant(it.createdAtIso)?.toEpochMilliseconds() ?: Long.MIN_VALUE }
-                .take(20)
-                .map { pullRequest ->
-                    DetailEntityCardData(
-                        title = pullRequest.title,
-                        badge = pullRequest.number?.let { "#$it" },
-                        status = pullRequest.state,
-                        metaLines = buildList {
-                            add("Автор: ${pullRequest.authorName}")
-                            if (pullRequest.assigneeNames.isNotEmpty()) {
-                                add("Участники: ${pullRequest.assigneeNames.joinToString()}")
-                            }
-                            add("Создано: ${pullRequest.createdAtLabel}")
-                            pullRequest.closedAtLabel?.let { add("Закрыто: $it") }
-                        },
-                        trailing = formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso)),
-                        link = pullRequest.url,
-                    )
-                }
+            pullRequests = sortedPullRequests.take(1),
+            actionLabel = if (sortedPullRequests.isNotEmpty()) "Смотреть все" else null,
+            onActionClick = onShowAllClick,
         )
     }
     if (fastPullRequests.isNotEmpty()) {
         item {
-            DetailEntityListCard(
+            DetailPullRequestCompactSection(
                 title = "Топ-5 самых быстрых PR",
-                items = fastPullRequests.map { pullRequest ->
-                    DetailEntityCardData(
-                        title = pullRequest.title,
-                        status = pullRequest.state,
-                        metaLines = listOf(
-                            "Автор: ${pullRequest.authorName}",
-                            "Время: ${formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso))}",
-                        ),
-                        link = pullRequest.url,
-                    )
-                }
+                pullRequests = fastPullRequests,
             )
         }
     }
     if (slowPullRequests.isNotEmpty()) {
         item {
-            DetailEntityListCard(
+            DetailPullRequestCompactSection(
                 title = "Топ-5 самых медленных PR",
-                items = slowPullRequests.map { pullRequest ->
-                    DetailEntityCardData(
-                        title = pullRequest.title,
-                        status = pullRequest.state,
-                        metaLines = listOf(
-                            "Автор: ${pullRequest.authorName}",
-                            "Время: ${formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso))}",
-                        ),
-                        link = pullRequest.url,
-                    )
-                }
+                pullRequests = slowPullRequests,
+            )
+        }
+    }
+    if (effectiveParticipantId != null) {
+        item {
+            DetailMetricStatementCard(
+                value = teamRank?.toString() ?: "—",
+                caption = "место в команде",
             )
         }
     }
@@ -1830,7 +1831,7 @@ private fun DetailTableCard(
                     color = AppColors.Color2,
                 )
             } else {
-                if (subtitle == null) {
+                if (subtitle == null && headers.isNotEmpty()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -2277,6 +2278,109 @@ private fun AllIssuesOverlay(
 }
 
 @Composable
+private fun AllPullRequestsOverlay(
+    pullRequests: List<StatsDetailPullRequestUi>,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val focusManager = LocalFocusManager.current
+    var searchText by remember { mutableStateOf("") }
+    var stateFilterKey by remember { mutableStateOf(IssueStateFilter.All.key) }
+    val stateFilter = IssueStateFilter.fromKey(stateFilterKey)
+    val filteredPullRequests = remember(pullRequests, searchText, stateFilter) {
+        filterAllPullRequests(pullRequests, searchText, stateFilter)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.White),
+    ) {
+        Image(
+            painter = painterResource(Res.drawable.spbu_logo),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .align(Alignment.Center),
+            contentScale = ContentScale.Fit,
+            alpha = 1.0f,
+        )
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { focusManager.clearFocus() })
+                },
+            contentPadding = PaddingValues(
+                top = StatsTopBarTotalHeight + 8.dp,
+                bottom = 20.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item(key = "search_header") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 21.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DetailIssueSearchBar(
+                        searchText = searchText,
+                        onSearchTextChange = { searchText = it },
+                    )
+                    DetailDropdownSelector(
+                        title = "Состояние",
+                        value = stateFilter.label,
+                        options = IssueStateFilter.options,
+                        onSelected = { stateFilterKey = it ?: IssueStateFilter.All.key },
+                        selectedKey = stateFilterKey,
+                    )
+                }
+            }
+
+            if (filteredPullRequests.isEmpty()) {
+                item {
+                    Box(Modifier.padding(horizontal = 21.dp)) {
+                        DetailCard {
+                            Text(
+                                text = if (searchText.isBlank() && stateFilter == IssueStateFilter.All) {
+                                    "Нет данных"
+                                } else {
+                                    "Ничего не найдено"
+                                },
+                                fontFamily = AppFonts.OpenSansMedium,
+                                fontSize = 13.sp,
+                                color = AppColors.Color2,
+                            )
+                        }
+                    }
+                }
+            } else {
+                items(
+                    items = filteredPullRequests,
+                    key = { pullRequest -> pullRequestStableKey(pullRequest) },
+                ) { pullRequest ->
+                    Box(Modifier.padding(horizontal = 21.dp)) {
+                        DetailPullRequestCard(pullRequest = pullRequest)
+                    }
+                }
+            }
+        }
+
+        StatsTopBar(
+            title = "Все Pull Requests",
+            onBackClick = {
+                focusManager.clearFocus()
+                onBackClick()
+            },
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+    }
+}
+
+@Composable
 private fun DetailIssueSearchBar(
     searchText: String,
     onSearchTextChange: (String) -> Unit,
@@ -2376,6 +2480,224 @@ private fun DetailIssueSection(
         } else {
             issues.forEach { issue ->
                 DetailIssueCard(issue = issue)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailPullRequestSection(
+    title: String,
+    pullRequests: List<StatsDetailPullRequestUi>,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onActionClick: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                color = Color.Black,
+            )
+            if (actionLabel != null && onActionClick != null) {
+                AnimatedClickableText(
+                    text = actionLabel,
+                    onClick = onActionClick,
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 12.sp,
+                    lineHeight = 20.sp,
+                    color = AppColors.Color2,
+                )
+            }
+        }
+
+        if (pullRequests.isEmpty()) {
+            DetailCard {
+                Text(
+                    text = "Нет данных",
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 13.sp,
+                    color = AppColors.Color2,
+                )
+            }
+        } else {
+            pullRequests.forEach { pullRequest ->
+                DetailPullRequestCard(pullRequest = pullRequest)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailPullRequestCard(
+    pullRequest: StatsDetailPullRequestUi,
+    modifier: Modifier = Modifier,
+) {
+    val uriHandler = LocalUriHandler.current
+    val author = remember(pullRequest.authorId, pullRequest.authorName) {
+        DetailIssueParticipantUi(
+            id = pullRequest.authorId,
+            name = pullRequest.authorName,
+            avatarUrl = resolveGithubAvatarUrl(pullRequest.authorId, null),
+        )
+    }
+    val assignees = remember(pullRequest.assigneeIds, pullRequest.assigneeNames) {
+        pullRequest.assigneeNames.mapIndexed { index, name ->
+            DetailIssueParticipantUi(
+                id = pullRequest.assigneeIds.getOrNull(index),
+                name = name,
+                avatarUrl = resolveGithubAvatarUrl(pullRequest.assigneeIds.getOrNull(index), null),
+            )
+        }
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = DetailCardShape,
+        color = Color.White,
+        shadowElevation = 8.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        text = pullRequest.title,
+                        fontFamily = AppFonts.OpenSansBold,
+                        fontSize = 16.sp,
+                        lineHeight = 20.sp,
+                        color = Color.Black,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    pullRequest.number?.let { number ->
+                        Text(
+                            text = "#$number",
+                            fontFamily = AppFonts.OpenSansMedium,
+                            fontSize = 15.sp,
+                            lineHeight = 20.sp,
+                            color = AppColors.Color2,
+                        )
+                    }
+                }
+                pullRequest.state?.takeIf { it.isNotBlank() }?.let { state ->
+                    IssueBadge(
+                        text = state.lowercase(),
+                        backgroundColor = issueStatusBackgroundColor(state),
+                        textColor = Color.White,
+                    )
+                }
+            }
+
+            DetailDivider()
+
+            IssueParticipantsSection(
+                title = "Создатель",
+                participants = listOf(author),
+            )
+            IssueParticipantsSection(
+                title = "Назначенные",
+                participants = assignees,
+                emptyText = "Не назначено",
+            )
+
+            DetailDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                IssueDateColumn(
+                    title = "Дата создания",
+                    value = pullRequest.createdAtLabel,
+                    modifier = Modifier.weight(1f),
+                )
+                IssueDateColumn(
+                    title = "Дата закрытия",
+                    value = pullRequest.closedAtLabel ?: "—",
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            DetailDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // В PR payload нет реакций, поэтому повторяем Figma-slot layout
+                // и маппим существующие compact-метрики: comments / commits / files.
+                IssueFooterMetric(
+                    icon = {
+                        Image(
+                            painter = painterResource(Res.drawable.stats_issue_comments_logo),
+                            contentDescription = "Комментарии",
+                            modifier = Modifier.size(15.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    },
+                    value = formatIssueMetricValue(pullRequest.comments),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                IssueFooterMetric(
+                    icon = {
+                        Image(
+                            painter = painterResource(Res.drawable.stats_issue_like_logo),
+                            contentDescription = "Коммиты",
+                            modifier = Modifier
+                                .width(15.dp)
+                                .height(17.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    },
+                    value = formatIssueMetricValue(pullRequest.commitsCount),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                IssueFooterMetric(
+                    icon = {
+                        Image(
+                            painter = painterResource(Res.drawable.stats_issue_dislike_logo),
+                            contentDescription = "Измененные файлы",
+                            modifier = Modifier
+                                .width(15.dp)
+                                .height(17.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    },
+                    value = formatIssueMetricValue(pullRequest.changedFiles),
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                pullRequest.url?.let { url ->
+                    AnimatedClickableText(
+                        text = "ссылка ›",
+                        onClick = { uriHandler.openUri(url) },
+                        fontFamily = AppFonts.OpenSansRegular,
+                        fontSize = 12.sp,
+                        lineHeight = 20.sp,
+                        color = AppColors.Color1,
+                    )
+                }
             }
         }
     }
@@ -2748,6 +3070,95 @@ private fun IssueParticipantAvatar(
 }
 
 @Composable
+private fun DetailPullRequestCompactSection(
+    title: String,
+    pullRequests: List<StatsDetailPullRequestUi>,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = title,
+            fontFamily = AppFonts.OpenSansBold,
+            fontSize = 16.sp,
+            lineHeight = 20.sp,
+            color = Color.Black,
+        )
+        pullRequests.forEach { pullRequest ->
+            DetailPullRequestCompactCard(pullRequest = pullRequest)
+        }
+    }
+}
+
+@Composable
+private fun DetailPullRequestCompactCard(
+    pullRequest: StatsDetailPullRequestUi,
+    modifier: Modifier = Modifier,
+) {
+    val uriHandler = LocalUriHandler.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 620f),
+        label = "pull_request_compact_press",
+    )
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(
+                enabled = pullRequest.url != null,
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { pullRequest.url?.let(uriHandler::openUri) },
+            ),
+        shape = RoundedCornerShape(5.dp),
+        color = Color.White,
+        shadowElevation = 4.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            pullRequest.number?.let { number ->
+                Text(
+                    text = "#$number",
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp,
+                    color = AppColors.Color2,
+                )
+            }
+            Text(
+                text = pullRequest.title,
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                color = Color.Black,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "Закрыт за ${formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso))}",
+                fontFamily = AppFonts.OpenSansRegular,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = AppColors.Color2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
 private fun AnimatedClickableText(
     text: String,
     onClick: () -> Unit,
@@ -3108,6 +3519,125 @@ private fun DetailDonutCard(
 }
 
 @Composable
+private fun DetailMetricStatementCard(
+    value: String,
+    caption: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color = AppColors.Color3,
+) {
+    val valueFontSize = when {
+        value.length > 10 -> 24.sp
+        value.length > 7 -> 28.sp
+        else -> 32.sp
+    }
+    val valueLineHeight = when (valueFontSize) {
+        24.sp -> 28.sp
+        28.sp -> 30.sp
+        else -> 32.sp
+    }
+
+    DetailCard(
+        modifier = modifier.heightIn(min = 70.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = value,
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = valueFontSize,
+                lineHeight = valueLineHeight,
+                color = valueColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = caption,
+                fontFamily = AppFonts.OpenSansMedium,
+                fontSize = 14.sp,
+                lineHeight = 16.sp,
+                color = AppColors.Color2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailPullRequestLifetimeSection(
+    title: String,
+    slices: List<ProjectStatsDonutSliceUi>,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = title,
+            fontFamily = AppFonts.OpenSansSemiBold,
+            fontSize = 16.sp,
+            lineHeight = 20.sp,
+            color = Color.Black,
+        )
+        DetailCard {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                DonutChart(slices = slices)
+                slices.forEach { slice ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(Color(slice.colorHex), CircleShape)
+                        )
+                        Text(
+                            text = buildAnnotatedString {
+                                withStyle(
+                                    SpanStyle(
+                                        fontFamily = AppFonts.OpenSansSemiBold,
+                                        color = AppColors.Color2,
+                                    )
+                                ) {
+                                    append(slice.label)
+                                }
+                                withStyle(
+                                    SpanStyle(
+                                        fontFamily = AppFonts.OpenSansRegular,
+                                        color = AppColors.Color2,
+                                    )
+                                ) {
+                                    append(" - ")
+                                }
+                                withStyle(
+                                    SpanStyle(
+                                        fontFamily = AppFonts.OpenSansBold,
+                                        color = AppColors.Color3,
+                                    )
+                                ) {
+                                    append(slice.secondaryLabel.substringBefore(' '))
+                                }
+                                withStyle(
+                                    SpanStyle(
+                                        fontFamily = AppFonts.OpenSansRegular,
+                                        color = AppColors.Color2,
+                                    )
+                                ) {
+                                    append(" PR")
+                                }
+                            },
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DetailHighlightCard(
     title: String,
     value: String,
@@ -3370,6 +3900,69 @@ private fun issueMatchesSearch(
 
 private fun formatIssueMetricValue(value: Int?): String = value?.toString() ?: "—"
 
+private fun sortPullRequestsByNewest(
+    pullRequests: List<StatsDetailPullRequestUi>,
+): List<StatsDetailPullRequestUi> {
+    return pullRequests
+        .distinctBy(::pullRequestStableKey)
+        .sortedByDescending { parseInstant(it.createdAtIso)?.toEpochMilliseconds() ?: Long.MIN_VALUE }
+}
+
+private fun pullRequestStableKey(
+    pullRequest: StatsDetailPullRequestUi,
+): String {
+    val number = pullRequest.number
+    if (number != null) return "number:$number"
+    val url = pullRequest.url?.trim()?.lowercase()
+    if (!url.isNullOrBlank()) return "url:$url"
+    return buildString {
+        append(pullRequest.authorId ?: pullRequest.authorName.lowercase())
+        append(':')
+        append(pullRequest.title.trim().lowercase())
+        append(':')
+        append(pullRequest.createdAtIso ?: "")
+    }
+}
+
+private fun filterAllPullRequests(
+    pullRequests: List<StatsDetailPullRequestUi>,
+    searchText: String,
+    stateFilter: IssueStateFilter,
+): List<StatsDetailPullRequestUi> {
+    val normalizedQuery = searchText.trim().lowercase()
+    return sortPullRequestsByNewest(pullRequests).filter { pullRequest ->
+        pullRequestMatchesStateFilter(pullRequest, stateFilter) &&
+            pullRequestMatchesSearch(pullRequest, normalizedQuery)
+    }
+}
+
+private fun pullRequestMatchesStateFilter(
+    pullRequest: StatsDetailPullRequestUi,
+    stateFilter: IssueStateFilter,
+): Boolean {
+    return when (stateFilter) {
+        IssueStateFilter.All -> true
+        IssueStateFilter.Open -> pullRequest.state?.trim()?.equals("open", ignoreCase = true) == true
+        IssueStateFilter.Closed -> pullRequest.state?.trim()?.equals("closed", ignoreCase = true) == true
+    }
+}
+
+private fun pullRequestMatchesSearch(
+    pullRequest: StatsDetailPullRequestUi,
+    normalizedQuery: String,
+): Boolean {
+    if (normalizedQuery.isBlank()) return true
+    val haystack = buildList {
+        add(pullRequest.title)
+        add(pullRequest.authorName)
+        add(pullRequest.state.orEmpty())
+        addAll(pullRequest.assigneeNames)
+        pullRequest.number?.let { add("#$it") }
+        pullRequest.number?.let { add(it.toString()) }
+    }.joinToString(separator = "\n") { it.lowercase() }
+    return haystack.contains(normalizedQuery)
+}
+
 private fun filterPullRequests(
     details: StatsDetailDataUi,
     participantId: String?,
@@ -3630,7 +4223,9 @@ private fun buildPullRequestLifetimeSlices(
         "1-6 часов" to durations.count { it in 60 until 360 },
         "6-24 часа" to durations.count { it in 360 until 1440 },
         "1-3 дня" to durations.count { it in 1440 until 4320 },
-        "> 3 дней" to durations.count { it >= 4320 },
+        "3-7 дней" to durations.count { it in 4320 until 10080 },
+        "7-14 дней" to durations.count { it in 10080 until 20160 },
+        ">14 дней" to durations.count { it >= 20160 },
     ).filter { it.second > 0 }
     val total = durations.size
     return buckets.mapIndexed { index, (label, value) ->
@@ -3639,10 +4234,19 @@ private fun buildPullRequestLifetimeSlices(
             secondaryLabel = "$value PR",
             percentLabel = percentLabel(value, total),
             value = value.toFloat(),
-            colorHex = ownershipPalette[index % ownershipPalette.size],
+            colorHex = weekdayPalette[index % weekdayPalette.size],
             highlight = value == buckets.maxOf { it.second },
         )
     }
+}
+
+private fun formatPullRequestLifetimeHighlightLabel(
+    label: String,
+): String {
+    return label
+        .replace("< ", "<")
+        .replace("> ", ">")
+        .uppercase()
 }
 
 private fun buildFileChurnSlices(
