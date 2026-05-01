@@ -977,7 +977,7 @@ class UserStatsRepository(
             slices = snapshot.weekdays.mapIndexed { index, day ->
                 ProjectStatsDonutSliceUi(
                     label = day.label,
-                    secondaryLabel = "${day.value} действий",
+                    secondaryLabel = "${day.value} ${pluralize(day.value, "действие", "действия", "действий")}",
                     percentLabel = percentLabel(day.value, snapshot.weekdayTotal),
                     value = day.value.toFloat(),
                     colorHex = weekdayPalette[index % weekdayPalette.size],

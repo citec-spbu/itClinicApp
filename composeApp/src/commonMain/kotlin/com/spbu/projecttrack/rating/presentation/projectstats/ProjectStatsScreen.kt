@@ -1085,8 +1085,6 @@ internal fun DominantWeekDaySection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val hasActivity = section.slices.any { it.value > 0f }
-
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1096,48 +1094,9 @@ internal fun DominantWeekDaySection(
             onDetailsClick = onDetailsClick
         )
 
-        if (!hasActivity) {
-            StatsCard {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Действий ещё не было",
-                        fontFamily = AppFonts.OpenSansRegular,
-                        fontSize = 14.sp,
-                        color = AppColors.Color2,
-                    )
-                }
-            }
-        } else {
-            StatsCard {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    DonutChart(slices = section.slices)
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        section.slices.forEach { slice ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .background(Color(slice.colorHex), CircleShape)
-                                )
-                                WeekdayLegendText(
-                                    label = slice.label,
-                                    secondaryLabel = slice.secondaryLabel,
-                                    emphasizeLabel = slice.highlight,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+        WeekDayDistributionCard(slices = section.slices)
 
+        if (section.slices.any { it.value > 0f }) {
             CompactStatsCard {
                 Column(
                     modifier = Modifier.fillMaxHeight(),
@@ -1169,6 +1128,56 @@ internal fun DominantWeekDaySection(
             score = section.score,
             title = "оценка доминирующего дня недели"
         )
+    }
+}
+
+@Composable
+internal fun WeekDayDistributionCard(
+    slices: List<ProjectStatsDonutSliceUi>,
+    modifier: Modifier = Modifier,
+    emptyText: String = "Действий ещё не было",
+) {
+    val hasActivity = slices.any { it.value > 0f }
+
+    StatsCard(modifier = modifier) {
+        if (!hasActivity) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = emptyText,
+                    fontFamily = AppFonts.OpenSansRegular,
+                    fontSize = 14.sp,
+                    color = AppColors.Color2,
+                )
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                DonutChart(slices = slices)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    slices.forEach { slice ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(Color(slice.colorHex), CircleShape)
+                            )
+                            WeekdayLegendText(
+                                label = slice.label,
+                                secondaryLabel = slice.secondaryLabel,
+                                emphasizeLabel = slice.highlight,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -3570,10 +3579,17 @@ internal fun ProjectStatsOwnershipSectionUi.toExportSection(): ProjectStatsSecti
 }
 
 internal fun ProjectStatsWeekDaySectionUi.toExportSection(): ProjectStatsSection {
+    val hasActivity = slices.any { it.value > 0f }
+    val dominantLabel = slices.maxByOrNull { it.value }?.label?.takeIf { hasActivity } ?: "НЕТ ДАННЫХ"
+    val leastActiveLabel = slices.minByOrNull { it.value }?.label?.takeIf { hasActivity } ?: "НЕТ ДАННЫХ"
+
     return ProjectStatsSection(
         title = title,
         subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
-        rows = listOf(ProjectStatsTableRow(headline, subtitle)),
+        rows = listOf(
+            ProjectStatsTableRow("Самый активный день недели", dominantLabel),
+            ProjectStatsTableRow("Самый неактивный день недели", leastActiveLabel),
+        ),
         chart = ProjectStatsChart.Donut(
             title = title,
             segments = slices.map { slice ->
