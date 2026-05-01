@@ -992,7 +992,7 @@ private fun CodeChurnSection(
             onDetailsClick = onDetailsClick
         )
 
-        FileStatsCard(rows = section.fileRows)
+        FileStatsCard(rows = section.fileRows.take(5))
 
         DoubleMetricRow(
             leftValue = section.changedFilesCount.toString(),
@@ -3413,11 +3413,32 @@ internal fun ProjectStatsCodeChurnSectionUi.toExportSection(): ProjectStatsSecti
         rows = buildList {
             add(ProjectStatsTableRow("Изменено файлов", changedFilesCount.toString()))
             add(ProjectStatsTableRow("Рейтинг", rank?.toString() ?: "—"))
-            fileRows.forEach { row ->
-                add(ProjectStatsTableRow(row.fileName, row.value))
+            if (fileRows.isNotEmpty()) {
+                add(ProjectStatsTableRow("— Измененные файлы —", ""))
+                fileRows.forEach { row ->
+                    add(ProjectStatsTableRow(row.fileName, row.value))
+                }
             }
-            tableRows.forEach { row ->
-                add(ProjectStatsTableRow(row.name, row.value))
+            if (tableRows.isNotEmpty()) {
+                add(ProjectStatsTableRow("— Кол-во изменений по участникам —", ""))
+                tableRows.forEach { row ->
+                    add(ProjectStatsTableRow(row.name, row.value))
+                }
+            }
+        },
+        chart = if (slices.isNotEmpty()) ProjectStatsChart.Donut(
+            title = "Распределение изменений файлов",
+            segments = slices.map { slice ->
+                ProjectStatsChartSegment(
+                    label = slice.label,
+                    value = slice.value.toDouble(),
+                    colorHint = slice.percentLabel
+                )
+            }
+        ) else null,
+        notes = buildList {
+            mostChangedFileName?.takeIf { it.isNotBlank() }?.let {
+                add("Самый часто изменяемый файл: $it")
             }
         }
     )

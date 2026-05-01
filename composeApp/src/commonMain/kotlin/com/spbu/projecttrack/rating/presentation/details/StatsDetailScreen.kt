@@ -117,6 +117,7 @@ import projecttrack.composeapp.generated.resources.stats_issue_dislike_logo
 import projecttrack.composeapp.generated.resources.stats_issue_like_logo
 import projecttrack.composeapp.generated.resources.spbu_logo
 import projecttrack.composeapp.generated.resources.stats_tooltip_close
+import projecttrack.composeapp.generated.resources.stats_sort_asc
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -196,6 +197,7 @@ fun StatsDetailScreen(
     var showDateRangePicker by remember { mutableStateOf(false) }
     var showAllIssues by rememberSaveable(section.id) { mutableStateOf(false) }
     var showAllPullRequests by rememberSaveable(section.id) { mutableStateOf(false) }
+    var showAllFiles by rememberSaveable(section.id) { mutableStateOf(false) }
     val startParticipant = remember(section, allowParticipantFilter, initialParticipantId, details.defaultParticipantId) {
         when {
             allowParticipantFilter -> initialParticipantId ?: AllParticipantsId
@@ -215,6 +217,12 @@ fun StatsDetailScreen(
     val issueListForOverlay = remember(section, details, effectiveParticipantId) {
         if (section == StatsScreenSection.Issues) filterIssues(details, effectiveParticipantId)
         else emptyList()
+    }
+    val fileListForOverlay = remember(section, details, effectiveParticipantId) {
+        if (section == StatsScreenSection.CodeChurn) {
+            val commits = filterCommits(details, effectiveParticipantId)
+            buildFileAggregates(commits)
+        } else emptyList()
     }
     val pullRequestListForOverlay = remember(section, details, effectiveParticipantId, rapidThreshold.totalMinutes) {
         when (section) {
@@ -343,6 +351,7 @@ fun StatsDetailScreen(
                         overallRank = overallRank,
                         overallScore = overallScore,
                         details = details,
+                        onShowAllFilesClick = { showAllFiles = true },
                     )
 
                     StatsScreenSection.CodeOwnership -> ownershipItems(
@@ -405,6 +414,18 @@ fun StatsDetailScreen(
                 pullRequests = pullRequestListForOverlay,
                 title = pullRequestOverlayTitle,
                 onBackClick = { showAllPullRequests = false },
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showAllFiles && section == StatsScreenSection.CodeChurn,
+            enter = slideInHorizontally(animationSpec = tween(300)) { it } + fadeIn(tween(300)),
+            exit = slideOutHorizontally(animationSpec = tween(300)) { it } + fadeOut(tween(300)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            AllFilesOverlay(
+                files = fileListForOverlay,
+                onBackClick = { showAllFiles = false },
             )
         }
     }
@@ -988,6 +1009,7 @@ private fun LazyListScope.codeChurnItems(
     overallRank: Int?,
     overallScore: Double?,
     details: StatsDetailDataUi,
+    onShowAllFilesClick: () -> Unit = {},
 ) {
     val filteredCommits = filterCommits(details, effectiveParticipantId)
     val fileStats = buildFileAggregates(filteredCommits)
@@ -1017,7 +1039,8 @@ private fun LazyListScope.codeChurnItems(
     item {
         DetailFilesCard(
             title = "Статистика по файлам",
-            rows = fileStats.take(20),
+            rows = fileStats.take(5),
+            onShowAllClick = if (fileStats.size > 5) onShowAllFilesClick else null,
         )
     }
     item {
@@ -1034,35 +1057,32 @@ private fun LazyListScope.codeChurnItems(
                 title = "Количество измененных файлов",
                 headers = listOf("Кол-во"),
                 rows = participantRows,
+                showHeaders = false,
             )
         }
     }
     if (churnSlices.isNotEmpty()) {
         item {
-            DetailDonutCard(
-                title = "Распределение изменений файлов",
+            Text(
+                text = "Распределение изменений файлов",
+                fontFamily = AppFonts.OpenSansSemiBold,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                color = Color.Black,
+                modifier = Modifier.padding(horizontal = 0.dp),
+            )
+        }
+        item {
+            CodeChurnDonutCard(
                 slices = churnSlices,
                 highlightId = churnSlices.maxByOrNull { it.value }?.label,
             )
         }
     }
     item {
-        DetailCard {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "Самый часто изменяемый файл",
-                    fontFamily = AppFonts.OpenSansSemiBold,
-                    fontSize = 16.sp,
-                    color = AppColors.Color2,
-                )
-                Text(
-                    text = fileStats.firstOrNull()?.fileName ?: "Нет данных",
-                    fontFamily = AppFonts.OpenSansBold,
-                    fontSize = 16.sp,
-                    color = AppColors.Color3,
-                )
-            }
-        }
+        FileNameMetricCard(
+            fileName = fileStats.firstOrNull()?.fileName ?: "Нет данных",
+        )
     }
     item {
         ScoreCard(
@@ -1699,15 +1719,43 @@ private fun DetailFilesCard(
     title: String,
     rows: List<DetailFileAggregate>,
     modifier: Modifier = Modifier,
+    onShowAllClick: (() -> Unit)? = null,
 ) {
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = title,
-                fontFamily = AppFonts.OpenSansSemiBold,
-                fontSize = 16.sp,
-                color = AppColors.Color2,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontSize = 16.sp,
+                    color = AppColors.Color2,
+                )
+                if (onShowAllClick != null) {
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val isPressed by interactionSource.collectIsPressedAsState()
+                    val alpha by animateFloatAsState(
+                        targetValue = if (isPressed) 0.5f else 1f,
+                        animationSpec = tween(100),
+                        label = "show_all_alpha"
+                    )
+                    Text(
+                        text = "Смотреть все",
+                        fontFamily = AppFonts.OpenSansMedium,
+                        fontSize = 12.sp,
+                        color = AppColors.Color2.copy(alpha = alpha),
+                        modifier = Modifier
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null,
+                                onClick = onShowAllClick,
+                            ),
+                    )
+                }
+            }
             if (rows.isEmpty()) {
                 Text(
                     text = "Нет данных",
@@ -1729,7 +1777,7 @@ private fun DetailFilesCard(
                                 verticalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 Text(
-                                    text = row.fileName,
+                                    text = breakableFileName(row.fileName),
                                     fontFamily = AppFonts.OpenSansMedium,
                                     fontSize = 13.sp,
                                     color = AppColors.Color2,
@@ -1801,6 +1849,30 @@ private fun fileStatusColor(status: String): Color = when (status.lowercase()) {
     else -> AppColors.Color2
 }
 
+private const val AllFileStatusFilter = "Все"
+
+private fun buildFileStatusFilters(
+    files: List<DetailFileAggregate>,
+): List<String> {
+    val knownOrder = listOf("added", "removed", "modified", "changed", "renamed", "copied")
+    val knownStatuses = knownOrder.filter { status ->
+        files.any { normalizeFileStatus(it.status) == status }
+    }
+    val extraStatuses = files
+        .mapNotNull { normalizeFileStatus(it.status) }
+        .filterNot { it in knownOrder }
+        .distinct()
+        .sorted()
+    return buildList {
+        add(AllFileStatusFilter)
+        addAll(knownStatuses)
+        addAll(extraStatuses)
+    }
+}
+
+private fun normalizeFileStatus(status: String?): String? =
+    status?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+
 @Composable
 private fun DetailTableCard(
     title: String,
@@ -1808,6 +1880,7 @@ private fun DetailTableCard(
     rows: List<DetailTableRow>,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    showHeaders: Boolean = true,
 ) {
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1835,7 +1908,7 @@ private fun DetailTableCard(
                     color = AppColors.Color2,
                 )
             } else {
-                if (subtitle == null && headers.isNotEmpty()) {
+                if (showHeaders && subtitle == null && headers.isNotEmpty()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -2175,6 +2248,161 @@ private fun CommitEntityListCard(
 }
 
 @Composable
+private fun AllFilesOverlay(
+    files: List<DetailFileAggregate>,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val focusManager = LocalFocusManager.current
+    var searchText by remember { mutableStateOf("") }
+    var sortAscending by remember { mutableStateOf(false) }
+    var selectedStatusFilter by rememberSaveable { mutableStateOf(AllFileStatusFilter) }
+    val statusFilters = remember(files) { buildFileStatusFilters(files) }
+
+    val displayedFiles = remember(files, searchText, sortAscending, selectedStatusFilter) {
+        files
+            .let { list ->
+                if (searchText.isBlank()) list
+                else list.filter { it.fileName.contains(searchText.trim(), ignoreCase = true) }
+            }
+            .let { list ->
+                if (selectedStatusFilter == AllFileStatusFilter) list
+                else list.filter { normalizeFileStatus(it.status) == selectedStatusFilter }
+            }
+            .let { list -> sortFileAggregates(list, ascending = sortAscending) }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.White),
+    ) {
+        Image(
+            painter = painterResource(Res.drawable.spbu_logo),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .align(Alignment.Center),
+            contentScale = ContentScale.Fit,
+            alpha = 1.0f,
+        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
+            contentPadding = PaddingValues(
+                start = 21.dp,
+                top = StatsTopBarTotalHeight + 8.dp,
+                end = 21.dp,
+                bottom = 20.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item(key = "files_controls") {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            DetailIssueSearchBar(
+                                searchText = searchText,
+                                onSearchTextChange = { searchText = it },
+                                placeholder = "Путь к файлу",
+                            )
+                        }
+                        val sortInteraction = remember { MutableInteractionSource() }
+                        val sortPressed by sortInteraction.collectIsPressedAsState()
+                        val sortAlpha by animateFloatAsState(
+                            targetValue = if (sortPressed) 0.5f else 1f,
+                            animationSpec = tween(100),
+                            label = "sort_alpha",
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    color = Color(0xFFFEFEFE),
+                                    shape = RoundedCornerShape(10.dp),
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = Color(0xFFE3E3E6),
+                                    shape = RoundedCornerShape(10.dp),
+                                )
+                                .clickable(
+                                    interactionSource = sortInteraction,
+                                    indication = null,
+                                ) { sortAscending = !sortAscending },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(Res.drawable.stats_sort_asc),
+                                contentDescription = if (sortAscending) "По возрастанию" else "По убыванию",
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .graphicsLayer {
+                                        scaleY = if (sortAscending) 1f else -1f
+                                        alpha = sortAlpha
+                                    },
+                            )
+                        }
+                    }
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        statusFilters.forEach { filter ->
+                            FileStatusFilterChip(
+                                text = filter,
+                                selected = selectedStatusFilter == filter,
+                                onClick = { selectedStatusFilter = filter },
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (displayedFiles.isEmpty()) {
+                item {
+                    DetailCard {
+                        Text(
+                            text = if (searchText.isBlank()) "Нет данных" else "Ничего не найдено",
+                            fontFamily = AppFonts.OpenSansMedium,
+                            fontSize = 13.sp,
+                            color = AppColors.Color2,
+                        )
+                    }
+                }
+            } else {
+                item {
+                    DetailFilesCard(
+                        title = "Все файлы (${displayedFiles.size})",
+                        rows = displayedFiles,
+                    )
+                }
+            }
+        }
+        StatsTopBar(
+            title = "Статистика по файлам",
+            onBackClick = {
+                focusManager.clearFocus()
+                onBackClick()
+            },
+            titleFontSize = overlayPullRequestTitleFontSize("Статистика по файлам"),
+            titleLineHeight = overlayPullRequestTitleFontSize("Статистика по файлам"),
+            titleMaxLines = 2,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+    }
+}
+
+@Composable
 private fun AllIssuesOverlay(
     issues: List<StatsDetailIssueUi>,
     onBackClick: () -> Unit,
@@ -2394,6 +2622,7 @@ private fun AllPullRequestsOverlay(
 private fun DetailIssueSearchBar(
     searchText: String,
     onSearchTextChange: (String) -> Unit,
+    placeholder: String = "Поиск",
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -2414,7 +2643,7 @@ private fun DetailIssueSearchBar(
     ) {
         Image(
             painter = painterResource(Res.drawable.search_icon),
-            contentDescription = "Поиск",
+            contentDescription = placeholder,
             modifier = Modifier.size(24.dp),
         )
         Spacer(modifier = Modifier.width(8.dp))
@@ -2432,7 +2661,7 @@ private fun DetailIssueSearchBar(
             decorationBox = { innerTextField ->
                 if (searchText.isBlank()) {
                     Text(
-                        text = "Поиск",
+                        text = placeholder,
                         fontFamily = AppFonts.OpenSansSemiBold,
                         fontSize = 16.sp,
                         color = AppColors.Color1,
@@ -3529,6 +3758,61 @@ private fun DetailDonutCard(
 }
 
 @Composable
+private fun CodeChurnDonutCard(
+    slices: List<ProjectStatsDonutSliceUi>,
+    highlightId: String?,
+    modifier: Modifier = Modifier,
+) {
+    DetailCard(modifier = modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            DonutChart(slices = slices)
+            slices.forEach { slice ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(Color(slice.colorHex), CircleShape)
+                    )
+                    Text(
+                        text = buildAnnotatedString {
+                            withStyle(SpanStyle(
+                                fontFamily = AppFonts.OpenSansSemiBold,
+                                color = AppColors.Color2,
+                            )) {
+                                append(slice.label)
+                            }
+                            withStyle(SpanStyle(
+                                fontFamily = AppFonts.OpenSansRegular,
+                                color = AppColors.Color2,
+                            )) {
+                                append(" - ")
+                            }
+                            withStyle(SpanStyle(
+                                fontFamily = AppFonts.OpenSansBold,
+                                color = AppColors.Color3,
+                            )) {
+                                append(slice.secondaryLabel.substringBefore(' '))
+                            }
+                            withStyle(SpanStyle(
+                                fontFamily = AppFonts.OpenSansRegular,
+                                color = AppColors.Color2,
+                            )) {
+                                append(" " + slice.secondaryLabel.substringAfter(' '))
+                            }
+                        },
+                        fontSize = 13.sp,
+                        color = AppColors.Color2,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DetailMetricStatementCard(
     value: String,
     caption: String,
@@ -3575,6 +3859,38 @@ private fun DetailMetricStatementCard(
                 )
             },
         )
+    }
+}
+
+@Composable
+private fun FileNameMetricCard(
+    fileName: String,
+    modifier: Modifier = Modifier,
+) {
+    DetailCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = MetricCardHorizontalPadding, vertical = 14.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = breakableFileName(fileName.uppercase()),
+                fontFamily = AppFonts.OpenSansBold,
+                fontSize = 24.sp,
+                lineHeight = 28.sp,
+                color = AppColors.Color3,
+                softWrap = true,
+            )
+            Text(
+                text = "самый часто изменяемый файл",
+                fontFamily = AppFonts.OpenSansMedium,
+                fontSize = 14.sp,
+                lineHeight = 16.sp,
+                color = AppColors.Color2,
+            )
+        }
     }
 }
 
@@ -3772,6 +4088,32 @@ private fun DetailChip(
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 11.sp,
             color = AppColors.Color2,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        )
+    }
+}
+
+@Composable
+private fun FileStatusFilterChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(30.dp),
+        color = if (selected) AppColors.Color3 else Color(0xFFF2F2F4),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (selected) AppColors.Color3 else Color(0xFFE4E4E7),
+        ),
+    ) {
+        Text(
+            text = text,
+            fontFamily = AppFonts.OpenSansMedium,
+            fontSize = 11.sp,
+            color = if (selected) Color.White else AppColors.Color2,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
         )
     }
@@ -4110,7 +4452,21 @@ private fun buildFileAggregates(
                 status = builder.statusCounts.maxByOrNull { it.value }?.key,
             )
         }
-        .sortedByDescending { it.changes }
+        .let { sortFileAggregates(it, ascending = false) }
+}
+
+private fun sortFileAggregates(
+    files: List<DetailFileAggregate>,
+    ascending: Boolean,
+): List<DetailFileAggregate> {
+    val comparator = if (ascending) {
+        compareBy<DetailFileAggregate> { it.changes }
+            .thenBy { it.fileName.lowercase() }
+    } else {
+        compareByDescending<DetailFileAggregate> { it.changes }
+            .thenBy { it.fileName.lowercase() }
+    }
+    return files.sortedWith(comparator)
 }
 
 private fun buildWeekDayStats(
@@ -4276,12 +4632,13 @@ private fun buildFileChurnSlices(
     if (fileStats.isEmpty()) return emptyList()
     val buckets = listOf(
         "1 изменение" to fileStats.count { it.changes == 1 },
-        "2-3" to fileStats.count { it.changes in 2..3 },
-        "4-5" to fileStats.count { it.changes in 4..5 },
-        "6-10" to fileStats.count { it.changes in 6..10 },
-        "11+" to fileStats.count { it.changes >= 11 },
+        "2-3 изменения" to fileStats.count { it.changes in 2..3 },
+        "4-5 изменений" to fileStats.count { it.changes in 4..5 },
+        "6-7 изменений" to fileStats.count { it.changes in 6..7 },
+        "8-10 изменений" to fileStats.count { it.changes in 8..10 },
+        ">10 изменений" to fileStats.count { it.changes > 10 },
     ).filter { it.second > 0 }
-    val total = fileStats.size
+    val total = buckets.sumOf { it.second }.takeIf { it > 0 } ?: 1
     return buckets.mapIndexed { index, (label, value) ->
         ProjectStatsDonutSliceUi(
             label = label,
@@ -4629,6 +4986,8 @@ private data class DetailCountPoint(
     val label: String,
     val count: Int,
 )
+
+private fun breakableFileName(value: String): String = value.replace("/", "/\u200B")
 
 private data class DetailFileAggregate(
     val fileName: String,

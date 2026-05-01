@@ -897,19 +897,47 @@ class UserStatsRepository(
         peerSnapshots: List<UserMetricSnapshot>,
     ): ProjectStatsCodeChurnSectionUi {
         val rank = buildRank(snapshot.codeChurnScore, peerSnapshots.map { it.codeChurnScore })
+        val fileStats = snapshot.fileStats
         return ProjectStatsCodeChurnSectionUi(
             title = "Изменчивость кода",
             score = snapshot.codeChurnScore,
-            changedFilesCount = snapshot.fileStats.size,
+            changedFilesCount = fileStats.size,
             rank = rank,
-            fileRows = snapshot.fileStats.take(5).map {
+            fileRows = fileStats.map {
                 ProjectStatsFileRowUi(
                     fileName = it.fileName,
                     value = it.changes.toString(),
                 )
             },
             tableRows = emptyList(),
+            slices = buildFileChurnSlices(fileStats),
+            mostChangedFileName = fileStats.firstOrNull()?.fileName,
         )
+    }
+
+    private fun buildFileChurnSlices(
+        fileStats: List<ProjectFileStat>,
+    ): List<ProjectStatsDonutSliceUi> {
+        if (fileStats.isEmpty()) return emptyList()
+        val buckets = listOf(
+            "1 изменение" to fileStats.count { it.changes == 1 },
+            "2-3 изменения" to fileStats.count { it.changes in 2..3 },
+            "4-5 изменений" to fileStats.count { it.changes in 4..5 },
+            "6-7 изменений" to fileStats.count { it.changes in 6..7 },
+            "8-10 изменений" to fileStats.count { it.changes in 8..10 },
+            ">10 изменений" to fileStats.count { it.changes > 10 },
+        ).filter { it.second > 0 }
+        val total = buckets.sumOf { it.second }.takeIf { it > 0 } ?: 1
+        return buckets.mapIndexed { index, (label, value) ->
+            ProjectStatsDonutSliceUi(
+                label = label,
+                secondaryLabel = "$value файлов",
+                percentLabel = round2(value * 100.0 / total).toString() + "%",
+                value = value.toFloat(),
+                colorHex = weekdayPalette[index % weekdayPalette.size],
+                highlight = value == buckets.maxOf { it.second },
+            )
+        }
     }
 
     private fun buildOwnershipSection(
