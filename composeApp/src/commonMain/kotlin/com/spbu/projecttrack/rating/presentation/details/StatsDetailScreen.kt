@@ -84,12 +84,16 @@ import com.spbu.projecttrack.rating.data.model.StatsDetailIssueUi
 import com.spbu.projecttrack.rating.data.model.StatsDetailParticipantUi
 import com.spbu.projecttrack.rating.data.model.StatsDetailPullRequestUi
 import com.spbu.projecttrack.rating.data.model.filterByParticipant
+import com.spbu.projecttrack.rating.data.repository.displayPersonName
 import com.spbu.projecttrack.rating.presentation.projectstats.ChartCard
 import com.spbu.projecttrack.rating.presentation.projectstats.DonutChart
 import com.spbu.projecttrack.rating.presentation.projectstats.DoubleMetricRow
 import com.spbu.projecttrack.rating.presentation.projectstats.DropdownSelector
 import com.spbu.projecttrack.rating.presentation.projectstats.EmptyDetailedInfoCard
+import com.spbu.projecttrack.rating.presentation.projectstats.EqualVerticalMetricLayout
 import com.spbu.projecttrack.rating.presentation.projectstats.IssueProgressCard
+import com.spbu.projecttrack.rating.presentation.projectstats.CompactStatsCardHeight
+import com.spbu.projecttrack.rating.presentation.projectstats.MetricCardHorizontalPadding
 import com.spbu.projecttrack.rating.presentation.projectstats.RepositorySelectorCard
 import com.spbu.projecttrack.rating.presentation.projectstats.ScoreCard
 import com.spbu.projecttrack.rating.presentation.projectstats.SingleMetricCard
@@ -212,9 +216,17 @@ fun StatsDetailScreen(
         if (section == StatsScreenSection.Issues) filterIssues(details, effectiveParticipantId)
         else emptyList()
     }
-    val pullRequestListForOverlay = remember(section, details, effectiveParticipantId) {
-        if (section == StatsScreenSection.PullRequests) filterPullRequests(details, effectiveParticipantId)
-        else emptyList()
+    val pullRequestListForOverlay = remember(section, details, effectiveParticipantId, rapidThreshold.totalMinutes) {
+        when (section) {
+            StatsScreenSection.PullRequests -> filterPullRequests(details, effectiveParticipantId)
+            StatsScreenSection.RapidPullRequests -> filterPullRequests(details, effectiveParticipantId)
+                .filter { isRapidPullRequest(it, rapidThreshold.totalMinutes) }
+            else -> emptyList()
+        }
+    }
+    val pullRequestOverlayTitle = when (section) {
+        StatsScreenSection.RapidPullRequests -> "Все быстрые Pull Requests"
+        else -> "Все Pull Requests"
     }
 
     Box(
@@ -320,6 +332,7 @@ fun StatsDetailScreen(
                         details = details,
                         rapidThreshold = rapidThreshold,
                         onRapidThresholdChanged = onRapidThresholdChanged,
+                        onShowAllClick = { showAllPullRequests = true },
                     )
 
                     StatsScreenSection.CodeChurn -> codeChurnItems(
@@ -382,13 +395,15 @@ fun StatsDetailScreen(
         }
 
         AnimatedVisibility(
-            visible = showAllPullRequests && section == StatsScreenSection.PullRequests,
+            visible = showAllPullRequests &&
+                (section == StatsScreenSection.PullRequests || section == StatsScreenSection.RapidPullRequests),
             enter = slideInHorizontally(animationSpec = tween(300)) { it } + fadeIn(tween(300)),
             exit = slideOutHorizontally(animationSpec = tween(300)) { it } + fadeOut(tween(300)),
             modifier = Modifier.fillMaxSize(),
         ) {
             AllPullRequestsOverlay(
                 pullRequests = pullRequestListForOverlay,
+                title = pullRequestOverlayTitle,
                 onBackClick = { showAllPullRequests = false },
             )
         }
@@ -876,9 +891,11 @@ private fun LazyListScope.rapidPullRequestItems(
     details: StatsDetailDataUi,
     rapidThreshold: ProjectStatsThresholdUi,
     onRapidThresholdChanged: (Int, Int, Int) -> Unit,
+    onShowAllClick: () -> Unit,
 ) {
     val filteredPullRequests = filterPullRequests(details, effectiveParticipantId)
     val rapidPullRequests = filteredPullRequests.filter { isRapidPullRequest(it, rapidThreshold.totalMinutes) }
+    val sortedRapidPullRequests = sortPullRequestsByNewest(rapidPullRequests)
     val current = selectedSnapshot
     val contributorRows = snapshots.values
         .sortedByDescending { it.rapidPullRequestCount }
@@ -889,7 +906,9 @@ private fun LazyListScope.rapidPullRequestItems(
                 highlight = it.participant.id == effectiveParticipantId,
             )
         }
-    val leader = snapshots.values.maxByOrNull { it.rapidPullRequestCount }
+    val leader = snapshots.values
+        .filter { it.rapidPullRequestCount > 0 }
+        .maxByOrNull { it.rapidPullRequestCount }
     val score = resolveScore(
         overallScore = overallScore,
         overallScope = effectiveParticipantId == null,
@@ -911,7 +930,7 @@ private fun LazyListScope.rapidPullRequestItems(
     item {
         ChartCard(
             title = "График быстрых PR",
-            chartType = ProjectStatsChartType.Line,
+            chartType = ProjectStatsChartType.Bars,
             points = buildChartPoints(rapidPullRequests.mapNotNull { it.closedAtIso }) { "$it быстрых PR" },
             tooltipTitle = "Быстрые PR",
         )
@@ -928,45 +947,30 @@ private fun LazyListScope.rapidPullRequestItems(
         item {
             DetailTableCard(
                 title = "Количество быстрых Pull Request",
-                headers = listOf("Кол-во"),
+                headers = emptyList(),
                 rows = contributorRows,
             )
         }
     }
     item {
-        DetailEntityListCard(
+        DetailPullRequestSection(
             title = "Список быстрых Pull Requests",
-            items = rapidPullRequests
-                .sortedByDescending { parseInstant(it.closedAtIso)?.toEpochMilliseconds() ?: Long.MIN_VALUE }
-                .take(20)
-                .map { pullRequest ->
-                    DetailEntityCardData(
-                        title = pullRequest.title,
-                        status = pullRequest.state,
-                        metaLines = listOf(
-                            "Автор: ${pullRequest.authorName}",
-                            "Создано: ${pullRequest.createdAtLabel}",
-                            "Закрыто: ${pullRequest.closedAtLabel ?: "—"}",
-                        ),
-                        trailing = formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso)),
-                        link = pullRequest.url,
-                    )
-                }
+            pullRequests = sortedRapidPullRequests.take(1),
+            actionLabel = if (sortedRapidPullRequests.isNotEmpty()) "Смотреть все" else null,
+            onActionClick = onShowAllClick,
         )
     }
     item {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = percentLabel(rapidPullRequests.size, filteredPullRequests.size),
-                caption = "доля быстрых PR",
-            )
-            SingleMetricCard(
-                modifier = Modifier.weight(1f),
-                value = leader?.participant?.name ?: "—",
-                caption = "лидер по быстрым PR",
-            )
-        }
+        DetailMetricStatementCard(
+            value = percentLabel(rapidPullRequests.size, filteredPullRequests.size),
+            caption = "доля быстрых PR",
+        )
+    }
+    item {
+        DetailMetricStatementCard(
+            value = displayPersonName(leader?.participant?.name).ifBlank { "—" },
+            caption = "лидер по быстрым PR",
+        )
     }
     item {
         ScoreCard(
@@ -2272,6 +2276,8 @@ private fun AllIssuesOverlay(
                 focusManager.clearFocus()
                 onBackClick()
             },
+            titleFontSize = 28.sp,
+            titleLineHeight = 28.sp,
             modifier = Modifier.align(Alignment.TopCenter),
         )
     }
@@ -2281,6 +2287,7 @@ private fun AllIssuesOverlay(
 private fun AllPullRequestsOverlay(
     pullRequests: List<StatsDetailPullRequestUi>,
     onBackClick: () -> Unit,
+    title: String = "Все Pull Requests",
     modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
@@ -2370,11 +2377,14 @@ private fun AllPullRequestsOverlay(
         }
 
         StatsTopBar(
-            title = "Все Pull Requests",
+            title = title,
             onBackClick = {
                 focusManager.clearFocus()
                 onBackClick()
             },
+            titleFontSize = overlayPullRequestTitleFontSize(title),
+            titleLineHeight = overlayPullRequestTitleFontSize(title),
+            titleMaxLines = 2,
             modifier = Modifier.align(Alignment.TopCenter),
         )
     }
@@ -3537,28 +3547,34 @@ private fun DetailMetricStatementCard(
     }
 
     DetailCard(
-        modifier = modifier.heightIn(min = 70.dp),
+        modifier = modifier.height(CompactStatsCardHeight),
+        contentPadding = PaddingValues(horizontal = MetricCardHorizontalPadding, vertical = 0.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = value,
-                fontFamily = AppFonts.OpenSansBold,
-                fontSize = valueFontSize,
-                lineHeight = valueLineHeight,
-                color = valueColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = caption,
-                fontFamily = AppFonts.OpenSansMedium,
-                fontSize = 14.sp,
-                lineHeight = 16.sp,
-                color = AppColors.Color2,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        EqualVerticalMetricLayout(
+            modifier = Modifier.fillMaxSize(),
+            value = {
+                Text(
+                    text = value,
+                    fontFamily = AppFonts.OpenSansBold,
+                    fontSize = valueFontSize,
+                    lineHeight = valueLineHeight,
+                    color = valueColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            caption = {
+                Text(
+                    text = caption,
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 14.sp,
+                    lineHeight = 16.sp,
+                    color = AppColors.Color2,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+        )
     }
 }
 
@@ -3764,6 +3780,7 @@ private fun DetailChip(
 @Composable
 private fun DetailCard(
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
@@ -3773,7 +3790,7 @@ private fun DetailCard(
         shadowElevation = 8.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+            modifier = Modifier.padding(contentPadding),
             content = content,
         )
     }
@@ -3897,6 +3914,10 @@ private fun issueMatchesSearch(
     }.joinToString(separator = "\n") { it.lowercase() }
     return haystack.contains(normalizedQuery)
 }
+
+private fun overlayPullRequestTitleFontSize(
+    title: String,
+) = if (title.length > 20) 24.sp else 28.sp
 
 private fun formatIssueMetricValue(value: Int?): String = value?.toString() ?: "—"
 

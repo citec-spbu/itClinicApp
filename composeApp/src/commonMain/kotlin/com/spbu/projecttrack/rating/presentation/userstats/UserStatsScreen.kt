@@ -86,6 +86,7 @@ import com.spbu.projecttrack.rating.export.ProjectStatsExportPayload
 import com.spbu.projecttrack.rating.export.ProjectStatsSection
 import com.spbu.projecttrack.rating.export.ProjectStatsSummaryCard
 import com.spbu.projecttrack.rating.export.ProjectStatsTableRow
+import com.spbu.projecttrack.rating.export.buildRapidPullRequestDetailExportContent
 import com.spbu.projecttrack.rating.export.rememberProjectStatsExporter
 import com.spbu.projecttrack.rating.presentation.projectstats.ActionPillButton
 import com.spbu.projecttrack.rating.presentation.projectstats.AnimatedSection
@@ -780,6 +781,13 @@ private enum class UserStatsDatePickerTarget {
 
 private fun UserStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
     val selectedRepository = repositories.firstOrNull { it.id == selectedRepositoryId }
+    val rapidExport = buildRapidPullRequestDetailExportContent(
+        details = details,
+        participantId = details.defaultParticipantId,
+        rapidThreshold = rapidThreshold,
+        overallRank = rapidPullRequests.rank,
+        overallScore = rapidPullRequests.score,
+    )
     return ProjectStatsExportPayload(
         projectId = userId,
         projectName = userName,
@@ -794,15 +802,15 @@ private fun UserStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
             ProjectStatsSummaryCard("Pull Requests", pullRequests.primaryValue, pullRequests.primaryCaption),
             ProjectStatsSummaryCard("Быстрые PR", rapidPullRequests.primaryValue, rapidPullRequests.primaryCaption)
         ),
-        sections = listOf(
-            commits.toExportSection(),
-            issues.toExportSection(),
-            pullRequests.toExportSection(),
-            rapidPullRequests.toExportSection(),
-            codeChurn.toExportSection(),
-            codeOwnership.toExportSection(),
-            dominantWeekDay.toExportSection()
-        )
+        sections = buildList {
+            add(commits.toExportSection())
+            add(issues.toExportSection())
+            add(pullRequests.toExportSection())
+            addAll(rapidExport.sections)
+            add(codeChurn.toExportSection())
+            add(codeOwnership.toExportSection())
+            add(dominantWeekDay.toExportSection())
+        }
     )
 }
 
@@ -927,12 +935,16 @@ private fun UserStatsUiModel.toSectionExportPayload(
         }
 
         StatsScreenSection.RapidPullRequests -> {
-            val rapid = rapidPullRequests
+            val rapidExport = buildRapidPullRequestDetailExportContent(
+                details = details,
+                participantId = participantId,
+                rapidThreshold = rapidThreshold,
+                overallRank = rapidPullRequests.rank,
+                overallScore = rapidPullRequests.score,
+            )
             base.copy(
-                summaryCards = listOf(
-                    ProjectStatsSummaryCard("Быстрые PR", rapid.primaryValue, rapid.primaryCaption)
-                ),
-                sections = listOf(rapid.toExportSection()),
+                summaryCards = rapidExport.summaryCards,
+                sections = rapidExport.sections,
             )
         }
 
