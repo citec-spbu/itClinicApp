@@ -2578,76 +2578,83 @@ internal fun DonutChart(
         animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
         label = "donut_progress"
     )
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 10.dp)
-            .height(208.dp),
-        contentAlignment = Alignment.Center
+            .padding(top = 8.dp, bottom = 10.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        val chartSize = 188.dp
-        val outerRadius = chartSize / 2
-        val innerRadius = outerRadius / 2
+        val designOuterDiameter = 250.dp
+        val designInnerDiameter = 150.dp
+        val chartSize = maxWidth.coerceAtMost(designOuterDiameter)
+        val scale = (chartSize.value / designOuterDiameter.value).coerceAtMost(1f)
+        val outerRadius = (designOuterDiameter / 2) * scale
+        val innerRadius = (designInnerDiameter / 2) * scale
         val strokeWidth = outerRadius - innerRadius
 
-        Canvas(modifier = Modifier.size(chartSize)) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val innerPx = innerRadius.toPx()
-            val outerPx = outerRadius.toPx()
-            val strokeWidthPx = strokeWidth.toPx()
-            // Рисуем дугу по центральной линии кольца, чтобы innerRadius/outerRadius
-            // точно соответствовали реальным границам кольца
-            val arcPathPx = (innerPx + outerPx) / 2f
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(chartSize),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(modifier = Modifier.size(chartSize)) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val innerPx = innerRadius.toPx()
+                val outerPx = outerRadius.toPx()
+                val strokeWidthPx = strokeWidth.toPx()
+                // Диаграмму никогда не увеличиваем сверх них, только уменьшаем при нехватке места.
+                val arcPathPx = (innerPx + outerPx) / 2f
 
-            var startAngle = -90f
-            slices.forEach { slice ->
-                val sweep = ((slice.value / total.toFloat()) * 360f) * progress
-                drawArc(
-                    color = Color(slice.colorHex),
-                    startAngle = startAngle,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = androidx.compose.ui.geometry.Offset(cx - arcPathPx, cy - arcPathPx),
-                    size = androidx.compose.ui.geometry.Size(arcPathPx * 2f, arcPathPx * 2f),
-                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
-                )
-                startAngle += sweep
-            }
-        }
-
-        // Подписи: биссектриса сегмента соединяет innerRadius и outerRadius,
-        // её середина = (innerRadius + outerRadius) / 2 — гарантированно внутри кольца
-        val ringRadius = (innerRadius.value + outerRadius.value) / 2f
-        var start = -90f
-        slices.forEach { slice ->
-            val sweep = (slice.value / total.toFloat()) * 360f
-            val middle = start + sweep / 2f   // середина угловой дуги = биссектриса
-            val angle = middle * (PI / 180.0)
-            val x = kotlin.math.cos(angle).toFloat() * ringRadius
-            val y = kotlin.math.sin(angle).toFloat() * ringRadius
-            val arcLength = 2f * PI.toFloat() * ringRadius * (sweep / 360f)
-            val text = slice.percentLabel
-            if (slice.value > 0f && sweep >= 28f && arcLength >= text.length * 9f) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset(x = x.dp, y = y.dp)
-                        .defaultMinSize(minWidth = 36.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = text,
-                        fontFamily = AppFonts.OpenSansBold,
-                        fontSize = 13.sp,
-                        lineHeight = 15.sp,
-                        letterSpacing = 0.sp,
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
+                var startAngle = -90f
+                slices.forEach { slice ->
+                    val sweep = ((slice.value / total.toFloat()) * 360f) * progress
+                    drawArc(
+                        color = Color(slice.colorHex),
+                        startAngle = startAngle,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        topLeft = androidx.compose.ui.geometry.Offset(cx - arcPathPx, cy - arcPathPx),
+                        size = androidx.compose.ui.geometry.Size(arcPathPx * 2f, arcPathPx * 2f),
+                        style = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
                     )
+                    startAngle += sweep
                 }
             }
-            start += sweep
+
+            // Подписи держим на середине кольца между inner/outer радиусами.
+            val ringRadius = (innerRadius.value + outerRadius.value) / 2f
+            var start = -90f
+            slices.forEach { slice ->
+                val sweep = (slice.value / total.toFloat()) * 360f
+                val middle = start + sweep / 2f
+                val angle = middle * (PI / 180.0)
+                val x = kotlin.math.cos(angle).toFloat() * ringRadius
+                val y = kotlin.math.sin(angle).toFloat() * ringRadius
+                val arcLength = 2f * PI.toFloat() * ringRadius * (sweep / 360f)
+                val text = slice.percentLabel
+                if (slice.value > 0f && sweep >= 28f && arcLength >= text.length * 9f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(x = x.dp, y = y.dp)
+                            .defaultMinSize(minWidth = 36.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = text,
+                            fontFamily = AppFonts.OpenSansBold,
+                            fontSize = 13.sp,
+                            lineHeight = 15.sp,
+                            letterSpacing = 0.sp,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                start += sweep
+            }
         }
     }
 }
