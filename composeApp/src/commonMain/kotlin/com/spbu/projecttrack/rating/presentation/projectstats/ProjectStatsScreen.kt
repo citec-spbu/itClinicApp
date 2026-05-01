@@ -84,6 +84,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.buildAnnotatedString
@@ -123,6 +124,7 @@ import com.spbu.projecttrack.rating.export.ProjectStatsMemberRow
 import com.spbu.projecttrack.rating.export.ProjectStatsSection
 import com.spbu.projecttrack.rating.export.ProjectStatsSummaryCard
 import com.spbu.projecttrack.rating.export.ProjectStatsTableRow
+import com.spbu.projecttrack.rating.export.buildRapidPullRequestDetailExportContent
 import com.spbu.projecttrack.rating.export.rememberProjectStatsExporter
 import com.spbu.projecttrack.rating.presentation.details.StatsDetailScreen
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSection
@@ -167,6 +169,7 @@ private val ChartHorizontalPadding = 8.dp
 private val ChartYAxisGap = 4.dp
 private val ChartXAxisGap = 4.dp
 internal val CompactStatsCardHeight = 70.dp
+internal val MetricCardHorizontalPadding = 8.dp
 internal val CompactStatsCardPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
@@ -653,6 +656,7 @@ internal fun StatsTopBar(
     onBackClick: () -> Unit,
     titleFontSize: androidx.compose.ui.unit.TextUnit = 40.sp,
     titleLineHeight: androidx.compose.ui.unit.TextUnit = 20.sp,
+    titleMaxLines: Int = 1,
     modifier: Modifier = Modifier
 ) {
     val backInteractionSource = remember { MutableInteractionSource() }
@@ -699,7 +703,12 @@ internal fun StatsTopBar(
                 letterSpacing = if (titleFontSize >= 40.sp) 0.4.sp else 0.16.sp,
                 color = AppColors.Color3,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.Center)
+                maxLines = titleMaxLines,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(horizontal = 44.dp)
             )
         }
     }
@@ -1351,7 +1360,10 @@ internal fun SingleMetricCard(
     caption: String,
     modifier: Modifier = Modifier
 ) {
-    CompactStatsCard(modifier = modifier) {
+    CompactStatsCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = MetricCardHorizontalPadding, vertical = 0.dp),
+    ) {
         val valueFontSize = when {
             value.length > 10 -> 24.sp
             value.length > 7 -> 28.sp
@@ -1362,29 +1374,31 @@ internal fun SingleMetricCard(
             28.sp -> 30.sp
             else -> 32.sp
         }
-        Column(
-            modifier = Modifier.fillMaxHeight(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = value,
-                fontFamily = AppFonts.OpenSansBold,
-                fontSize = valueFontSize,
-                lineHeight = valueLineHeight,
-                color = AppColors.Color3,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = caption,
-                fontFamily = AppFonts.OpenSansMedium,
-                fontSize = 14.sp,
-                lineHeight = 16.sp,
-                color = AppColors.Color2,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        EqualVerticalMetricLayout(
+            modifier = Modifier.fillMaxSize(),
+            value = {
+                Text(
+                    text = value,
+                    fontFamily = AppFonts.OpenSansBold,
+                    fontSize = valueFontSize,
+                    lineHeight = valueLineHeight,
+                    color = AppColors.Color3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            caption = {
+                Text(
+                    text = caption,
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 14.sp,
+                    lineHeight = 16.sp,
+                    color = AppColors.Color2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+        )
     }
 }
 
@@ -1433,28 +1447,70 @@ internal fun ScoreCard(
 ) {
     val scoreText = score?.let(::formatScoreValue) ?: "—"
     val color = projectScoreColor(score)
-    CompactStatsCard(modifier = modifier) {
+    CompactStatsCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = MetricCardHorizontalPadding, vertical = 0.dp),
+    ) {
         val valueFontSize = 32.sp
-        Column(
-            modifier = Modifier.fillMaxHeight(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = scoreText,
-                fontFamily = AppFonts.OpenSansBold,
-                fontSize = valueFontSize,
-                lineHeight = valueFontSize,
-                color = color
-            )
-            Text(
-                text = title,
-                fontFamily = AppFonts.OpenSansMedium,
-                fontSize = 14.sp,
-                lineHeight = 16.sp,
-                color = AppColors.Color2,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        EqualVerticalMetricLayout(
+            modifier = Modifier.fillMaxSize(),
+            value = {
+                Text(
+                    text = scoreText,
+                    fontFamily = AppFonts.OpenSansBold,
+                    fontSize = valueFontSize,
+                    lineHeight = valueFontSize,
+                    color = color,
+                )
+            },
+            caption = {
+                Text(
+                    text = title,
+                    fontFamily = AppFonts.OpenSansMedium,
+                    fontSize = 14.sp,
+                    lineHeight = 16.sp,
+                    color = AppColors.Color2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+        )
+    }
+}
+
+@Composable
+internal fun EqualVerticalMetricLayout(
+    value: @Composable () -> Unit,
+    caption: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Layout(
+        modifier = modifier,
+        content = {
+            Box { value() }
+            Box { caption() }
+        },
+    ) { measurables, constraints ->
+        val childConstraints = constraints.copy(minWidth = 0, minHeight = 0)
+        val valuePlaceable = measurables[0].measure(childConstraints)
+        val captionPlaceable = measurables[1].measure(childConstraints)
+
+        val layoutWidth = if (constraints.hasBoundedWidth) {
+            constraints.maxWidth
+        } else {
+            maxOf(constraints.minWidth, valuePlaceable.width, captionPlaceable.width)
+        }
+        val contentHeight = valuePlaceable.height + captionPlaceable.height
+        val layoutHeight = if (constraints.hasBoundedHeight) {
+            constraints.maxHeight
+        } else {
+            maxOf(constraints.minHeight, contentHeight)
+        }
+        val gap = ((layoutHeight - contentHeight) / 3).coerceAtLeast(0)
+
+        layout(layoutWidth, layoutHeight) {
+            valuePlaceable.placeRelative(0, gap)
+            captionPlaceable.placeRelative(0, gap * 2 + valuePlaceable.height)
         }
     }
 }
@@ -3020,11 +3076,12 @@ internal fun StatsCard(
 @Composable
 internal fun CompactStatsCard(
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = CompactStatsCardPadding,
     content: @Composable ColumnScope.() -> Unit
 ) {
     StatsCard(
         modifier = modifier.height(CompactStatsCardHeight),
-        contentPadding = CompactStatsCardPadding,
+        contentPadding = contentPadding,
         content = content
     )
 }
@@ -3043,6 +3100,13 @@ private fun DividerLine(
 
 private fun ProjectStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
     val selectedRepository = repositories.firstOrNull { it.id == selectedRepositoryId }
+    val rapidExport = buildRapidPullRequestDetailExportContent(
+        details = details,
+        participantId = null,
+        rapidThreshold = rapidThreshold,
+        overallRank = rapidPullRequests.rank,
+        overallScore = rapidPullRequests.score,
+    )
     return ProjectStatsExportPayload(
         projectId = projectId,
         projectName = title,
@@ -3063,15 +3127,15 @@ private fun ProjectStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
                 marker = if (member.isCurrentUser) "Вы" else null
             )
         },
-        sections = listOf(
-            commits.toExportSection(),
-            issues.toExportSection(),
-            pullRequests.toExportSection(),
-            rapidPullRequests.toExportSection(),
-            codeChurn.toExportSection(),
-            codeOwnership.toExportSection(),
-            dominantWeekDay.toExportSection()
-        )
+        sections = buildList {
+            add(commits.toExportSection())
+            add(issues.toExportSection())
+            add(pullRequests.toExportSection())
+            addAll(rapidExport.sections)
+            add(codeChurn.toExportSection())
+            add(codeOwnership.toExportSection())
+            add(dominantWeekDay.toExportSection())
+        }
     )
 }
 
@@ -3261,12 +3325,19 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
             )
         }
 
-        StatsScreenSection.RapidPullRequests -> base.copy(
-            summaryCards = listOf(
-                ProjectStatsSummaryCard("Быстрые PR", rapidPullRequests.primaryValue, rapidPullRequests.primaryCaption)
-            ),
-            sections = listOf(rapidPullRequests.toExportSection()),
-        )
+        StatsScreenSection.RapidPullRequests -> {
+            val rapidExport = buildRapidPullRequestDetailExportContent(
+                details = details,
+                participantId = participantId,
+                rapidThreshold = rapidThreshold,
+                overallRank = rapidPullRequests.rank,
+                overallScore = rapidPullRequests.score,
+            )
+            base.copy(
+                summaryCards = rapidExport.summaryCards,
+                sections = rapidExport.sections,
+            )
+        }
 
         StatsScreenSection.CodeChurn -> base.copy(
             sections = listOf(codeChurn.toExportSection()),
