@@ -184,7 +184,7 @@ fun UserStatsScreen(
                     .fillMaxSize()
                     .align(Alignment.Center),
                 contentScale = ContentScale.Fit,
-                alpha = 1.0f,
+                alpha = 0.05f,
             )
 
             when (val state = uiState) {

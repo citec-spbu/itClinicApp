@@ -1,6 +1,13 @@
 package com.spbu.projecttrack
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
@@ -59,6 +66,7 @@ actual fun App() {
         mutableStateOf(AppThemeMode.fromStorage(preferences.getAppThemeMode()))
     }
     val strings = appStrings(appLanguage)
+    var authBootstrapComplete by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         println(com.spbu.projecttrack.core.network.ApiConfig.getDebugInfo())
@@ -70,6 +78,7 @@ actual fun App() {
                 ?.takeIf { it.isNotBlank() }
                 ?.let(AuthManager::setToken)
         }
+        authBootstrapComplete = true
     }
 
     LaunchedEffect(storedCustomHostIp) {
@@ -154,6 +163,8 @@ actual fun App() {
                     isOnboardingVisible = false
                 }
             )
+        } else if (!authBootstrapComplete) {
+            Box(modifier = Modifier.fillMaxSize())
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 MainScreen(
@@ -176,62 +187,88 @@ actual fun App() {
                     onTabSelected = { mainSelectedTab = it },
                 )
 
-                when (val screen = screenStack.lastOrNull()) {
-                    is Screen.ProjectDetail -> {
-                        val detailViewModel = remember(screen.projectId) {
-                            DependencyContainer.provideProjectDetailViewModel(screen.projectId)
-                        }
-                        ProjectDetailScreen(
-                            viewModel = detailViewModel,
-                            onBackClick = ::popScreen
-                        )
-                    }
-
-                    is Screen.ProjectStats -> {
-                        val statsViewModel = remember(screen.projectId) {
-                            DependencyContainer.provideProjectStatsViewModel(screen.projectId)
-                        }
-                        ProjectStatsScreen(
-                            viewModel = statsViewModel,
-                            onBackClick = ::popScreen,
-                            onOverallRatingClick = {
-                                mainSelectedTab = 1
-                                screenStack.clear()
-                            },
-                            onMemberStatsClick = { member ->
-                                openScreen(
-                                    Screen.UserStats(
-                                        userId = member.userId ?: member.login ?: member.name,
-                                        userName = member.name,
-                                        preferredProjectName = screen.projectId,
-                                    )
+                AnimatedContent(
+                    targetState = screenStack.lastOrNull(),
+                    transitionSpec = {
+                        val involvesStats = targetState is Screen.ProjectStats ||
+                            targetState is Screen.UserStats ||
+                            initialState is Screen.ProjectStats ||
+                            initialState is Screen.UserStats
+                        if (involvesStats) {
+                            (fadeIn(animationSpec = tween(220)) + scaleIn(
+                                initialScale = 0.985f,
+                                animationSpec = tween(220),
+                            )).togetherWith(
+                                fadeOut(animationSpec = tween(160)) + scaleOut(
+                                    targetScale = 0.99f,
+                                    animationSpec = tween(160),
                                 )
-                            },
-                        )
-                    }
-
-                    is Screen.UserStats -> {
-                        val statsViewModel = remember(screen.userId, screen.userName, screen.preferredProjectName) {
-                            DependencyContainer.provideUserStatsViewModel(
-                                userId = screen.userId,
-                                userName = screen.userName,
-                                preferredProjectName = screen.preferredProjectName
+                            )
+                        } else {
+                            fadeIn(animationSpec = tween(160)).togetherWith(
+                                fadeOut(animationSpec = tween(120))
                             )
                         }
-                        UserStatsScreen(
-                            viewModel = statsViewModel,
-                            onBackClick = ::popScreen,
-                            onProjectClick = { projectId ->
-                                openScreen(Screen.ProjectStats(projectId))
-                            },
-                            onOverallRatingClick = {
-                                mainSelectedTab = 1
-                                screenStack.clear()
+                    },
+                    label = "android_overlay_screen",
+                ) { screen ->
+                    when (screen) {
+                        is Screen.ProjectDetail -> {
+                            val detailViewModel = remember(screen.projectId) {
+                                DependencyContainer.provideProjectDetailViewModel(screen.projectId)
                             }
-                        )
-                    }
+                            ProjectDetailScreen(
+                                viewModel = detailViewModel,
+                                onBackClick = ::popScreen
+                            )
+                        }
 
-                    else -> Unit
+                        is Screen.ProjectStats -> {
+                            val statsViewModel = remember(screen.projectId) {
+                                DependencyContainer.provideProjectStatsViewModel(screen.projectId)
+                            }
+                            ProjectStatsScreen(
+                                viewModel = statsViewModel,
+                                onBackClick = ::popScreen,
+                                onOverallRatingClick = {
+                                    mainSelectedTab = 1
+                                    screenStack.clear()
+                                },
+                                onMemberStatsClick = { member ->
+                                    openScreen(
+                                        Screen.UserStats(
+                                            userId = member.userId ?: member.login ?: member.name,
+                                            userName = member.name,
+                                            preferredProjectName = screen.projectId,
+                                        )
+                                    )
+                                },
+                            )
+                        }
+
+                        is Screen.UserStats -> {
+                            val statsViewModel = remember(screen.userId, screen.userName, screen.preferredProjectName) {
+                                DependencyContainer.provideUserStatsViewModel(
+                                    userId = screen.userId,
+                                    userName = screen.userName,
+                                    preferredProjectName = screen.preferredProjectName
+                                )
+                            }
+                            UserStatsScreen(
+                                viewModel = statsViewModel,
+                                onBackClick = ::popScreen,
+                                onProjectClick = { projectId ->
+                                    openScreen(Screen.ProjectStats(projectId))
+                                },
+                                onOverallRatingClick = {
+                                    mainSelectedTab = 1
+                                    screenStack.clear()
+                                }
+                            )
+                        }
+
+                        else -> Unit
+                    }
                 }
             }
         }

@@ -127,11 +127,7 @@ data class RankingFilterTemplate(
 )
 
 fun rankingDefaultFilters(): RankingFilters {
-    val metrics = rankingDefaultMetricFilters().toMutableMap()
-    metrics[RankingMetricKey.Commits] = metrics.getValue(RankingMetricKey.Commits).copy(enabled = true)
-    metrics[RankingMetricKey.Issues] = metrics.getValue(RankingMetricKey.Issues).copy(enabled = true)
-    metrics[RankingMetricKey.PullRequests] = metrics.getValue(RankingMetricKey.PullRequests).copy(enabled = true)
-    return RankingFilters(metrics = metrics)
+    return RankingFilters(metrics = rankingDefaultMetricFilters())
 }
 
 fun rankingDefaultMetricFilters(): Map<RankingMetricKey, RankingMetricFilter> {

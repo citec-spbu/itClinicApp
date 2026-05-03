@@ -210,18 +210,20 @@ internal object RankingScoreEngine {
         val mappedKeys = enabledMetricKeys.map(::mapMetricToContribution).toSet()
         if (mappedKeys.isNotEmpty()) return mappedKeys
 
-        return if (filters.isEnabled(RankingMetricKey.PerformanceGrade)) {
-            linkedSetOf(
-                ContributionKey.TotalCommits,
-                ContributionKey.IssueCompleteness,
-                ContributionKey.PullRequestHangTime,
-                ContributionKey.RapidPullRequests,
-                ContributionKey.CodeOwnership,
-                ContributionKey.DominantWeekDay,
-            )
-        } else {
-            emptySet()
-        }
+        // Nothing specific selected (or only PerformanceGrade toggled on):
+        // use all contribution keys so projects/students always get a calculated score
+        // from whatever data is available, rather than returning null immediately.
+        // Individual metrics that have no data still return null and are skipped via mapNotNull
+        // in calculateResourceScore, so a null on one metric (e.g. CodeOwnership for solo
+        // projects) does NOT kill the overall average.
+        return linkedSetOf(
+            ContributionKey.TotalCommits,
+            ContributionKey.IssueCompleteness,
+            ContributionKey.PullRequestHangTime,
+            ContributionKey.RapidPullRequests,
+            ContributionKey.CodeOwnership,
+            ContributionKey.DominantWeekDay,
+        )
     }
 
     private fun mapMetricToContribution(metric: RankingMetricKey): ContributionKey {
@@ -539,6 +541,9 @@ internal object RankingScoreEngine {
 
         if (unwantedDay !in values.keys) return null
         val currentDay = values[unwantedDay] ?: return null
+
+        // No activity at all — can't determine a dominant day, score is undefined
+        if (values.values.sum() == 0) return null
 
         val averageActions = values.entries
             .filterNot { it.key == unwantedDay }

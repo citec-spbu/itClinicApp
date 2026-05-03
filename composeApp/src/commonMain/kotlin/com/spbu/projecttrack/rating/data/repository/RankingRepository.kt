@@ -11,17 +11,19 @@ import com.spbu.projecttrack.projects.presentation.util.extractGithubUrl
 import com.spbu.projecttrack.rating.data.api.MetricApi
 import com.spbu.projecttrack.rating.data.model.MetricProjectDetail
 import com.spbu.projecttrack.rating.data.model.MetricProjectInList
+import com.spbu.projecttrack.rating.data.model.MetricRankingItem
 import com.spbu.projecttrack.rating.data.model.RankingData
 import com.spbu.projecttrack.rating.data.model.RankingFilters
 import com.spbu.projecttrack.rating.data.model.RankingItem
-import com.spbu.projecttrack.rating.data.model.RankingMetricKey
 import com.spbu.projecttrack.rating.data.model.RatingSyncIdentifier
 import com.spbu.projecttrack.rating.data.model.RatingSyncMember
 import com.spbu.projecttrack.rating.data.model.RatingSyncProject
 import com.spbu.projecttrack.user.data.api.UserProfileApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -40,7 +42,11 @@ class RankingRepository(
     ): Result<RankingData> {
         return runCatching {
             val source = getSource(forceRefresh).getOrThrow()
-            buildRankingData(source, filters)
+            // buildRankingData is pure CPU work — run it on Default to avoid blocking
+            // the Main thread (which would freeze animations on cached re-entry).
+            withContext(Dispatchers.Default) {
+                buildRankingData(source, filters)
+            }
         }
     }
 
@@ -57,6 +63,7 @@ class RankingRepository(
         val metricProjects = api.getProjects().getOrElse {
             throw it
         }
+        val studentRatings = api.getStudentRatings().getOrNull().orEmpty()
         val metricDetails = loadMetricProjectDetails(metricProjects)
 
         val studentProjectNames = buildMap {
@@ -78,6 +85,7 @@ class RankingRepository(
                 currentProjectName = profile?.projects.orEmpty().firstOrNull()?.name,
                 studentProjectNames = studentProjectNames,
                 studentDisplayNames = studentDisplayNames,
+                studentRatings = studentRatings,
             ).also { cachedSource = it }
         )
     }
@@ -91,11 +99,16 @@ class RankingRepository(
 
         val projectEntries = source.metricProjects.map { project ->
             val detail = source.metricDetailsById[project.id]
+            val calculatedScore = detail?.let {
+                RankingScoreEngine.calculateProjectScore(it, filters, nowMillis)
+            }
             ProjectRankingEntry(
                 project = project,
                 detail = detail,
-                score = detail?.let { RankingScoreEngine.calculateProjectScore(it, filters, nowMillis) }
-                    ?: fallbackProjectScore(project, filters),
+                // Only fall back to the API grade when there is no metric detail at all.
+                // If detail exists but calculated score is null the project has no real
+                // activity — show "—" rather than a potentially stale/wrong API grade.
+                score = calculatedScore ?: if (detail == null) fallbackProjectScore(project) else null,
             )
         }
         val projectMovement = buildMovement(
@@ -484,12 +497,17 @@ class RankingRepository(
                 bucket.projectNames.size == 1 -> bucket.projectNames.firstOrNull()
                 else -> source.studentProjectNames[bucket.identityKey] ?: bucket.projectNames.firstOrNull()
             }
+            val fallbackScore = resolveStudentFallbackScore(
+                ratings = source.studentRatings,
+                identityKey = bucket.identityKey,
+                displayName = title,
+            )
 
             StudentRankingEntry(
                 key = bucket.identityKey,
                 title = title,
                 projectName = projectName,
-                score = bucket.scores.takeIf { it.isNotEmpty() }?.average(),
+                score = bucket.scores.takeIf { it.isNotEmpty() }?.average() ?: fallbackScore,
                 markerLabel = if (source.currentUserName != null && personNameMatches(title, source.currentUserName)) {
                     "Вы"
                 } else {
@@ -588,16 +606,21 @@ class RankingRepository(
         )
     }
 
+    private fun resolveStudentFallbackScore(
+        ratings: List<MetricRankingItem>,
+        identityKey: String,
+        displayName: String,
+    ): Double? {
+        return ratings.firstOrNull { item ->
+            personNameMatches(item.name, displayName) ||
+                personNameKey(item.name) == identityKey
+        }?.score
+    }
+
     private fun fallbackProjectScore(
         project: MetricProjectInList,
-        filters: RankingFilters,
     ): Double? {
-        val enabledKeys = filters.activeMetricKeys()
-        return if (enabledKeys.isEmpty() || enabledKeys == listOf(RankingMetricKey.PerformanceGrade)) {
-            project.grade.toScoreOrNull()
-        } else {
-            null
-        }
+        return project.grade.toScoreOrNull()
     }
 
     private fun formatScore(value: Double?): String {
@@ -671,6 +694,7 @@ private data class RankingSource(
     val currentProjectName: String?,
     val studentProjectNames: Map<String, String>,
     val studentDisplayNames: Map<String, String>,
+    val studentRatings: List<MetricRankingItem>,
 )
 
 private data class ProjectRankingEntry(

@@ -1,7 +1,16 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.spbu.projecttrack.main.presentation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +29,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -36,6 +46,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -43,34 +54,54 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -100,12 +131,15 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
-import projecttrack.composeapp.generated.resources.ranking_filter_icon
 import projecttrack.composeapp.generated.resources.arrow_back
 import projecttrack.composeapp.generated.resources.calendar_icon
 import projecttrack.composeapp.generated.resources.close_icon
+import projecttrack.composeapp.generated.resources.filter_icon
+import projecttrack.composeapp.generated.resources.position_down
+import projecttrack.composeapp.generated.resources.position_up
 import projecttrack.composeapp.generated.resources.search_icon
 import projecttrack.composeapp.generated.resources.spbu_logo
+import projecttrack.composeapp.generated.resources.stats_sort_asc
 
 private enum class RankingTab {
     Projects,
@@ -142,6 +176,22 @@ private val RankingRedLight = Color(0xFFCF3F2F)
 private val RankingRedGradientBottom = Color(0xFF842318)
 private val RankingGreen = Color(0xFF209F31)
 private val RankingYellow = Color(0xFF9F9220)
+private const val RankingPageSize = 10
+
+/** Max vertical scale at full pull / refresh (stretch from top, same on all platforms). */
+private const val RankingPullContentStretchMax = 0.022f
+
+private val RankingPullIndicatorRestOffset = (-20).dp
+
+private val RankingPullIndicatorTravel = 42.dp
+
+/** Align filter/sort glyphs and chip LazyRow vertically (tap size matches icon raster). */
+private val RankingFiltersToolbarHeight = 36.dp
+
+private val RankingFilterLaneIconTap = 32.dp
+
+/** Horizontal fade strip — same dp as LazyColumn top edge on project rows. */
+private val RankingFiltersScrollFadeWidth = 32.dp
 
 private fun rankingTabForPage(page: Int): RankingTab {
     return RankingTab.entries.getOrElse(page) { RankingTab.Projects }
@@ -154,10 +204,11 @@ fun RankingScreen(
     onRootDestinationChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val isAuthorized by AuthManager.isAuthorized.collectAsState(initial = false)
+    val isAuthorized by AuthManager.isAuthorized.collectAsState()
     val viewModel = remember { DependencyContainer.provideRankingViewModel() }
     val uiState by viewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val focusManager = LocalFocusManager.current
     val pagerState = rememberPagerState(
         initialPage = RankingTab.Projects.ordinal,
         pageCount = { RankingTab.entries.size },
@@ -165,6 +216,7 @@ fun RankingScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var searchText by remember { mutableStateOf("") }
+    var isSearchFocused by remember { mutableStateOf(false) }
     var sortOrder by remember { mutableStateOf(RankingSortOrder.Descending) }
     var appliedFilters by remember { mutableStateOf(rankingDefaultFilters()) }
     var draftFilters by remember { mutableStateOf(appliedFilters) }
@@ -181,9 +233,9 @@ fun RankingScreen(
     }
     val selectedTab = rankingTabForPage(pagerState.currentPage)
 
-    LaunchedEffect(showFiltersScreen) {
-        onRootDestinationChange(!showFiltersScreen)
-    }
+    // Note: we intentionally do NOT call onRootDestinationChange(false) when opening filters.
+    // Hiding the bottom tab bar resizes the Scaffold content area, causing the ranking layout
+    // to visibly shift before the filter overlay finishes animating in.
 
     LaunchedEffect(isAuthorized) {
         if (isAuthorized) {
@@ -193,13 +245,44 @@ fun RankingScreen(
         }
     }
 
+    val handleProjectClick: (String) -> Unit = { projectId ->
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+            isSearchFocused = false
+        } else {
+            onProjectClick(projectId)
+        }
+    }
+    val handleStudentClick: (String, String, String?) -> Unit = { userId, userName, projectName ->
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+            isSearchFocused = false
+        } else {
+            onStudentClick(userId, userName, projectName)
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
     ) {
+        // Logo — first child, z=0, behind everything.
+        // Same pattern as OnboardingScreen: Image as first child of the same Box as all content.
         RankingBackgroundLogo()
 
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
+                        focusManager.clearFocus()
+                        isSearchFocused = false
+                    },
+                ),
+        )
         when {
             !isAuthorized -> {
                 RankingUnauthorizedState()
@@ -221,12 +304,15 @@ fun RankingScreen(
                     RankingSearchField(
                         searchText = searchText,
                         onSearchTextChange = { searchText = it },
+                        onFocusChange = { isSearchFocused = it },
                         modifier = Modifier.padding(horizontal = 17.dp, vertical = 12.dp),
                     )
                     RankingControlsRow(
                         activeFilters = appliedFilters,
                         sortOrder = sortOrder,
                         onFilterClick = {
+                            focusManager.clearFocus()
+                            isSearchFocused = false
                             draftFilters = appliedFilters
                             menuMetricKey = null
                             menuTarget = null
@@ -241,7 +327,7 @@ fun RankingScreen(
                         },
                         modifier = Modifier.padding(horizontal = 17.dp),
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Box(modifier = Modifier.weight(1f)) {
                         when (val state = uiState) {
                             RankingUiState.Idle,
@@ -254,14 +340,31 @@ fun RankingScreen(
                             )
 
                             is RankingUiState.Success -> {
-                                PullToRefreshBox(
-                                    isRefreshing = isRefreshing,
-                                    onRefresh = { viewModel.refresh() },
-                                    modifier = Modifier.fillMaxSize(),
+                                val pullRefreshState = rememberPullToRefreshState()
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pullToRefresh(
+                                            state = pullRefreshState,
+                                            isRefreshing = isRefreshing,
+                                            onRefresh = { viewModel.refresh() },
+                                        ),
                                 ) {
+                                    val pullFraction = pullRefreshState.distanceFraction.coerceAtLeast(0f)
+                                    val stretchEase = if (isRefreshing) {
+                                        1f
+                                    } else {
+                                        LinearOutSlowInEasing.transform(pullFraction.coerceIn(0f, 1f))
+                                    }
                                     HorizontalPager(
                                         state = pagerState,
-                                        modifier = Modifier.fillMaxSize(),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer {
+                                                transformOrigin = TransformOrigin(0.5f, 0f)
+                                                clip = false
+                                                scaleY = 1f + stretchEase * RankingPullContentStretchMax
+                                            },
                                     ) { page ->
                                         val tab = rankingTabForPage(page)
                                         val sourceItems = if (tab == RankingTab.Projects) {
@@ -271,40 +374,53 @@ fun RankingScreen(
                                         }
                                         val searchedItems = searchRankingItems(sourceItems, searchText)
                                         val sortedItems = sortRankingItems(searchedItems, sortOrder)
+                                        val markerLabel = if (tab == RankingTab.Projects) "Текущий" else "Вы"
+                                        val fullSortedItems = sortRankingItems(sourceItems, sortOrder)
+                                        val pinnedItem = fullSortedItems.firstOrNull { it.markerLabel == markerLabel }
+                                        val pinnedRank = if (pinnedItem != null) fullSortedItems.indexOf(pinnedItem) + 1 else -1
 
                                         RankingList(
                                             items = sortedItems,
                                             tab = tab,
+                                            pinnedItem = pinnedItem,
+                                            pinnedRank = pinnedRank,
+                                            resetKey = "${tab.name}|${searchText.trim()}|${sortOrder.name}|${appliedFilters.hashCode()}",
                                             emptyText = if (tab == RankingTab.Projects) {
                                                 "Нет данных по проектам"
                                             } else {
                                                 "Нет данных по студентам"
                                             },
-                                            onProjectClick = onProjectClick,
-                                            onStudentClick = onStudentClick,
+                                            onProjectClick = handleProjectClick,
+                                            onStudentClick = handleStudentClick,
                                         )
                                     }
+
+                                    RankingPullRefreshIndicator(
+                                        state = pullRefreshState,
+                                        isRefreshing = isRefreshing,
+                                        modifier = Modifier.align(Alignment.TopCenter),
+                                    )
                                 }
 
-                                PersonalStatsButton(
-                                    currentUserName = state.data.currentUserName,
-                                    currentProjectName = state.data.currentUserProjectName,
-                                    onClick = {
-                                        val currentUserName = state.data.currentUserName ?: return@PersonalStatsButton
-                                        onStudentClick("", currentUserName, state.data.currentUserProjectName)
-                                    },
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .offset(y = (-102).dp),
-                                )
                             }
                         }
+
                     }
                 }
             }
         }
 
-        if (showFiltersScreen) {
+        AnimatedVisibility(
+            visible = showFiltersScreen,
+            enter = fadeIn(animationSpec = tween(220)) + scaleIn(
+                initialScale = 0.985f,
+                animationSpec = tween(220),
+            ),
+            exit = fadeOut(animationSpec = tween(160)) + scaleOut(
+                targetScale = 0.99f,
+                animationSpec = tween(160),
+            ),
+        ) {
             RankingFiltersScreen(
                 filters = draftFilters,
                 templates = templates,
@@ -431,9 +547,8 @@ private fun BoxScope.RankingBackgroundLogo(
         painter = painterResource(Res.drawable.spbu_logo),
         contentDescription = null,
         modifier = modifier
-            .fillMaxWidth()
-            .align(Alignment.Center)
-            .alpha(0.08f),
+            .fillMaxSize()
+            .align(Alignment.Center),
         contentScale = ContentScale.FillWidth,
     )
 }
@@ -462,29 +577,42 @@ private fun RankingTabs(
     onTabSelected: (RankingTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 18.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        RankingTabText(
-            text = "Проекты",
-            selected = selectedTab == RankingTab.Projects,
-            onClick = { onTabSelected(RankingTab.Projects) },
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                RankingTabText(
+                    text = "Проекты",
+                    selected = selectedTab == RankingTab.Projects,
+                    onClick = { onTabSelected(RankingTab.Projects) },
+                )
+            }
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                RankingTabText(
+                    text = "Студенты",
+                    selected = selectedTab == RankingTab.Students,
+                    onClick = { onTabSelected(RankingTab.Students) },
+                )
+            }
+        }
         Box(
             modifier = Modifier
-                .padding(horizontal = 20.dp)
+                .align(Alignment.Center)
                 .width(1.dp)
                 .height(20.dp)
                 .background(RankingGray),
-        )
-        RankingTabText(
-            text = "Студенты",
-            selected = selectedTab == RankingTab.Students,
-            onClick = { onTabSelected(RankingTab.Students) },
         )
     }
 }
@@ -523,8 +651,11 @@ private fun RankingTabText(
 private fun RankingSearchField(
     searchText: String,
     onSearchTextChange: (String) -> Unit,
+    onFocusChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val focusManager = LocalFocusManager.current
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -550,13 +681,27 @@ private fun RankingSearchField(
         BasicTextField(
             value = searchText,
             onValueChange = onSearchTextChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    onFocusChange(focusState.isFocused)
+                },
             singleLine = true,
             textStyle = TextStyle(
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
                 color = RankingGray,
                 letterSpacing = 0.16.sp,
+            ),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.Search,
+            ),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    focusManager.clearFocus()
+                    onFocusChange(false)
+                },
             ),
             decorationBox = { innerTextField ->
                 if (searchText.isBlank()) {
@@ -582,30 +727,90 @@ private fun RankingControlsRow(
     onSortToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val filtersListState = rememberLazyListState()
+    val canScrollBackward by remember {
+        derivedStateOf { filtersListState.canScrollBackward }
+    }
+    val canScrollForward by remember {
+        derivedStateOf { filtersListState.canScrollForward }
+    }
+
+    val leftFadeAlpha by animateFloatAsState(
+        targetValue = if (canScrollBackward) 1f else 0f,
+        animationSpec = tween(200),
+        label = "filtersLaneLeftFade",
+    )
+    val rightFadeAlpha by animateFloatAsState(
+        targetValue = if (canScrollForward) 1f else 0f,
+        animationSpec = tween(200),
+        label = "filtersLaneRightFade",
+    )
+
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(RankingFiltersToolbarHeight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RankingIconButton(
-            painter = painterResource(Res.drawable.ranking_filter_icon),
+            painter = painterResource(Res.drawable.filter_icon),
             contentDescription = "Открыть фильтры",
             onClick = onFilterClick,
             showBadge = activeFilters.hasActiveSelections(),
-            iconModifier = Modifier.size(32.dp),
+            iconModifier = Modifier.size(RankingFilterLaneIconTap),
+            modifier = Modifier.size(RankingFilterLaneIconTap),
         )
         Spacer(modifier = Modifier.width(4.dp))
         RankingSortButton(
             sortOrder = sortOrder,
             onClick = onSortToggle,
+            modifier = Modifier.size(RankingFilterLaneIconTap),
         )
         Spacer(modifier = Modifier.width(8.dp))
-        LazyRow(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = PaddingValues(end = 4.dp),
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
         ) {
-            items(activeFilters.activeChipLabels()) { chipLabel ->
-                RankingAppliedFilterChip(chipLabel)
+            LazyRow(
+                state = filtersListState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        val fadeW = RankingFiltersScrollFadeWidth.toPx()
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 1f - leftFadeAlpha),
+                                    Color.Black,
+                                ),
+                                startX = 0f,
+                                endX = fadeW.coerceAtMost(size.width),
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Black,
+                                    Color.Black.copy(alpha = 1f - rightFadeAlpha),
+                                ),
+                                startX = (size.width - fadeW).coerceAtLeast(0f),
+                                endX = size.width,
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    },
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                contentPadding = PaddingValues(horizontal = 4.dp),
+            ) {
+                items(activeFilters.activeChipLabels()) { chipLabel ->
+                    RankingAppliedFilterChip(chipLabel)
+                }
             }
         }
     }
@@ -671,7 +876,6 @@ private fun RankingSortButton(
 
     Box(
         modifier = modifier
-            .size(32.dp)
             .scale(scale)
             .clickable(
                 interactionSource = interactionSource,
@@ -680,12 +884,16 @@ private fun RankingSortButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = if (sortOrder == RankingSortOrder.Descending) "↓" else "↑",
-            fontFamily = AppFonts.OpenSansBold,
-            fontSize = 22.sp,
-            color = RankingGray,
-            lineHeight = 22.sp,
+        Image(
+            painter = painterResource(Res.drawable.stats_sort_asc),
+            contentDescription = if (sortOrder == RankingSortOrder.Descending) {
+                "Сортировка по убыванию"
+            } else {
+                "Сортировка по возрастанию"
+            },
+            modifier = Modifier
+                .size(24.dp)
+                .rotate(if (sortOrder == RankingSortOrder.Descending) 180f else 0f),
         )
     }
 }
@@ -697,23 +905,27 @@ private fun RankingAppliedFilterChip(
     Box(
         modifier = Modifier
             .background(RankingGray, RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Text(
             text = label,
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 15.sp,
             color = Color.White,
+            lineHeight = 10.sp,
             letterSpacing = 0.15.sp,
             maxLines = 1,
         )
     }
 }
 
+
 @Composable
 private fun RankingUnauthorizedState() {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -722,6 +934,8 @@ private fun RankingUnauthorizedState() {
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 22.sp,
             color = RankingRed,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
@@ -729,8 +943,46 @@ private fun RankingUnauthorizedState() {
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 16.sp,
             color = RankingGray,
-            modifier = Modifier.padding(horizontal = 28.dp),
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
         )
+    }
+}
+
+@Composable
+private fun RankingPullRefreshIndicator(
+    state: PullToRefreshState,
+    isRefreshing: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val visibilityEased = LinearOutSlowInEasing.transform(
+        state.distanceFraction.coerceIn(0f, 1.2f),
+    ).coerceIn(0f, 1f)
+    val alpha = if (isRefreshing) 1f else visibilityEased
+    Box(
+        modifier = modifier
+            .offset(
+                y = RankingPullIndicatorRestOffset + RankingPullIndicatorTravel * state.distanceFraction,
+            )
+            .alpha(alpha),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (alpha < 0.02f && !isRefreshing) return@Box
+        if (isRefreshing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(28.dp),
+                color = RankingRed,
+                strokeWidth = 2.5.dp,
+            )
+        } else {
+            CircularProgressIndicator(
+                progress = { minOf(1f, state.distanceFraction) },
+                modifier = Modifier.size(28.dp),
+                color = RankingRed,
+                strokeWidth = 2.5.dp,
+                trackColor = RankingLightGray.copy(alpha = 0.4f),
+            )
+        }
     }
 }
 
@@ -799,12 +1051,15 @@ private fun ErrorContent(
 private fun RankingList(
     items: List<RankingItem>,
     tab: RankingTab,
+    resetKey: String,
     emptyText: String,
+    pinnedItem: RankingItem? = null,
+    pinnedRank: Int = -1,
     onProjectClick: (String) -> Unit,
     onStudentClick: (String, String, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (items.isEmpty()) {
+    if (items.isEmpty() && pinnedItem == null) {
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
@@ -819,22 +1074,197 @@ private fun RankingList(
         return
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 17.dp,
-            end = 20.dp,
-            bottom = 188.dp,
-        ),
-    ) {
-        itemsIndexed(items) { index, item ->
-            RankingRow(
-                index = index + 1,
-                item = item,
-                tab = tab,
-                onProjectClick = onProjectClick,
-                onStudentClick = onStudentClick,
-            )
+    val listState = rememberLazyListState()
+    var visibleCount by remember(resetKey) {
+        mutableStateOf(minOf(RankingPageSize, items.size))
+    }
+
+    LaunchedEffect(resetKey, items.size) {
+        visibleCount = minOf(RankingPageSize, items.size)
+        listState.scrollToItem(0)
+    }
+
+    LaunchedEffect(listState, items.size, visibleCount) {
+        snapshotFlow {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisibleIndex >= visibleCount - 3 && visibleCount < items.size
+        }.collect { shouldLoadMore ->
+            if (shouldLoadMore) {
+                visibleCount = minOf(items.size, visibleCount + RankingPageSize)
+            }
+        }
+    }
+
+    // Position of the pinned item within the displayed (possibly search-filtered) list.
+    // -1 means the item is not in the current filtered results.
+    val pinnedItemIndexInList = remember(items, pinnedItem) {
+        if (pinnedItem == null) -1
+        else items.indexOfFirst { it.key == pinnedItem.key }
+    }
+
+    // Measured height of the sticky header (px). Updated once on first layout via onSizeChanged.
+    var stickyHeightPx by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+
+    // stickyFraction: 0..1, driven by the scroll progress of the item that precedes the pinned one.
+    //
+    // WHY NOT pinnedItem.offset:
+    //   contentPadding.top affects item offsets → reading offset → setting padding → circular shaking.
+    //
+    // CORRECT APPROACH:
+    //   - The LazyColumn is shifted+clipped via Modifier.padding(top = stickyHeight) — FIXED, never
+    //     changes during scroll, so no feedback loop.
+    //   - stickyFraction is derived only from FVI / FVO (logical scroll state), which is completely
+    //     independent of layout padding.
+    //   - Transition fires as the item just before the pinned one scrolls off the top of the list:
+    //       FVO = 0            → item before pinned at top  → fraction = 1 (sticky fully visible)
+    //       FVO = itemHeight   → item before pinned gone    → fraction = 0 (sticky gone)
+    //   - Special case: pinned item IS item[0] → fade as the pinned item itself scrolls off.
+    val stickyFraction by remember {
+        derivedStateOf {
+            if (pinnedItem == null) return@derivedStateOf 0f
+            if (pinnedItemIndexInList < 0) return@derivedStateOf 1f // filtered out — always show
+            val sh = stickyHeightPx
+            if (sh <= 0) return@derivedStateOf 1f // not yet measured
+
+            val fvi = listState.firstVisibleItemIndex
+            val fvo = listState.firstVisibleItemScrollOffset.toFloat()
+
+            when {
+                // Special case: pinned item is item[0] — fade as it scrolls off the top.
+                pinnedItemIndexInList == 0 -> {
+                    if (fvi == 0) (1f - fvo / sh.toFloat()).coerceIn(0f, 1f) else 0f
+                }
+
+                // Pinned item is at the top of the viewport (or scrolled above) — sticky gone.
+                // NOTE: >= (not >) to prevent a jump-to-1 when FVI transitions from N-1 to N.
+                fvi >= pinnedItemIndexInList -> 0f
+
+                // The item just before pinned is at the top and scrolling off — fade proportionally.
+                fvi == pinnedItemIndexInList - 1 -> {
+                    val itemInfo = listState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { it.index == fvi }
+                        ?: return@derivedStateOf 1f
+                    val itemHeight = itemInfo.size.toFloat()
+                    if (itemHeight <= 0f) 1f else (1f - fvo / itemHeight).coerceIn(0f, 1f)
+                }
+
+                // Pinned item is still well below the viewport — always show sticky.
+                else -> 1f
+            }
+        }
+    }
+
+    // Padding is driven by stickyFraction (which is driven by user scroll), so the top boundary
+    // and the scroll position always move at the same rate — no independent post-fade animation
+    // that would cause items to drift upward on their own.
+    val stickyTopPaddingDp = with(density) { (stickyHeightPx * stickyFraction).toDp() }
+
+    val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
+    val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
+    val topFadeAlpha by animateFloatAsState(
+        targetValue = if (canScrollUp) 1f else 0f,
+        animationSpec = tween(200),
+        label = "listTopFade",
+    )
+    val bottomFadeAlpha by animateFloatAsState(
+        targetValue = if (canScrollDown) 1f else 0f,
+        animationSpec = tween(200),
+        label = "listBottomFade",
+    )
+
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = stickyTopPaddingDp)
+                // Offscreen layer so DstIn works against a transparent canvas —
+                // the mask only touches drawn pixels, transparent areas stay transparent.
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+
+                    // Top edge: gradient alpha mask — items fade out pixel-by-pixel
+                    // over 32dp so there's no hard clip. The gradient top color animates
+                    // 0→1 opacity via topFadeAlpha so the fade only appears while scrolling.
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 1f - topFadeAlpha),
+                                Color.Black,
+                            ),
+                            startY = 0f,
+                            endY = 32.dp.toPx(),
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+
+                    // Bottom edge: same idea, opposite direction.
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black,
+                                Color.Black.copy(alpha = 1f - bottomFadeAlpha),
+                            ),
+                            startY = size.height - 60.dp.toPx(),
+                            endY = size.height,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                },
+            contentPadding = PaddingValues(
+                start = 17.dp,
+                end = 20.dp,
+                bottom = 188.dp,
+            ),
+        ) {
+            // The pinned item appears only at its natural rank position — no duplicate at the top.
+            // Display its real rank (pinnedRank from the full sorted list) when shown in the list.
+            itemsIndexed(
+                items = items.take(visibleCount),
+                key = { _, item -> item.key },
+            ) { index, item ->
+                RankingRow(
+                    index = if (item.key == pinnedItem?.key) pinnedRank else index + 1,
+                    item = item,
+                    tab = tab,
+                    onProjectClick = onProjectClick,
+                    onStudentClick = onStudentClick,
+                )
+            }
+        }
+
+        // Sticky pinned header overlay — sits above the LazyColumn.
+        // The DstIn fade on the LazyColumn does not affect this overlay because
+        // it is a sibling composable drawn after the LazyColumn, not a child of it.
+        if (pinnedItem != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopStart)
+                    .onSizeChanged { size -> if (size.height > 0) stickyHeightPx = size.height }
+                    .alpha(stickyFraction)
+                    .padding(start = 17.dp, end = 20.dp),
+            ) {
+                Text(
+                    text = if (tab == RankingTab.Projects) "Ваш проект" else "Ваша позиция",
+                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontSize = 11.sp,
+                    color = RankingRed,
+                    letterSpacing = 0.4.sp,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                )
+                RankingRow(
+                    index = pinnedRank,
+                    item = pinnedItem,
+                    tab = tab,
+                    onProjectClick = onProjectClick,
+                    onStudentClick = onStudentClick,
+                    showBody = false,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+            }
         }
     }
 }
@@ -847,6 +1277,7 @@ private fun RankingRow(
     onProjectClick: (String) -> Unit,
     onStudentClick: (String, String, String?) -> Unit,
     modifier: Modifier = Modifier,
+    showBody: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -856,21 +1287,22 @@ private fun RankingRow(
         label = "ranking_row_scale",
     )
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .scale(scale)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = {
-                    when (tab) {
-                        RankingTab.Projects -> onProjectClick(item.key)
-                        RankingTab.Students -> onStudentClick(item.key, item.title, item.projectName)
-                    }
-                },
-            ),
-    ) {
+    Box(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .scale(scale)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = {
+                        when (tab) {
+                            RankingTab.Projects -> onProjectClick(item.key)
+                            RankingTab.Students -> onStudentClick(item.key, item.title, item.projectName)
+                        }
+                    },
+                ),
+        ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -883,24 +1315,18 @@ private fun RankingRow(
                 .padding(top = 7.dp, bottom = 8.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            Column(
-                modifier = Modifier.width(44.dp),
-                horizontalAlignment = Alignment.Start,
-            ) {
-                RankingMovementArrow(item)
-                Text(
-                    text = index.toString(),
-                    fontFamily = AppFonts.OpenSansBold,
-                    fontSize = 24.sp,
-                    color = RankingGray,
-                    lineHeight = 12.sp,
-                )
-            }
-            Spacer(modifier = Modifier.width(10.dp))
+            RankingPositionIndicator(
+                position = index,
+                item = item,
+                modifier = Modifier
+                    .width(52.dp)
+                    .padding(top = 2.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     RankingTitleText(
                         item = item,
@@ -915,45 +1341,59 @@ private fun RankingRow(
                         lineHeight = 12.sp,
                     )
                 }
-                Spacer(modifier = Modifier.height(if (tab == RankingTab.Projects) 8.dp else 10.dp))
-                when (tab) {
-                    RankingTab.Projects -> ProjectRankingBody(item)
-                    RankingTab.Students -> StudentRankingBody(item)
+                if (showBody) {
+                    Spacer(modifier = Modifier.height(if (tab == RankingTab.Projects) 8.dp else 10.dp))
+                    when (tab) {
+                        RankingTab.Projects -> ProjectRankingBody(item)
+                        RankingTab.Students -> StudentRankingBody(item)
+                    }
                 }
             }
         }
-    }
+        } // closes Column
+    } // closes outer Box
 }
 
 @Composable
-private fun RankingMovementArrow(
+private fun RankingPositionIndicator(
+    position: Int,
     item: RankingItem,
+    modifier: Modifier = Modifier,
 ) {
-    val arrow = when {
+    val movedUp = item.positionDelta?.let { it > 0 } == true
+    val icon = when {
         item.positionDelta == null || item.positionDelta == 0 -> null
-        item.positionDelta > 0 -> "↑"
-        else -> "↓"
-    }
-    val color = when {
-        item.positionDelta == null || item.positionDelta == 0 -> null
-        item.positionDelta > 0 -> RankingGreen
-        else -> RankingRed
+        movedUp -> Res.drawable.position_up
+        else -> Res.drawable.position_down
     }
 
-    Box(
-        modifier = Modifier
-            .height(16.dp)
-            .fillMaxWidth(),
-        contentAlignment = Alignment.TopStart,
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (arrow != null && color != null) {
-            Text(
-                text = arrow,
-                fontFamily = AppFonts.OpenSansBold,
-                fontSize = 16.sp,
-                color = color,
-                lineHeight = 16.sp,
-            )
+        Text(
+            text = position.toString(),
+            fontFamily = AppFonts.OpenSansBold,
+            fontSize = 24.sp,
+            color = RankingGray,
+            lineHeight = 20.sp,
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Box(
+            modifier = Modifier.size(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (icon != null) {
+                Image(
+                    painter = painterResource(icon),
+                    contentDescription = if (movedUp) {
+                        "Поднялся в рейтинге"
+                    } else {
+                        "Опустился в рейтинге"
+                    },
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }
@@ -1000,7 +1440,7 @@ private fun ProjectRankingBody(
             fontSize = 10.sp,
             color = RankingGray,
             lineHeight = 10.sp,
-            maxLines = 5,
+            maxLines = 6,
             overflow = TextOverflow.Ellipsis,
         )
 
@@ -1041,8 +1481,6 @@ private fun StudentRankingBody(
         fontSize = 10.sp,
         color = RankingGray,
         lineHeight = 10.sp,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
     )
 }
 
@@ -1063,23 +1501,6 @@ private fun RankingTagChip(
             lineHeight = 10.sp,
         )
     }
-}
-
-@Composable
-private fun PersonalStatsButton(
-    currentUserName: String?,
-    currentProjectName: String?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    RankingActionButton(
-        text = "Личная статистика",
-        backgroundColor = RankingRed,
-        borderColor = RankingRedLight,
-        onClick = onClick,
-        enabled = !currentUserName.isNullOrBlank(),
-        modifier = modifier.width(200.dp),
-    )
 }
 
 @Composable
