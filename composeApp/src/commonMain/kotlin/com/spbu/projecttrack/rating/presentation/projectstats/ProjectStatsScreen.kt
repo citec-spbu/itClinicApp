@@ -139,8 +139,8 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import androidx.compose.ui.backhandler.BackHandler
 import projecttrack.composeapp.generated.resources.Res
+import projecttrack.composeapp.generated.resources.arrow_back
 import projecttrack.composeapp.generated.resources.spbu_logo
-import projecttrack.composeapp.generated.resources.stats_back
 import projecttrack.composeapp.generated.resources.stats_calendar
 import projecttrack.composeapp.generated.resources.stats_dropdown_chevron
 import projecttrack.composeapp.generated.resources.stats_footer_excel
@@ -682,7 +682,7 @@ internal fun StatsTopBar(
                 .height(50.dp)
         ) {
             Image(
-                painter = painterResource(Res.drawable.stats_back),
+                painter = painterResource(Res.drawable.arrow_back),
                 contentDescription = "Назад",
                 modifier = Modifier
                     .align(Alignment.CenterStart)

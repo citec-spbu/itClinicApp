@@ -68,7 +68,7 @@ fun MainScreen(
     var showMyProject by remember { mutableStateOf(false) }
     var isRankingRoot by remember { mutableStateOf(true) }
     var isSettingsRoot by remember { mutableStateOf(true) }
-    val isAuthorized by AuthManager.isAuthorized.collectAsState(initial = false)
+    val isAuthorized by AuthManager.isAuthorized.collectAsState()
     val showTabBar = when (selectedTab) {
         0 -> !showMyProject
         1 -> isRankingRoot

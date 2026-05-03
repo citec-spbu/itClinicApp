@@ -45,7 +45,7 @@ import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
-import projecttrack.composeapp.generated.resources.stats_back
+import projecttrack.composeapp.generated.resources.arrow_back
 import projecttrack.composeapp.generated.resources.stats_dropdown_chevron
 
 private val CalendarDialogShape = RoundedCornerShape(16.dp)
@@ -314,7 +314,7 @@ private fun CalendarNavigationButton(
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painterResource(Res.drawable.stats_back),
+            painter = painterResource(Res.drawable.arrow_back),
             contentDescription = null,
             modifier = Modifier
                 .size(18.dp)
