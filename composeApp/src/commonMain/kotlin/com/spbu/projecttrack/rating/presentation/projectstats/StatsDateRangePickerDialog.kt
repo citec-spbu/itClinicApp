@@ -1,10 +1,17 @@
 package com.spbu.projecttrack.rating.presentation.projectstats
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,9 +28,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +50,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.painterResource
@@ -86,16 +97,45 @@ internal fun StatsDateRangePickerDialog(
     }
     val weeks = remember(displayedMonth) { buildCalendarWeeks(displayedMonth) }
 
+    val coroutineScope = rememberCoroutineScope()
+    var panelVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { panelVisible = true }
+
+    fun finishDismiss() {
+        panelVisible = false
+        coroutineScope.launch {
+            delay(220)
+            onDismiss()
+        }
+    }
+
+    val dimAlpha by animateFloatAsState(
+        targetValue = if (panelVisible) 0.16f else 0f,
+        animationSpec = tween(200),
+        label = "statsCalendarDim",
+    )
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { finishDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        val backdropInteraction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.16f)),
+                .background(Color.Black.copy(alpha = dimAlpha))
+                .clickable(
+                    indication = null,
+                    interactionSource = backdropInteraction,
+                    onClick = { finishDismiss() },
+                ),
             contentAlignment = Alignment.Center,
         ) {
+            AnimatedVisibility(
+                visible = panelVisible,
+                enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.94f, animationSpec = tween(200)),
+                exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.97f, animationSpec = tween(180)),
+            ) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -198,7 +238,7 @@ internal fun StatsDateRangePickerDialog(
                             letterSpacing = 0.1.sp,
                             color = Color.Black,
                             modifier = Modifier
-                                .clickable(onClick = onDismiss)
+                                .clickable(onClick = { finishDismiss() })
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                         )
                         Text(
@@ -213,11 +253,13 @@ internal fun StatsDateRangePickerDialog(
                                     val start = minOf(selectedStart, selectedEnd)
                                     val end = maxOf(selectedStart, selectedEnd)
                                     onConfirm(start.toIsoDateString(), end.toIsoDateString())
+                                    finishDismiss()
                                 }
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                         )
                     }
                 }
+            }
             }
         }
     }

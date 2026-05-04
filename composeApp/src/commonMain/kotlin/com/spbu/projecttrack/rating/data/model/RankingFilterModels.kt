@@ -52,18 +52,31 @@ enum class RankingPeriodPreset(
     val label: String,
     val days: Int,
 ) {
+    ThreeDays("3 дня", 3),
+    FiveDays("5 дней", 5),
     OneWeek("1 неделя", 7),
     TwoWeeks("2 недели", 14),
-    OneMonth("1 месяц", 30);
+    OneMonth("1 месяц", 30),
+    TwoMonths("2 месяца", 60),
+    ThreeMonths("3 месяца", 90),
+    SixMonths("6 месяцев", 180),
+    ;
 }
 
 enum class RankingThresholdPreset(
     val label: String,
     val minutes: Int,
 ) {
+    TenMinutes("10 минут", 10),
+    FifteenMinutes("15 минут", 15),
     ThirtyMinutes("30 минут", 30),
     OneHour("1 час", 60),
     TwoAndHalfHours("2,5 часа", 150),
+    FourHours("4 часа", 240),
+    SixHours("6 часов", 360),
+    TwelveHours("12 часов", 720),
+    TwentyFourHours("24 часа", 1440),
+    ;
 }
 
 enum class RankingWeekDay(
