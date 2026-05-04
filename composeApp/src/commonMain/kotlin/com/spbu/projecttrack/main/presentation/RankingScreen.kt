@@ -3,10 +3,12 @@
 package com.spbu.projecttrack.main.presentation
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -56,10 +58,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
@@ -78,7 +79,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
@@ -110,6 +115,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.di.DependencyContainer
+import com.spbu.projecttrack.core.storage.createAppPreferences
 import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.rating.data.model.RankingData
@@ -122,9 +128,11 @@ import com.spbu.projecttrack.rating.data.model.RankingMetricKey
 import com.spbu.projecttrack.rating.data.model.RankingPeriodPreset
 import com.spbu.projecttrack.rating.data.model.RankingThresholdPreset
 import com.spbu.projecttrack.rating.data.model.RankingWeekDay
-import com.spbu.projecttrack.rating.data.model.rankingBuiltInTemplates
+import com.spbu.projecttrack.rating.data.RankingFilterPersistence
 import com.spbu.projecttrack.rating.data.model.rankingDefaultFilters
 import com.spbu.projecttrack.rating.presentation.RankingUiState
+import com.spbu.projecttrack.rating.presentation.projectstats.StatsDateRangePickerDialog
+import com.spbu.projecttrack.rating.presentation.projectstats.StatsDropdownMenu
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -151,10 +159,6 @@ private enum class RankingSortOrder {
     Ascending,
 }
 
-private enum class RankingMenuTarget {
-    DateRange,
-}
-
 private data class RankingMetricInfo(
     val title: String,
     val whatShows: String,
@@ -163,17 +167,13 @@ private data class RankingMetricInfo(
     val note: String? = null,
 )
 
-private data class RankingDateRangePreset(
-    val title: String,
-    val filter: RankingDateRangeFilter,
-)
-
 private val RankingGray = Color(0xFF76767C)
 private val RankingLightGray = Color(0xFFBDBDBD)
 private val RankingDivider = Color(0xFFBDBDBD)
 private val RankingRed = Color(0xFF9F2D20)
 private val RankingRedLight = Color(0xFFCF3F2F)
 private val RankingRedGradientBottom = Color(0xFF842318)
+
 private val RankingGreen = Color(0xFF209F31)
 private val RankingYellow = Color(0xFF9F9220)
 private const val RankingPageSize = 10
@@ -225,19 +225,54 @@ fun RankingScreen(
     var selectedMetricInfo by remember { mutableStateOf<RankingMetricKey?>(null) }
     var customTemplates by remember { mutableStateOf<List<RankingFilterTemplate>>(emptyList()) }
     var selectedTemplateId by remember { mutableStateOf("none") }
-    var menuMetricKey by remember { mutableStateOf<RankingMetricKey?>(null) }
-    var menuTarget by remember { mutableStateOf<RankingMenuTarget?>(null) }
+    var rankingFilterPrefsLoaded by remember { mutableStateOf(false) }
+    val appPreferences = remember { createAppPreferences() }
 
-    val templates = remember(customTemplates) {
-        rankingBuiltInTemplates() + customTemplates
+    val noneTemplate = remember {
+        RankingFilterTemplate(
+            id = "none",
+            title = "Нет",
+            filters = rankingDefaultFilters(),
+            isBuiltIn = true,
+        )
     }
+    val templates = remember(customTemplates) { listOf(noneTemplate) + customTemplates }
     val selectedTab = rankingTabForPage(pagerState.currentPage)
 
-    // Note: we intentionally do NOT call onRootDestinationChange(false) when opening filters.
-    // Hiding the bottom tab bar resizes the Scaffold content area, causing the ranking layout
-    // to visibly shift before the filter overlay finishes animating in.
+    // Hide/show tab bar in sync with the filter overlay.
+    LaunchedEffect(showFiltersScreen) {
+        onRootDestinationChange(!showFiltersScreen)
+    }
 
-    LaunchedEffect(isAuthorized) {
+    LaunchedEffect(Unit) {
+        val (storedTemplates, storedSelectedId) =
+            RankingFilterPersistence.decode(appPreferences.getRankingFilterTemplatesJson())
+        customTemplates = storedTemplates
+        val validSelected =
+            if (storedSelectedId != "none" && storedTemplates.any { it.id == storedSelectedId }) {
+                storedSelectedId
+            } else {
+                "none"
+            }
+        selectedTemplateId = validSelected
+        if (validSelected != "none") {
+            storedTemplates.firstOrNull { it.id == validSelected }?.filters?.let { restored ->
+                appliedFilters = restored
+                draftFilters = restored
+            }
+        }
+        rankingFilterPrefsLoaded = true
+    }
+
+    LaunchedEffect(customTemplates, selectedTemplateId, rankingFilterPrefsLoaded) {
+        if (!rankingFilterPrefsLoaded) return@LaunchedEffect
+        appPreferences.saveRankingFilterTemplatesJson(
+            RankingFilterPersistence.encode(customTemplates, selectedTemplateId),
+        )
+    }
+
+    LaunchedEffect(isAuthorized, rankingFilterPrefsLoaded) {
+        if (!rankingFilterPrefsLoaded) return@LaunchedEffect
         if (isAuthorized) {
             viewModel.load(filters = appliedFilters)
         } else {
@@ -314,8 +349,9 @@ fun RankingScreen(
                             focusManager.clearFocus()
                             isSearchFocused = false
                             draftFilters = appliedFilters
-                            menuMetricKey = null
-                            menuTarget = null
+                            // Always start fresh – a template selected in the previous
+                            // session but not applied should not appear highlighted.
+                            selectedTemplateId = "none"
                             showFiltersScreen = true
                         },
                         onSortToggle = {
@@ -425,11 +461,7 @@ fun RankingScreen(
                 filters = draftFilters,
                 templates = templates,
                 selectedTemplateId = selectedTemplateId,
-                expandedMetricMenu = menuMetricKey,
-                expandedGlobalMenu = menuTarget,
                 onBack = {
-                    menuMetricKey = null
-                    menuTarget = null
                     showFiltersScreen = false
                 },
                 onTemplateSelected = { template ->
@@ -452,19 +484,12 @@ fun RankingScreen(
                 onMetricInfoClick = { key ->
                     selectedMetricInfo = key
                 },
-                onMetricMenuOpen = { key ->
-                    menuMetricKey = if (menuMetricKey == key) null else key
-                },
-                onMetricMenuDismiss = {
-                    menuMetricKey = null
-                },
                 onMetricPeriodSelected = { key, preset ->
                     selectedTemplateId = "none"
                     draftFilters = draftFilters.withMetric(
                         key = key,
                         transform = { it.copy(periodPreset = preset) },
                     )
-                    menuMetricKey = null
                 },
                 onMetricThresholdSelected = { key, preset ->
                     selectedTemplateId = "none"
@@ -472,7 +497,6 @@ fun RankingScreen(
                         key = key,
                         transform = { it.copy(thresholdPreset = preset) },
                     )
-                    menuMetricKey = null
                 },
                 onMetricWeekDaySelected = { key, weekDay ->
                     selectedTemplateId = "none"
@@ -480,18 +504,12 @@ fun RankingScreen(
                         key = key,
                         transform = { it.copy(weekDay = weekDay) },
                     )
-                    menuMetricKey = null
                 },
-                onDateRangeMenuOpen = {
-                    menuTarget = if (menuTarget == RankingMenuTarget.DateRange) null else RankingMenuTarget.DateRange
-                },
-                onDateRangeMenuDismiss = {
-                    menuTarget = null
-                },
-                onDateRangeSelected = { range ->
+                onDateRangeSelected = { startMillis, endMillis ->
                     selectedTemplateId = "none"
-                    draftFilters = draftFilters.copy(dateRange = range.filter)
-                    menuTarget = null
+                    draftFilters = draftFilters.copy(
+                        dateRange = RankingDateRangeFilter(startMillis = startMillis, endMillis = endMillis)
+                    )
                 },
                 onClearDateRange = {
                     selectedTemplateId = "none"
@@ -500,8 +518,6 @@ fun RankingScreen(
                 onApply = {
                     appliedFilters = draftFilters
                     showFiltersScreen = false
-                    menuMetricKey = null
-                    menuTarget = null
                     viewModel.applyFilters(appliedFilters)
                 },
                 onSaveTemplate = {
@@ -1535,11 +1551,7 @@ private fun RankingActionButton(
                 ),
                 shape = RoundedCornerShape(10.dp),
             )
-            .border(
-                width = 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(10.dp),
-            )
+            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
@@ -1558,45 +1570,119 @@ private fun RankingActionButton(
     }
 }
 
+// Save button used exclusively in SaveTemplateDialog — matches Figma node 632:1827.
+@Composable
+private fun SaveDialogButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed && enabled) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "save_dialog_btn_scale",
+    )
+
+    Box(
+        modifier = modifier
+            .scale(scale)
+            .alpha(if (enabled) 1f else 0.45f)
+            .dropShadow(
+                shape = RoundedCornerShape(15.dp),
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.07f),
+                    offset = DpOffset(x = 0.dp, y = 2.dp),
+                    radius = 4.dp,
+                ),
+            )
+            .background(RankingRed, RoundedCornerShape(15.dp))
+            .border(1.dp, RankingRedLight, RoundedCornerShape(15.dp))
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(vertical = 10.dp, horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            fontFamily = AppFonts.OpenSansSemiBold,
+            fontSize = 15.sp,
+            color = Color.White,
+            letterSpacing = 0.15.sp,
+        )
+    }
+}
+
 @Composable
 private fun RankingFiltersScreen(
     filters: RankingFilters,
     templates: List<RankingFilterTemplate>,
     selectedTemplateId: String,
-    expandedMetricMenu: RankingMetricKey?,
-    expandedGlobalMenu: RankingMenuTarget?,
     onBack: () -> Unit,
     onTemplateSelected: (RankingFilterTemplate) -> Unit,
     onMetricToggle: (RankingMetricKey) -> Unit,
     onClearMetrics: () -> Unit,
     onMetricInfoClick: (RankingMetricKey) -> Unit,
-    onMetricMenuOpen: (RankingMetricKey) -> Unit,
-    onMetricMenuDismiss: () -> Unit,
     onMetricPeriodSelected: (RankingMetricKey, RankingPeriodPreset) -> Unit,
     onMetricThresholdSelected: (RankingMetricKey, RankingThresholdPreset) -> Unit,
     onMetricWeekDaySelected: (RankingMetricKey, RankingWeekDay) -> Unit,
-    onDateRangeMenuOpen: () -> Unit,
-    onDateRangeMenuDismiss: () -> Unit,
-    onDateRangeSelected: (RankingDateRangePreset) -> Unit,
+    onDateRangeSelected: (Long?, Long?) -> Unit,
     onClearDateRange: () -> Unit,
     onApply: () -> Unit,
     onSaveTemplate: () -> Unit,
 ) {
-    val dateRangePresets = remember { rankingDateRangePresets() }
     val scrollState = rememberScrollState()
+    var showDateRangeCalendar by remember { mutableStateOf(false) }
+
+    // Scroll fade helpers
+    val canScrollUp by remember { derivedStateOf { scrollState.value > 0 } }
+    val canScrollDown by remember { derivedStateOf { scrollState.value < scrollState.maxValue } }
+    val topFadeAlpha by animateFloatAsState(
+        targetValue = if (canScrollUp) 1f else 0f,
+        animationSpec = tween(200),
+        label = "filtersScrollTopFade",
+    )
+    val bottomFadeAlpha by animateFloatAsState(
+        targetValue = if (canScrollDown) 1f else 0f,
+        animationSpec = tween(200),
+        label = "filtersScrollBottomFade",
+    )
+
+    // Back button animation
+    val backInteraction = remember { MutableInteractionSource() }
+    val isBackPressed by backInteraction.collectIsPressedAsState()
+    val backScale by animateFloatAsState(
+        targetValue = if (isBackPressed) 0.88f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "filtersBackScale",
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
-            .imePadding(),
+            .imePadding()
+            // Consume all taps so they don't fall through to the screen behind.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
     ) {
         RankingBackgroundLogo()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Top + WindowInsetsSides.Bottom
+                    )
                 ),
         ) {
             Box(
@@ -1610,7 +1696,12 @@ private fun RankingFiltersScreen(
                     modifier = Modifier
                         .padding(start = 9.dp, top = 14.dp)
                         .size(24.dp)
-                        .clickable(onClick = onBack),
+                        .scale(backScale)
+                        .clickable(
+                            interactionSource = backInteraction,
+                            indication = null,
+                            onClick = onBack,
+                        ),
                 )
                 Text(
                     text = "Фильтры",
@@ -1622,100 +1713,183 @@ private fun RankingFiltersScreen(
                 )
             }
 
-            Column(
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 15.dp),
+                    .fillMaxWidth()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        val fadeH = RankingFiltersScrollFadeWidth.toPx()
+                        // top fade
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 1f - topFadeAlpha),
+                                    Color.Black,
+                                ),
+                                startY = 0f,
+                                endY = fadeH.coerceAtMost(size.height),
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                        // bottom fade
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black,
+                                    Color.Black.copy(alpha = 1f - bottomFadeAlpha),
+                                ),
+                                startY = (size.height - fadeH).coerceAtLeast(0f),
+                                endY = size.height,
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    },
             ) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Шаблоны",
-                    fontFamily = AppFonts.OpenSansSemiBold,
-                    fontSize = 15.sp,
-                    color = Color.Black,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(templates) { template ->
-                        RankingTemplateChip(
-                            title = template.title,
-                            selected = selectedTemplateId == template.id,
-                            onClick = { onTemplateSelected(template) },
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 15.dp),
+                ) {
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Templates section – only shown when user has saved templates
+                    if (templates.isNotEmpty()) {
+                        Text(
+                            text = "Шаблоны",
+                            fontFamily = AppFonts.OpenSansSemiBold,
+                            fontSize = 15.sp,
+                            color = Color.Black,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        val templateListState = rememberLazyListState()
+                        val tmplCanBack by remember { derivedStateOf { templateListState.canScrollBackward } }
+                        val tmplCanFwd by remember { derivedStateOf { templateListState.canScrollForward } }
+                        val tmplLeftAlpha by animateFloatAsState(
+                            targetValue = if (tmplCanBack) 1f else 0f,
+                            animationSpec = tween(200),
+                            label = "tmplLeftFade",
+                        )
+                        val tmplRightAlpha by animateFloatAsState(
+                            targetValue = if (tmplCanFwd) 1f else 0f,
+                            animationSpec = tween(200),
+                            label = "tmplRightFade",
+                        )
+                        // No Offscreen compositing so the dropShadow on each chip can
+                        // draw outside its own bounds without being clipped by the bitmap.
+                        // Scroll fades are white-gradient overlays instead of DstIn.
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            LazyRow(
+                                state = templateListState,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                // 8 dp start/end so the first/last chip's shadow is never
+                                // clipped by the LazyRow's left/right edge.
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                items(templates) { template ->
+                                    RankingTemplateChip(
+                                        title = template.title,
+                                        selected = selectedTemplateId == template.id,
+                                        onClick = { onTemplateSelected(template) },
+                                    )
+                                }
+                            }
+                            // Left fade overlay – matches filter-screen white background
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .width(RankingFiltersScrollFadeWidth)
+                                    .fillMaxHeight()
+                                    .alpha(tmplLeftAlpha)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color.White, Color.Transparent),
+                                        )
+                                    ),
+                            )
+                            // Right fade overlay
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .width(RankingFiltersScrollFadeWidth)
+                                    .fillMaxHeight()
+                                    .alpha(tmplRightAlpha)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color.Transparent, Color.White),
+                                        )
+                                    ),
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "Метрики",
+                            fontFamily = AppFonts.OpenSansSemiBold,
+                            fontSize = 15.sp,
+                            color = Color.Black,
+                        )
+                        SmallPillButton(
+                            text = "Очистить",
+                            onClick = onClearMetrics,
                         )
                     }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Метрики",
-                        fontFamily = AppFonts.OpenSansSemiBold,
-                        fontSize = 15.sp,
-                        color = Color.Black,
+                        text = "Выберите метрики, по которым будет составляться общая оценка:",
+                        fontFamily = AppFonts.OpenSansMedium,
+                        fontSize = 14.sp,
+                        color = RankingGray,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.widthIn(max = 375.dp),
                     )
-                    SmallPillButton(
-                        text = "Очистить",
-                        onClick = onClearMetrics,
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Выберите метрики, по которым будет составляться общая оценка:",
-                    fontFamily = AppFonts.OpenSansMedium,
-                    fontSize = 14.sp,
-                    color = RankingGray,
-                    lineHeight = 16.sp,
-                    modifier = Modifier.widthIn(max = 375.dp),
-                )
-                Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                RankingMetricKey.entries.forEach { metricKey ->
-                    val metricFilter = filters.metric(metricKey)
-                    RankingMetricRow(
-                        metricKey = metricKey,
-                        metricFilter = metricFilter,
-                        expanded = expandedMetricMenu == metricKey,
-                        onToggle = { onMetricToggle(metricKey) },
-                        onInfoClick = { onMetricInfoClick(metricKey) },
-                        onMenuClick = { onMetricMenuOpen(metricKey) },
-                        onMenuDismiss = onMetricMenuDismiss,
-                        onPeriodSelected = { preset -> onMetricPeriodSelected(metricKey, preset) },
-                        onThresholdSelected = { preset -> onMetricThresholdSelected(metricKey, preset) },
-                        onWeekDaySelected = { weekDay -> onMetricWeekDaySelected(metricKey, weekDay) },
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                }
+                    RankingMetricKey.entries.forEach { metricKey ->
+                        val metricFilter = filters.metric(metricKey)
+                        RankingMetricRow(
+                            metricKey = metricKey,
+                            metricFilter = metricFilter,
+                            onToggle = { onMetricToggle(metricKey) },
+                            onInfoClick = { onMetricInfoClick(metricKey) },
+                            onPeriodSelected = { preset -> onMetricPeriodSelected(metricKey, preset) },
+                            onThresholdSelected = { preset -> onMetricThresholdSelected(metricKey, preset) },
+                            onWeekDaySelected = { weekDay -> onMetricWeekDaySelected(metricKey, weekDay) },
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                    }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = "Диапазон дат",
-                        fontFamily = AppFonts.OpenSansSemiBold,
-                        fontSize = 15.sp,
-                        color = Color.Black,
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "Диапазон дат",
+                            fontFamily = AppFonts.OpenSansSemiBold,
+                            fontSize = 15.sp,
+                            color = Color.Black,
+                        )
+                        SmallPillButton(
+                            text = "Очистить",
+                            onClick = onClearDateRange,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    RankingDateRangeField(
+                        dateRange = filters.dateRange,
+                        onClick = { showDateRangeCalendar = true },
                     )
-                    SmallPillButton(
-                        text = "Очистить",
-                        onClick = onClearDateRange,
-                    )
+                    Spacer(modifier = Modifier.height(28.dp))
                 }
-                Spacer(modifier = Modifier.height(12.dp))
-                RankingDateRangeField(
-                    dateRange = filters.dateRange,
-                    expanded = expandedGlobalMenu == RankingMenuTarget.DateRange,
-                    onClick = onDateRangeMenuOpen,
-                    onDismiss = onDateRangeMenuDismiss,
-                    onPresetSelected = onDateRangeSelected,
-                    presets = dateRangePresets,
-                )
-                Spacer(modifier = Modifier.height(28.dp))
             }
 
             Row(
@@ -1741,6 +1915,20 @@ private fun RankingFiltersScreen(
             }
         }
     }
+
+    if (showDateRangeCalendar) {
+        StatsDateRangePickerDialog(
+            initialStartIsoDate = filters.dateRange.startMillis?.toRankingIsoDate() ?: rankingTodayIsoDate(),
+            initialEndIsoDate = filters.dateRange.endMillis?.toRankingIsoDate() ?: rankingTodayIsoDate(),
+            onDismiss = { showDateRangeCalendar = false },
+            onConfirm = { startIso, endIso ->
+                onDateRangeSelected(
+                    rankingIsoDateToMillis(startIso),
+                    rankingIsoDateToMillis(endIso),
+                )
+            },
+        )
+    }
 }
 
 @Composable
@@ -1749,19 +1937,42 @@ private fun RankingTemplateChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "templateChipScale",
+    )
+
     Box(
         modifier = Modifier
+            .height(30.dp)
+            .scale(scale)
+            .dropShadow(
+                shape = RoundedCornerShape(10.dp),
+                shadow = Shadow(
+                    color = if (selected) RankingRed.copy(alpha = 0.40f) else Color.Black.copy(alpha = 0.15f),
+                    offset = DpOffset(x = 0.dp, y = if (selected) 3.dp else 2.dp),
+                    radius = if (selected) 6.dp else 3.dp,
+                )
+            )
             .background(
                 color = if (selected) RankingRed else RankingGray,
                 shape = RoundedCornerShape(10.dp),
             )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = title,
             fontFamily = AppFonts.OpenSansSemiBold,
-            fontSize = 15.sp,
+            fontSize = 13.sp,
             color = Color.White,
             letterSpacing = 0.15.sp,
             maxLines = 1,
@@ -1773,17 +1984,22 @@ private fun RankingTemplateChip(
 private fun RankingMetricRow(
     metricKey: RankingMetricKey,
     metricFilter: RankingMetricFilter,
-    expanded: Boolean,
     onToggle: () -> Unit,
     onInfoClick: () -> Unit,
-    onMenuClick: () -> Unit,
-    onMenuDismiss: () -> Unit,
     onPeriodSelected: (RankingPeriodPreset) -> Unit,
     onThresholdSelected: (RankingThresholdPreset) -> Unit,
     onWeekDaySelected: (RankingWeekDay) -> Unit,
 ) {
+    var showPeriodPicker by remember { mutableStateOf(false) }
+    var showThresholdPicker by remember { mutableStateOf(false) }
+    var showWeekDayMenu by remember { mutableStateOf(false) }
+
+    // Checkbox (24dp) + Spacer (2dp) = 26dp → sub-chip start offset
+    val subFieldStartPadding = 26.dp
+
     Column {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RankingCheckbox(
@@ -1802,58 +2018,314 @@ private fun RankingMetricRow(
             RankingInfoBadge(onClick = onInfoClick)
         }
 
-        if (metricKey.supportsPeriod && metricFilter.enabled) {
-            Spacer(modifier = Modifier.height(8.dp))
-            RankingMetricMenuChip(
-                text = metricFilter.periodPreset.label,
-                expanded = expanded,
-                onClick = onMenuClick,
-                onDismiss = onMenuDismiss,
-            ) {
-                RankingPeriodPreset.entries.forEach { preset ->
-                    DropdownMenuItem(
-                        text = { Text(preset.label) },
-                        onClick = { onPeriodSelected(preset) },
-                    )
-                }
+        // Period picker chip (Commits, Issues, Pull Requests, PerformanceGrade)
+        AnimatedVisibility(
+            visible = metricKey.supportsPeriod && metricFilter.enabled,
+            enter = expandVertically(animationSpec = spring(stiffness = 600f)) + fadeIn(tween(180)),
+            exit = shrinkVertically(animationSpec = spring(stiffness = 600f)) + fadeOut(tween(120)),
+        ) {
+            Column {
+                Spacer(modifier = Modifier.height(8.dp))
+                RankingSubFieldChip(
+                    text = metricFilter.periodPreset.label,
+                    onClick = { showPeriodPicker = true },
+                    modifier = Modifier.padding(start = subFieldStartPadding),
+                )
+                Spacer(modifier = Modifier.height(6.dp))
             }
-            Spacer(modifier = Modifier.height(6.dp))
         }
 
-        if (metricKey.supportsThreshold && metricFilter.enabled) {
-            Spacer(modifier = Modifier.height(8.dp))
-            RankingMetricMenuChip(
-                text = metricFilter.thresholdPreset.label,
-                expanded = expanded,
-                onClick = onMenuClick,
-                onDismiss = onMenuDismiss,
-            ) {
-                RankingThresholdPreset.entries.forEach { preset ->
-                    DropdownMenuItem(
-                        text = { Text(preset.label) },
-                        onClick = { onThresholdSelected(preset) },
-                    )
-                }
+        // Threshold picker chip (RapidPullRequests)
+        AnimatedVisibility(
+            visible = metricKey.supportsThreshold && metricFilter.enabled,
+            enter = expandVertically(animationSpec = spring(stiffness = 600f)) + fadeIn(tween(180)),
+            exit = shrinkVertically(animationSpec = spring(stiffness = 600f)) + fadeOut(tween(120)),
+        ) {
+            Column {
+                Spacer(modifier = Modifier.height(8.dp))
+                RankingSubFieldChip(
+                    text = metricFilter.thresholdPreset.label,
+                    onClick = { showThresholdPicker = true },
+                    modifier = Modifier.padding(start = subFieldStartPadding),
+                )
+                Spacer(modifier = Modifier.height(6.dp))
             }
-            Spacer(modifier = Modifier.height(6.dp))
         }
 
-        if (metricKey.supportsWeekDay && metricFilter.enabled) {
-            Spacer(modifier = Modifier.height(8.dp))
-            RankingMetricMenuChip(
-                text = metricFilter.weekDay.label,
-                expanded = expanded,
-                onClick = onMenuClick,
-                onDismiss = onMenuDismiss,
-            ) {
-                RankingWeekDay.entries.forEach { weekDay ->
-                    DropdownMenuItem(
-                        text = { Text(weekDay.label) },
-                        onClick = { onWeekDaySelected(weekDay) },
+        // Week day dropdown chip (DominantWeekDay)
+        AnimatedVisibility(
+            visible = metricKey.supportsWeekDay && metricFilter.enabled,
+            enter = expandVertically(animationSpec = spring(stiffness = 600f)) + fadeIn(tween(180)),
+            exit = shrinkVertically(animationSpec = spring(stiffness = 600f)) + fadeOut(tween(120)),
+        ) {
+            Column {
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(modifier = Modifier.padding(start = subFieldStartPadding)) {
+                    RankingSubFieldChip(
+                        text = metricFilter.weekDay.label,
+                        onClick = { showWeekDayMenu = true },
+                    )
+                    StatsDropdownMenu(
+                        expanded = showWeekDayMenu,
+                        onDismissRequest = { showWeekDayMenu = false },
+                        options = RankingWeekDay.entries.map { it.backendValue to it.label },
+                        onSelected = { key ->
+                            val day = RankingWeekDay.entries.firstOrNull { it.backendValue == key }
+                            if (day != null) onWeekDaySelected(day)
+                        },
+                        selectedKey = metricFilter.weekDay.backendValue,
+                        width = 200.dp,
                     )
                 }
+                Spacer(modifier = Modifier.height(6.dp))
             }
-            Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+
+    if (showPeriodPicker) {
+        RankingWheelPickerDialog(
+            title = "Период",
+            options = RankingPeriodPreset.entries.map { it.label },
+            selectedIndex = RankingPeriodPreset.entries.indexOf(metricFilter.periodPreset).coerceAtLeast(0),
+            onDismiss = { showPeriodPicker = false },
+            onConfirm = { idx ->
+                val preset = RankingPeriodPreset.entries.getOrNull(idx) ?: metricFilter.periodPreset
+                onPeriodSelected(preset)
+            },
+        )
+    }
+
+    if (showThresholdPicker) {
+        RankingWheelPickerDialog(
+            title = "Продолжительность",
+            options = RankingThresholdPreset.entries.map { it.label },
+            selectedIndex = RankingThresholdPreset.entries.indexOf(metricFilter.thresholdPreset).coerceAtLeast(0),
+            onDismiss = { showThresholdPicker = false },
+            onConfirm = { idx ->
+                val preset = RankingThresholdPreset.entries.getOrNull(idx) ?: metricFilter.thresholdPreset
+                onThresholdSelected(preset)
+            },
+        )
+    }
+}
+
+/** Simple chip button used for sub-fields (period, threshold, weekday). */
+@Composable
+private fun RankingSubFieldChip(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "subFieldChipScale",
+    )
+    Box(
+        modifier = modifier
+            .height(30.dp)
+            .scale(scale)
+            .border(1.dp, RankingDivider, RoundedCornerShape(10.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            fontFamily = AppFonts.OpenSansBold,
+            fontSize = 14.sp,
+            color = RankingGray,
+            lineHeight = 10.sp,
+        )
+    }
+}
+
+@Composable
+private fun RankingWheelPickerDialog(
+    title: String,
+    options: List<String>,
+    selectedIndex: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    val itemHeightDp = 48.dp
+    val visibleCount = 5
+    val paddingCount = visibleCount / 2  // 2 blank rows top + bottom so every option can reach centre
+
+    val density = LocalDensity.current
+    val itemHeightPx = with(density) { itemHeightDp.toPx() }
+
+    val clampedSelected = selectedIndex.coerceIn(0, (options.size - 1).coerceAtLeast(0))
+    // scroll = optionIndex * itemHeightPx keeps the chosen option centred in the viewport
+    val scrollState = rememberScrollState(initial = (clampedSelected * itemHeightPx).toInt())
+
+    // Derive selected index from scroll position (nearest item)
+    val pickedIndex by remember {
+        derivedStateOf {
+            ((scrollState.value.toFloat() / itemHeightPx) + 0.5f)
+                .toInt()
+                .coerceIn(0, (options.size - 1).coerceAtLeast(0))
+        }
+    }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    // After every scroll-stop, animate to the exact snap position
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.isScrollInProgress }
+            .collect { scrolling ->
+                if (!scrolling) {
+                    val target = (pickedIndex * itemHeightPx).toInt()
+                    if (scrollState.value != target) {
+                        scrollState.animateScrollTo(target)
+                    }
+                }
+            }
+    }
+
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
+    fun dismiss() {
+        visible = false
+        coroutineScope.launch {
+            kotlinx.coroutines.delay(200)
+            onDismiss()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = ::dismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.92f, animationSpec = tween(200)),
+            exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.96f, animationSpec = tween(180)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .widthIn(max = 320.dp)
+                    .background(Color.White, RoundedCornerShape(20.dp))
+                    .border(1.dp, RankingDivider, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+            ) {
+                RankingBackgroundLogo(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .alpha(0.05f),
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = title,
+                        fontFamily = AppFonts.OpenSansBold,
+                        fontSize = 18.sp,
+                        color = RankingGray,
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Wheel viewport
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(itemHeightDp * visibleCount),
+                    ) {
+                        // Scrollable column: paddingCount blank rows + real options + paddingCount blank rows
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scrollState),
+                        ) {
+                            repeat(paddingCount) {
+                                Spacer(modifier = Modifier.height(itemHeightDp))
+                            }
+                            options.forEachIndexed { index, option ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(itemHeightDp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    val isCenter = index == pickedIndex
+                                    Text(
+                                        text = option,
+                                        fontFamily = if (isCenter) AppFonts.OpenSansBold else AppFonts.OpenSansRegular,
+                                        fontSize = if (isCenter) 17.sp else 14.sp,
+                                        color = if (isCenter) RankingRed else RankingGray,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                            repeat(paddingCount) {
+                                Spacer(modifier = Modifier.height(itemHeightDp))
+                            }
+                        }
+                        // Top fade (white gradient masks items scrolling away at the top)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(itemHeightDp * paddingCount)
+                                .align(Alignment.TopCenter)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.White, Color.Transparent),
+                                    )
+                                ),
+                        )
+                        // Bottom fade
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(itemHeightDp * paddingCount)
+                                .align(Alignment.BottomCenter)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.White),
+                                    )
+                                ),
+                        )
+                        // Selection indicator frame at the vertical centre
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(itemHeightDp)
+                                .align(Alignment.Center)
+                                .border(1.dp, RankingDivider, RoundedCornerShape(8.dp)),
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(13.dp),
+                    ) {
+                        RankingActionButton(
+                            text = "Отмена",
+                            backgroundColor = RankingGray,
+                            borderColor = RankingDivider,
+                            onClick = ::dismiss,
+                            modifier = Modifier.weight(1f),
+                        )
+                        RankingActionButton(
+                            text = "Выбрать",
+                            backgroundColor = RankingRed,
+                            borderColor = RankingRedLight,
+                            onClick = {
+                                onConfirm(pickedIndex)
+                                dismiss()
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1863,10 +2335,22 @@ private fun RankingCheckbox(
     checked: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.85f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 800f),
+        label = "checkboxScale",
+    )
     Box(
         modifier = Modifier
             .size(24.dp)
-            .clickable(onClick = onClick),
+            .scale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -1900,11 +2384,23 @@ private fun RankingCheckbox(
 private fun RankingInfoBadge(
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.82f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 800f),
+        label = "infoBadgeScale",
+    )
     Box(
         modifier = Modifier
             .size(15.dp)
+            .scale(scale)
             .border(1.dp, RankingGray, CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -1918,83 +2414,44 @@ private fun RankingInfoBadge(
 }
 
 @Composable
-private fun RankingMetricMenuChip(
-    text: String,
-    expanded: Boolean,
-    onClick: () -> Unit,
-    onDismiss: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Box {
-        Box(
-            modifier = Modifier
-                .height(30.dp)
-                .border(1.dp, RankingDivider, RoundedCornerShape(10.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 18.dp, vertical = 8.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = text,
-                fontFamily = AppFonts.OpenSansBold,
-                fontSize = 14.sp,
-                color = RankingGray,
-                lineHeight = 10.sp,
-            )
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = onDismiss,
-        ) {
-            content()
-        }
-    }
-}
-
-@Composable
 private fun RankingDateRangeField(
     dateRange: RankingDateRangeFilter,
-    expanded: Boolean,
     onClick: () -> Unit,
-    onDismiss: () -> Unit,
-    onPresetSelected: (RankingDateRangePreset) -> Unit,
-    presets: List<RankingDateRangePreset>,
 ) {
-    Box {
-        Row(
-            modifier = Modifier
-                .width(200.dp)
-                .height(30.dp)
-                .border(1.dp, RankingDivider, RoundedCornerShape(10.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = formatDateRangeField(dateRange),
-                fontFamily = AppFonts.OpenSansMedium,
-                fontSize = 12.sp,
-                color = RankingGray,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "dateRangeFieldScale",
+    )
+    Row(
+        modifier = Modifier
+            .width(200.dp)
+            .height(30.dp)
+            .scale(scale)
+            .border(1.dp, RankingDivider, RoundedCornerShape(10.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
             )
-            Image(
-                painter = painterResource(Res.drawable.calendar_icon),
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = onDismiss,
-        ) {
-            presets.forEach { preset ->
-                DropdownMenuItem(
-                    text = { Text(preset.title) },
-                    onClick = { onPresetSelected(preset) },
-                )
-            }
-        }
+            .padding(horizontal = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = formatDateRangeField(dateRange),
+            fontFamily = AppFonts.OpenSansMedium,
+            fontSize = 12.sp,
+            color = RankingGray,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+        )
+        Image(
+            painter = painterResource(Res.drawable.calendar_icon),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -2003,11 +2460,23 @@ private fun SmallPillButton(
     text: String,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "pillButtonScale",
+    )
     Box(
         modifier = Modifier
+            .scale(scale)
             .background(RankingRed, RoundedCornerShape(15.dp))
             .border(1.dp, RankingRedLight, RoundedCornerShape(15.dp))
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
             .padding(horizontal = 4.dp, vertical = 3.dp),
     ) {
         Text(
@@ -2025,88 +2494,144 @@ private fun SaveTemplateDialog(
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
 ) {
+    val maxNameLength = 50
     var templateName by remember { mutableStateOf("") }
+    val coroutineScope = rememberCoroutineScope()
+    var visible by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { visible = true }
+
+    // Close-button press animation
+    val closeInteraction = remember { MutableInteractionSource() }
+    val closePressed by closeInteraction.collectIsPressedAsState()
+    val closeScale by animateFloatAsState(
+        targetValue = if (closePressed) 0.78f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 800f),
+        label = "save_dlg_close_scale",
+    )
+
+    fun dismiss() {
+        visible = false
+        coroutineScope.launch {
+            kotlinx.coroutines.delay(160)
+            onDismiss()
+        }
+    }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .widthIn(max = 350.dp)
-                .background(Color.White, RoundedCornerShape(20.dp))
-                .border(1.dp, RankingGray, RoundedCornerShape(20.dp))
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.93f, animationSpec = tween(160)),
+            exit  = fadeOut(tween(140)) + scaleOut(targetScale = 0.96f, animationSpec = tween(140)),
         ) {
-            RankingBackgroundLogo(
+            Box(
                 modifier = Modifier
-                    .matchParentSize()
-                    .alpha(0.06f),
-            )
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "Сохранить шаблон",
-                        fontFamily = AppFonts.OpenSansBold,
-                        fontSize = 24.sp,
-                        color = RankingGray,
-                        modifier = Modifier.align(Alignment.Center),
+                    .fillMaxWidth(0.9f)
+                    .widthIn(max = 350.dp)
+                    .background(Color.White, RoundedCornerShape(20.dp))
+                    .border(1.dp, RankingGray, RoundedCornerShape(20.dp))
+                    // No padding here — logo fills the full Box, clipped by rounded corners
+                    .clip(RoundedCornerShape(20.dp)),
+            ) {
+                // Logo fills the entire dialog background independently of content padding
+                Image(
+                    painter = painterResource(Res.drawable.spbu_logo),
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.FillWidth,
+                )
+                Column(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    // Title row with animated close button
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Сохранить шаблон",
+                            fontFamily = AppFonts.OpenSansBold,
+                            fontSize = 24.sp,
+                            color = RankingGray,
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                        Image(
+                            painter = painterResource(Res.drawable.close_icon),
+                            contentDescription = "Закрыть",
+                            modifier = Modifier
+                                .size(24.dp)
+                                .scale(closeScale)
+                                .align(Alignment.CenterEnd)
+                                .clickable(
+                                    interactionSource = closeInteraction,
+                                    indication = null,
+                                    onClick = ::dismiss,
+                                ),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(18.dp))
+                    // Text field with 50-char limit, text centered
+                    BasicTextField(
+                        value = templateName,
+                        onValueChange = { if (it.length <= maxNameLength) templateName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
+                        textStyle = TextStyle(
+                            fontFamily = AppFonts.OpenSansRegular,
+                            fontSize = 12.sp,
+                            color = RankingGray,
+                            textAlign = TextAlign.Center,
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (templateName.isBlank()) {
+                                    Text(
+                                        text = "Введите название шаблона",
+                                        fontFamily = AppFonts.OpenSansRegular,
+                                        fontSize = 12.sp,
+                                        color = RankingLightGray,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
                     )
-                    Image(
-                        painter = painterResource(Res.drawable.close_icon),
-                        contentDescription = "Закрыть",
-                        modifier = Modifier
-                            .size(24.dp)
-                            .align(Alignment.CenterEnd)
-                            .clickable(onClick = onDismiss),
-                    )
-                }
-                Spacer(modifier = Modifier.height(18.dp))
-                BasicTextField(
-                    value = templateName,
-                    onValueChange = { templateName = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    textStyle = TextStyle(
-                        fontFamily = AppFonts.OpenSansRegular,
-                        fontSize = 12.sp,
-                        color = RankingGray,
-                    ),
-                    decorationBox = { innerTextField ->
+                    Box(modifier = Modifier.fillMaxWidth()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 6.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (templateName.isBlank()) {
-                                Text(
-                                    text = "Введите название шаблона",
-                                    fontFamily = AppFonts.OpenSansRegular,
-                                    fontSize = 12.sp,
-                                    color = RankingLightGray,
-                                )
-                            }
-                            innerTextField()
+                                .height(1.dp)
+                                .background(RankingGray),
+                        )
+                        // Character counter — appears when user starts typing
+                        if (templateName.isNotEmpty()) {
+                            Text(
+                                text = "${templateName.length}/$maxNameLength",
+                                fontFamily = AppFonts.OpenSansRegular,
+                                fontSize = 10.sp,
+                                color = if (templateName.length >= maxNameLength) RankingRed else RankingLightGray,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(top = 4.dp),
+                            )
                         }
-                    },
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(RankingGray),
-                )
-                Spacer(modifier = Modifier.height(30.dp))
-                Box(
-                    modifier = Modifier.width(110.dp),
-                ) {
-                    RankingActionButton(
+                    }
+                    Spacer(modifier = Modifier.height(30.dp))
+                    SaveDialogButton(
                         text = "Сохранить",
-                        backgroundColor = RankingRed,
-                        borderColor = RankingRedLight,
+                        enabled = templateName.isNotBlank(),
                         onClick = { onSave(templateName) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -2119,81 +2644,99 @@ private fun MetricInfoDialog(
     info: RankingMetricInfo,
     onDismiss: () -> Unit,
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
+    fun dismiss() {
+        visible = false
+        coroutineScope.launch {
+            kotlinx.coroutines.delay(160)
+            onDismiss()
+        }
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .widthIn(max = 350.dp)
-                .background(Color.White, RoundedCornerShape(20.dp))
-                .border(1.dp, RankingGray, RoundedCornerShape(20.dp))
-                .padding(horizontal = 10.dp, vertical = 12.dp),
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.93f, animationSpec = tween(160)),
+            exit  = fadeOut(tween(140)) + scaleOut(targetScale = 0.96f, animationSpec = tween(140)),
         ) {
-            RankingBackgroundLogo(
+            Box(
                 modifier = Modifier
-                    .matchParentSize()
-                    .alpha(0.05f),
-            )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 430.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 350.dp)
+                    .background(Color.White, RoundedCornerShape(20.dp))
+                    .border(1.dp, RankingGray, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 10.dp, vertical = 12.dp),
             ) {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = info.title,
-                        fontFamily = AppFonts.OpenSansBold,
-                        fontSize = 16.sp,
-                        color = Color.Black,
-                        modifier = Modifier.align(Alignment.CenterStart),
+                RankingBackgroundLogo(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .alpha(0.05f),
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 430.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = info.title,
+                            fontFamily = AppFonts.OpenSansBold,
+                            fontSize = 16.sp,
+                            color = Color.Black,
+                            modifier = Modifier.align(Alignment.CenterStart),
+                        )
+                        Image(
+                            painter = painterResource(Res.drawable.close_icon),
+                            contentDescription = "Закрыть",
+                            modifier = Modifier
+                                .size(24.dp)
+                                .align(Alignment.CenterEnd)
+                                .clickable(onClick = ::dismiss),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    MetricInfoSection(
+                        title = "Что показывает:",
+                        lines = listOf(info.whatShows),
                     )
-                    Image(
-                        painter = painterResource(Res.drawable.close_icon),
-                        contentDescription = "Закрыть",
-                        modifier = Modifier
-                            .size(24.dp)
-                            .align(Alignment.CenterEnd)
-                            .clickable(onClick = onDismiss),
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                MetricInfoSection(
-                    title = "Что показывает:",
-                    lines = listOf(info.whatShows),
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                MetricInfoSection(
-                    title = "Зачем нужна:",
-                    lines = info.whyNeeded,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                MetricInfoSection(
-                    title = "Как интерпретировать:",
-                    lines = info.howToInterpret,
-                )
-                info.note?.let { note ->
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = buildAnnotatedString {
-                            withStyle(
-                                SpanStyle(
-                                    fontFamily = AppFonts.OpenSansBold,
-                                    color = RankingGray,
-                                )
-                            ) {
-                                append("Примечание:")
-                            }
-                            append(" ")
-                            append(note)
-                        },
-                        fontFamily = AppFonts.OpenSansRegular,
-                        fontSize = 12.sp,
-                        color = RankingGray,
-                        lineHeight = 12.sp,
+                    MetricInfoSection(
+                        title = "Зачем нужна:",
+                        lines = info.whyNeeded,
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    MetricInfoSection(
+                        title = "Как интерпретировать:",
+                        lines = info.howToInterpret,
+                    )
+                    info.note?.let { note ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = buildAnnotatedString {
+                                withStyle(
+                                    SpanStyle(
+                                        fontFamily = AppFonts.OpenSansBold,
+                                        color = RankingGray,
+                                    )
+                                ) {
+                                    append("Примечание:")
+                                }
+                                append(" ")
+                                append(note)
+                            },
+                            fontFamily = AppFonts.OpenSansRegular,
+                            fontSize = 12.sp,
+                            color = RankingGray,
+                            lineHeight = 12.sp,
+                        )
+                    }
                 }
             }
         }
@@ -2239,198 +2782,167 @@ private fun rankingMetricInfo(metricKey: RankingMetricKey): RankingMetricInfo {
     return when (metricKey) {
         RankingMetricKey.Commits -> RankingMetricInfo(
             title = "Commits",
-            whatShows = "Список всех коммитов в репозитории: автор, дата, измененные файлы и объем изменений.",
+            whatShows = "Сырой список всех коммитов за период: автор, дата, затронутые файлы. Это источник данных, а не самостоятельная оценка.",
             whyNeeded = listOf(
-                "Отслеживает активность разработки.",
-                "Служит базой для метрик Total Commits, Code Churn и Code Ownership.",
-                "Помогает увидеть регулярность работы команды.",
+                "Служит основой для метрик Total Commits, Code Churn и Code Ownership.",
+                "Позволяет видеть регулярность и ритм разработки без агрегации.",
             ),
             howToInterpret = listOf(
-                "Много регулярных коммитов обычно означает стабильную разработку.",
-                "Длинные паузы между коммитами могут говорить о простоях или узких местах.",
+                "Регулярные коммиты небольшого размера — признак здоровой разработки.",
+                "Длинные паузы между коммитами могут говорить о блокерах или завершении фазы.",
             ),
-            note = "Это базовая метрика. В рейтинге она сейчас транслируется в клиентскую оценку активности по коммитам.",
+            note = "Метрика не оценивается напрямую. Оценка строится через производные: Total Commits, Code Churn, Code Ownership.",
         )
 
         RankingMetricKey.Issues -> RankingMetricInfo(
             title = "Issues",
-            whatShows = "Список всех задач: созданные, открытые, закрытые и назначенные исполнители.",
+            whatShows = "Сырой список задач за период: созданные, открытые, закрытые, исполнители. Это источник данных, а не самостоятельная оценка.",
             whyNeeded = listOf(
-                "Показывает, как команда управляет задачами.",
-                "Служит основой для оценки завершенности задач.",
+                "Показывает, как команда управляет бэклогом задач.",
+                "Используется для расчёта Issue Completeness и Dominant Week Day.",
             ),
             howToInterpret = listOf(
-                "Большое количество незакрытых задач может означать накопленный долг.",
-                "Баланс созданных и закрытых задач говорит о здоровье процесса.",
+                "Большое число незакрытых задач при малом числе новых — признак накопленного долга.",
+                "Баланс открытых и закрытых задач говорит о стабильном процессе.",
             ),
-            note = "В клиентском рейтинге эта метрика сейчас маппится на оценку завершенности задач.",
+            note = "Метрика не оценивается напрямую. Оценка строится через производные: Issue Completeness, Dominant Week Day.",
         )
 
         RankingMetricKey.PullRequests -> RankingMetricInfo(
             title = "Pull Requests",
-            whatShows = "Список pull request: автор, время создания, закрытия и фактическая скорость прохождения ревью.",
+            whatShows = "Сырой список pull request за период: автор, время создания и закрытия. Это источник данных, а не самостоятельная оценка.",
             whyNeeded = listOf(
                 "Показывает, как команда проводит code review.",
-                "Используется для производных метрик скорости и качества работы с PR.",
+                "Используется для расчёта PR Hang Time и Rapid Pull Requests.",
             ),
             howToInterpret = listOf(
-                "Быстро и стабильно закрывающиеся PR обычно говорят о хорошем процессе ревью.",
-                "Слишком быстрые закрытия могут означать формальное или пропущенное ревью.",
+                "Быстро закрывающиеся PR без пометки «rapid» — признак хорошего ревью.",
+                "Слишком быстрые закрытия могут означать формальный или пропущенный ревью.",
             ),
-            note = "В клиентском рейтинге эта метрика сейчас маппится на оценку времени жизни PR.",
+            note = "Метрика не оценивается напрямую. Оценка строится через производные: PR Hang Time, Rapid Pull Requests.",
         )
 
         RankingMetricKey.PerformanceGrade -> RankingMetricInfo(
             title = "Оценка производительности",
-            whatShows = "Итоговую оценку производительности ресурса, рассчитанную на основе всех метрик с учетом их весов.",
+            whatShows = "Итоговую оценку ресурса по проекту, рассчитанную на основе всех включённых метрик с учётом их весов.",
             whyNeeded = listOf(
-                "Общая оценка качества работы над проектом.",
-                "Быстрая оценка состояния проекта.",
-                "Сравнение разных ресурсов проекта.",
+                "Даёт единое число для быстрого сравнения ресурсов.",
+                "Агрегирует все включённые метрики с их весами в одну шкалу от 2 до 5.",
             ),
             howToInterpret = listOf(
-                "5.0 - отличная работа, все метрики на высоком уровне.",
-                "4.0-4.9 - хорошая работа, есть небольшие улучшения.",
-                "3.0-3.9 - средний уровень, требуются улучшения.",
-                "2.0-2.9 - низкий уровень, необходимы значительные улучшения.",
+                "5.0 — все включённые метрики на максимуме.",
+                "4.0–4.9 — высокий уровень, незначительные отклонения.",
+                "3.0–3.9 — средний уровень, есть зоны роста.",
+                "2.0–2.9 — низкий уровень, требуется анализ и улучшение процессов.",
             ),
-            note = "Оценка рассчитывается автоматически на основе настроенных метрик с учетом их весов.",
+            note = "Оценка берётся из панели администратора как взвешенное среднее по всем активным метрикам.",
         )
 
         RankingMetricKey.TotalCommits -> RankingMetricInfo(
             title = "Общее количество коммитов",
-            whatShows = "Количество коммитов за выбранный период с учетом активности команды или отдельного участника.",
+            whatShows = "Среднюю частоту коммитов в день на одного участника команды за выбранный период.",
             whyNeeded = listOf(
-                "Показывает темп разработки.",
-                "Помогает сравнивать активность между периодами и командами.",
+                "Показывает темп разработки с поправкой на размер команды.",
+                "Позволяет сравнивать активность между периодами и ресурсами.",
             ),
             howToInterpret = listOf(
-                "Высокое значение обычно означает активную разработку.",
-                "Резкое падение может указывать на простой или завершение фазы реализации.",
+                "≥ 0.33 коммита в день на человека → оценка 5 (максимум).",
+                "0 коммитов → оценка 2 (минимум).",
+                "Линейный рост: каждые ~0.033 коммита в день на человека добавляют ~0.3 балла.",
             ),
-            note = "Оценка считается по количеству коммитов в день на пользователя.",
+            note = "Формула: min(коммитов_в_день_на_участника × 9 + 2, 5). Шкала от 2 до 5.",
         )
 
         RankingMetricKey.IssueCompleteness -> RankingMetricInfo(
-            title = "Завершенность задач",
-            whatShows = "Процент закрытых задач от общего количества задач за выбранный период.",
+            title = "Завершённость задач",
+            whatShows = "Долю закрытых задач от общего числа задач за выбранный период.",
             whyNeeded = listOf(
-                "Оценивает эффективность работы с задачами.",
-                "Показывает, не накапливается ли долг по открытым issues.",
+                "Оценивает способность команды доводить задачи до конца.",
+                "Сигнализирует о накапливающемся хвосте незакрытых задач.",
             ),
             howToInterpret = listOf(
-                "80-100% - большинство задач закрывается вовремя.",
-                "40-59% - виден накопленный хвост незавершенных задач.",
-                "Ниже 40% - процесс явно требует внимания.",
+                "100% закрыто → оценка 5.",
+                "0% закрыто → оценка 2.",
+                "Каждые 33% закрытых задач добавляют ~1 балл.",
             ),
-            note = "Формула: (закрытые задачи / все задачи) * 3 + 2.",
+            note = "Формула: (закрытые / все) × 3 + 2. Шкала от 2 до 5.",
         )
 
         RankingMetricKey.PullRequestHangTime -> RankingMetricInfo(
             title = "Время жизни Pull Request",
-            whatShows = "Среднее время от создания PR до его закрытия.",
+            whatShows = "Среднее время от открытия PR до его закрытия за выбранный период.",
             whyNeeded = listOf(
-                "Показывает скорость прохождения code review.",
-                "Помогает увидеть задержки на этапе ревью и слияния.",
+                "Выявляет задержки на этапе ревью и слияния.",
+                "Помогает оценить скорость обратной связи внутри команды.",
             ),
             howToInterpret = listOf(
-                "Меньше 1 дня - очень быстрый и здоровый процесс ревью.",
-                "3-7 дней - приемлемо, но уже есть место для ускорения.",
-                "Больше 7 дней - явный сигнал о бутылочном горлышке.",
+                "Среднее время < 5 минут — отображается как сырое значение в минутах (возможно, автоматические PR).",
+                "0 дней (мгновенное закрытие) → оценка 5.",
+                "7+ дней среднего времени жизни → оценка ≤ 2.",
             ),
-            note = "Чем быстрее закрываются PR, тем выше итоговая оценка.",
+            note = "Формула: (1 − среднее_время / 7_дней) × 3 + 2. При среднем < 5 мин отображается время, а не балл.",
         )
 
         RankingMetricKey.RapidPullRequests -> RankingMetricInfo(
             title = "Быстрые Pull Requests",
-            whatShows = "Количество pull request, закрытых быстрее заданного порога.",
+            whatShows = "Долю PR, закрытых быстрее заданного порога (возможно без полноценного ревью).",
             whyNeeded = listOf(
                 "Выявляет PR, которые могли пройти без полноценного ревью.",
-                "Помогает отслеживать качество процесса code review.",
+                "Помогает контролировать качество code review в команде.",
             ),
             howToInterpret = listOf(
-                "Низкое количество - хороший сигнал, PR проходят нормальное ревью.",
-                "Высокое количество - риск формального или пропущенного ревью.",
-                "0 - идеальный сценарий.",
+                "0 быстрых PR из всех → оценка 5.",
+                "Все PR закрыты быстро → оценка 2.",
+                "Чем меньше доля быстрых PR, тем выше балл.",
             ),
-            note = "Порог задается прямо в фильтрах. Чем меньше быстрых PR, тем выше оценка.",
+            note = "Формула: (1 − быстрые / все) × 3 + 2. Порог скорости задаётся в настройках фильтра.",
         )
 
         RankingMetricKey.CodeChurn -> RankingMetricInfo(
             title = "Изменчивость кода",
-            whatShows = "Сколько раз в среднем изменяется кодовая база и отдельные файлы за выбранный период.",
+            whatShows = "Насколько интенсивно правится кодовая база: среднее число правок на коммит по всем файлам.",
             whyNeeded = listOf(
-                "Показывает стабильность архитектуры и модулей.",
-                "Помогает найти файлы, которые постоянно переписываются.",
+                "Высокий churn может говорить о нестабильной архитектуре или частых переработках.",
+                "Помогает найти «горячие» модули, которые постоянно меняются.",
             ),
             howToInterpret = listOf(
-                "1-2 изменения на файл - код стабилен.",
-                "3-5 - нормальный рабочий уровень.",
-                "Выше 5 - возможны проблемы с архитектурой или дизайном решения.",
+                "~1 правка файла на коммит → оценка близка к 5 (стабильный код).",
+                "Рост churn снижает оценку по логарифмической шкале.",
+                "Очень высокий churn (десятки правок на коммит) → оценка стремится к 2.",
             ),
-            note = "На клиенте пока используется эвристическая оценка churn, потому что backend-оценка для рейтинга еще не выделена отдельным контрактом.",
+            note = "Клиент использует формулу 5 − ln(1 + churn_на_коммит) × 1.2. Backend считает частоту изменения файлов, но отдельной оценки не выставляет — клиент применяет собственную логарифмическую шкалу.",
         )
 
         RankingMetricKey.CodeOwnership -> RankingMetricInfo(
             title = "Владение кодом",
-            whatShows = "Распределение владения кодом между участниками команды.",
+            whatShows = "Равномерность распределения коммитов между участниками команды.",
             whyNeeded = listOf(
-                "Показывает, насколько равномерно распределены знания в проекте.",
-                "Помогает выявить зависимость от одного-двух разработчиков.",
+                "Выявляет зависимость от одного-двух разработчиков (bus factor).",
+                "Показывает, насколько знания о кодовой базе распределены по команде.",
             ),
             howToInterpret = listOf(
-                "Равномерное распределение - хороший командный признак.",
-                "Сильная концентрация у одного человека повышает проектный риск.",
+                "Полностью равномерное распределение → оценка 5.",
+                "Один человек делает все коммиты → оценка 2.",
+                "Требуется минимум 2 участника: при одном авторе оценка не рассчитывается.",
             ),
-            note = "Чем равномернее распределение, тем выше итоговая оценка.",
+            note = "Формула: (1 − √(дисперсия / худший_случай)) × 3 + 2. Оценивает отклонение от идеально равного распределения.",
         )
 
         RankingMetricKey.DominantWeekDay -> RankingMetricInfo(
             title = "Доминирующий день недели",
-            whatShows = "Распределение активности команды по дням недели по коммитам, issues и PR.",
+            whatShows = "Долю активности (коммиты + issues + PR) в выбранный нежелательный день относительно среднего по остальным дням.",
             whyNeeded = listOf(
-                "Позволяет увидеть устойчивые паттерны работы команды.",
-                "Помогает отслеживать нежелательную активность в выходные или перегрузку в один день.",
+                "Позволяет выявить нежелательные паттерны работы: переработки в выходные или неравномерную нагрузку.",
+                "Поощряет равномерное распределение активности по рабочей неделе.",
             ),
             howToInterpret = listOf(
-                "Равномерная активность в рабочие дни обычно выглядит здорово.",
-                "Пики на выходных могут сигнализировать о переработках.",
-                "Низкая активность в выбранный нежелательный день повышает оценку.",
+                "Активность в нежелательный день ниже среднего → оценка 5.",
+                "Активность в ~3 раза выше среднего → оценка 2.",
+                "Нет активности в нежелательный день → максимальный балл.",
             ),
-            note = "Оценка зависит от выбранного нежелательного дня недели.",
+            note = "Формула: max(0, −1.5 × ratio + 6.5), где ratio = активность_в_день / средняя_активность. День выбирается в настройках фильтра.",
         )
     }
-}
-
-private fun rankingDateRangePresets(): List<RankingDateRangePreset> {
-    val now = PlatformTime.currentTimeMillis()
-    return listOf(
-        RankingDateRangePreset(
-            title = "Весь период",
-            filter = RankingDateRangeFilter(),
-        ),
-        RankingDateRangePreset(
-            title = "Последние 2 недели",
-            filter = RankingDateRangeFilter(
-                startMillis = now - (14L * 24L * 60L * 60L * 1000L),
-                endMillis = now,
-            ),
-        ),
-        RankingDateRangePreset(
-            title = "Последний месяц",
-            filter = RankingDateRangeFilter(
-                startMillis = now - (30L * 24L * 60L * 60L * 1000L),
-                endMillis = now,
-            ),
-        ),
-        RankingDateRangePreset(
-            title = "Последние 3 месяца",
-            filter = RankingDateRangeFilter(
-                startMillis = now - (90L * 24L * 60L * 60L * 1000L),
-                endMillis = now,
-            ),
-        ),
-    )
 }
 
 private fun formatDateRangeField(dateRange: RankingDateRangeFilter): String {
@@ -2439,6 +2951,37 @@ private fun formatDateRangeField(dateRange: RankingDateRangeFilter): String {
     val start = dateRange.startMillis?.let(::formatDate)
     val end = dateRange.endMillis?.let(::formatDate)
     return "с ${start ?: "00.00.0000"} по ${end ?: "31.12.3000"}"
+}
+
+/** Converts epoch-millis to an ISO-8601 date string (YYYY-MM-DD, UTC). */
+private fun Long.toRankingIsoDate(): String {
+    val date = Instant.fromEpochMilliseconds(this).toLocalDateTime(TimeZone.UTC).date
+    val m = date.monthNumber.toString().padStart(2, '0')
+    val d = date.dayOfMonth.toString().padStart(2, '0')
+    return "${date.year}-$m-$d"
+}
+
+/** Returns today's date as an ISO-8601 string (UTC). */
+private fun rankingTodayIsoDate(): String = PlatformTime.currentTimeMillis().toRankingIsoDate()
+
+/**
+ * Converts an ISO-8601 date string (YYYY-MM-DD) to epoch-millis (UTC midnight).
+ * Uses a pure Julian Day Number calculation with no extra imports.
+ */
+private fun rankingIsoDateToMillis(iso: String): Long? {
+    val parts = iso.split("-")
+    if (parts.size != 3) return null
+    val year = parts[0].toIntOrNull() ?: return null
+    val month = parts[1].toIntOrNull() ?: return null
+    val day = parts[2].toIntOrNull() ?: return null
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null
+    // Julian Day Number
+    val a = (14 - month) / 12
+    val y = year + 4800 - a
+    val m2 = month + 12 * a - 3
+    val jdn = day + (153 * m2 + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045
+    val epochJdn = 2440588 // JDN of 1970-01-01
+    return (jdn - epochJdn).toLong() * 86_400_000L
 }
 
 private fun formatDate(epochMillis: Long): String {

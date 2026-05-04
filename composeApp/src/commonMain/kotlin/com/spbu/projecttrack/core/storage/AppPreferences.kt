@@ -15,6 +15,10 @@ interface AppPreferences {
     fun saveAppThemeMode(themeMode: String)
     fun isProjectStatusNotificationsEnabled(): Boolean
     fun setProjectStatusNotificationsEnabled(enabled: Boolean)
+
+    /** JSON: templates list + selectedTemplateId (ranking filters screen). */
+    fun getRankingFilterTemplatesJson(): String?
+    fun saveRankingFilterTemplatesJson(json: String)
 }
 
 // Factory function для создания платформо-специфичной реализации
