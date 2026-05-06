@@ -1,9 +1,13 @@
 package com.spbu.projecttrack.projects.presentation.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,8 +16,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -38,10 +45,17 @@ fun SearchBar(
     showFilters: Boolean = true
 ) {
     val focusManager = LocalFocusManager.current
-    
-    Box(
+    val filterInteractionSource = remember { MutableInteractionSource() }
+    val filterPressed by filterInteractionSource.collectIsPressedAsState()
+    val filterScale by animateFloatAsState(
+        targetValue = if (filterPressed) 0.9f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 720f),
+        label = "projects_filter_scale"
+    )
+
+    Row(
         modifier = modifier
-            .width(375.dp)
+            .fillMaxWidth()
             .height(40.dp)
             .background(
                 color = AppColors.White,
@@ -52,21 +66,18 @@ fun SearchBar(
                 color = AppColors.Color1,
                 shape = RoundedCornerShape(20.dp)
             )
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
             // Лого поиска
             Image(
                 painter = painterResource(Res.drawable.search_icon),
                 contentDescription = "Поиск",
                 modifier = Modifier.size(24.dp)
             )
-            
+
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(8.dp))
+
             // Поле ввода - одна строка
             BasicTextField(
                 value = searchText,
@@ -76,12 +87,11 @@ fun SearchBar(
                     .onFocusChanged { focusState ->
                         onFocusChange(focusState.isFocused)
                     },
-                singleLine = true, // Одна строка
+                singleLine = true,
                 textStyle = androidx.compose.ui.text.TextStyle(
-                    fontFamily = AppFonts.OpenSansRegular,
-                    fontWeight = if (searchText.isEmpty()) FontWeight.SemiBold else FontWeight.Normal,
+                    fontFamily = AppFonts.OpenSansSemiBold,
                     fontSize = 16.sp,
-                    color = if (searchText.isEmpty()) AppColors.Color1 else AppColors.Color2
+                    color = AppColors.Color2
                 ),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
@@ -113,7 +123,12 @@ fun SearchBar(
                         contentDescription = "Фильтры",
                         modifier = Modifier
                             .size(24.dp)
-                            .clickable(onClick = onFilterClick),
+                            .scale(filterScale)
+                            .clickable(
+                                interactionSource = filterInteractionSource,
+                                indication = null,
+                                onClick = onFilterClick
+                            ),
                         colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(AppColors.Color2)
                     )
 
@@ -132,6 +147,5 @@ fun SearchBar(
                     }
                 }
             }
-        }
     }
 }

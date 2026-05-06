@@ -1,11 +1,11 @@
 package com.spbu.projecttrack.projects.presentation.detail
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +13,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material3.*
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +49,14 @@ import kotlinx.coroutines.flow.StateFlow
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.*
+
+private data class TeamMemberNavigationTarget(
+    val userId: String,
+    val userName: String,
+    val preferredProjectName: String?,
+)
+
+private val TeamMembersSpacing = 16.dp
 
 // ==================== Font Helper ====================
 
@@ -418,6 +428,9 @@ private fun ProjectHeaderCard(
 @Composable
 private fun TeamCard(
     members: List<Member>,
+    users: List<User>,
+    preferredProjectName: String?,
+    onMemberClick: ((String, String, String?) -> Unit)?,
     currentUserId: Int? = null,
     modifier: Modifier = Modifier
 ) {
@@ -445,10 +458,12 @@ private fun TeamCard(
                         colors = listOf(AppColors.TeamGradientStart, AppColors.TeamGradientEnd)
                     )
                 )
-                .padding(vertical = 5.dp, horizontal = 16.dp)
+                .padding(top = 5.dp, start = 16.dp, end = 16.dp, bottom = TeamMembersSpacing)
 
         ) {
-            Column {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(TeamMembersSpacing)
+            ) {
                 // Заголовок
                 Text(
                     text = "Команда",
@@ -461,17 +476,16 @@ private fun TeamCard(
                         .padding(bottom = 5.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
-                
-                // Участники с нумерацией
+
                 members.forEachIndexed { index, member ->
                     TeamMemberRow(
                         index = index + 1,
                         member = member,
-                        currentUserId = currentUserId
+                        users = users,
+                        preferredProjectName = preferredProjectName,
+                        currentUserId = currentUserId,
+                        onClick = onMemberClick
                     )
-                    if (index < members.lastIndex) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
                 }
             }
         }
@@ -482,21 +496,79 @@ private fun TeamCard(
 private fun TeamMemberRow(
     index: Int,
     member: Member,
+    users: List<User>,
+    preferredProjectName: String?,
     currentUserId: Int? = null,
+    onClick: ((String, String, String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
+    val usersById = remember(users) { users.associateBy(User::id) }
 
     // Разбиваем имя и роль (может приходить одной строкой с разделителем)
     val nameParts = member.name.split(" - ", " | ", "\n")
     val baseName = nameParts.firstOrNull() ?: member.name
     val isCurrentUser = currentUserId != null && member.user == currentUserId
     val name = if (isCurrentUser && !baseName.contains("(Вы)")) "$baseName (Вы)" else baseName
-    val role = member.role ?: nameParts.getOrNull(1) ?: ""
+    val role = (member.role ?: nameParts.getOrNull(1).orEmpty()).trim()
+    val navigationTarget = remember(member, usersById, preferredProjectName) {
+        resolveTeamMemberNavigationTarget(
+            member = member,
+            usersById = usersById,
+            fallbackName = baseName,
+            preferredProjectName = preferredProjectName
+        )
+    }
+    val isClickable = onClick != null && navigationTarget != null
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isClickable && isPressed) 0.985f else 1f,
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = 760f),
+        label = "team_member_scale"
+    )
+    val rowShape = RoundedCornerShape(12.dp)
 
     Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
+        modifier = modifier
+            .fillMaxWidth()
+            .scale(scale)
+            .clip(rowShape)
+            .background(
+                color = if (isClickable) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                shape = rowShape
+            )
+            .then(
+                if (isClickable) {
+                    Modifier.border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.16f),
+                        shape = rowShape
+                    )
+                } else {
+                    Modifier
+                }
+            )
+            .then(
+                if (isClickable) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = {
+                            navigationTarget?.let { target ->
+                                onClick?.invoke(target.userId, target.userName, target.preferredProjectName)
+                            }
+                        }
+                    )
+                } else {
+                    Modifier
+                }
+            )
+            .padding(
+                horizontal = if (isClickable) 10.dp else 0.dp,
+                vertical = if (isClickable) 8.dp else 4.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         // Номер и данные участника
         Column(modifier = Modifier.weight(1f)) {
@@ -526,10 +598,39 @@ private fun TeamMemberRow(
             imageVector = Icons.Outlined.AccountCircle,
             contentDescription = null,
             tint = AppColors.White,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier
+                .size(22.dp)
+                .alpha(if (isClickable) 1f else 0.82f)
         )
 
     }
+}
+
+private fun resolveTeamMemberNavigationTarget(
+    member: Member,
+    usersById: Map<String, User>,
+    fallbackName: String,
+    preferredProjectName: String?,
+): TeamMemberNavigationTarget? {
+    val userName = member.user
+        ?.toString()
+        ?.let(usersById::get)
+        ?.name
+        ?.trim()
+        .takeUnless { it.isNullOrBlank() }
+        ?: fallbackName.trim().takeIf { it.isNotBlank() }
+        ?: return null
+
+    val userId = member.user
+        ?.toString()
+        ?.takeIf { it.isNotBlank() }
+        ?: userName
+
+    return TeamMemberNavigationTarget(
+        userId = userId,
+        userName = userName,
+        preferredProjectName = preferredProjectName?.takeIf { it.isNotBlank() }
+    )
 }
 
 // ==================== Section Title ====================
@@ -641,15 +742,17 @@ fun ProjectDetailScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
     title: String = "Проекты",
+    showTitle: Boolean = true,
     showBackButton: Boolean = true,
-    showMyProjectMenu: Boolean = false,
-    onMyProjectBackToProjects: () -> Unit = {},
-    onMyProjectOpenStats: () -> Unit = {}
+    showMyProjectActions: Boolean = false,
+    onMyProjectOpenStats: () -> Unit = {},
+    onTeamMemberClick: ((String, String, String?) -> Unit)? = null,
+    showBackgroundLogo: Boolean = true
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isAuthorized by com.spbu.projecttrack.core.auth.AuthManager.isAuthorized.collectAsState(initial = false)
     val currentUserId by com.spbu.projecttrack.core.auth.AuthManager.currentUserId.collectAsState(initial = null)
-    
+
     ProjectDetailScreenContent(
         uiState = uiState,
         isAuthorized = isAuthorized,
@@ -657,10 +760,12 @@ fun ProjectDetailScreen(
         onBackClick = onBackClick,
         onRetry = { viewModel.retry() },
         title = title,
+        showTitle = showTitle,
         showBackButton = showBackButton,
-        showMyProjectMenu = showMyProjectMenu,
-        onMyProjectBackToProjects = onMyProjectBackToProjects,
+        showMyProjectActions = showMyProjectActions,
         onMyProjectOpenStats = onMyProjectOpenStats,
+        onTeamMemberClick = onTeamMemberClick,
+        showBackgroundLogo = showBackgroundLogo,
         modifier = modifier
     )
 }
@@ -673,10 +778,12 @@ internal fun ProjectDetailScreenContent(
     onBackClick: () -> Unit,
     onRetry: () -> Unit,
     title: String = "Проекты",
+    showTitle: Boolean = true,
     showBackButton: Boolean = true,
-    showMyProjectMenu: Boolean = false,
-    onMyProjectBackToProjects: () -> Unit = {},
+    showMyProjectActions: Boolean = false,
     onMyProjectOpenStats: () -> Unit = {},
+    onTeamMemberClick: ((String, String, String?) -> Unit)? = null,
+    showBackgroundLogo: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
@@ -687,17 +794,18 @@ internal fun ProjectDetailScreenContent(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(AppColors.White)
+            .background(if (showBackgroundLogo) AppColors.White else Color.Transparent)
     ) {
-        // Лого СПбГУ на фоне
-        Image(
-            painter = painterResource(Res.drawable.spbu_logo),
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.Center),
-            contentScale = ContentScale.FillWidth
-        )
+        if (showBackgroundLogo) {
+            Image(
+                painter = painterResource(Res.drawable.spbu_logo),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Center),
+                contentScale = ContentScale.FillWidth
+            )
+        }
 
         Scaffold (
             containerColor = Color.Transparent,
@@ -711,34 +819,52 @@ internal fun ProjectDetailScreenContent(
                     )
             ) {
                 // Хедер с кнопкой назад и титулом
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.White)
-                        .padding(horizontal = 16.dp, vertical = 0.dp)
-                ) {
-                    // Кнопка назад
-                    if (showBackButton) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .size(24.dp)
-                                .clickable(onClick = onBackClick),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            BackArrowIcon()
+                if (showTitle || showBackButton) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White)
+                            .padding(horizontal = 16.dp, vertical = 0.dp)
+                    ) {
+                        // Кнопка назад
+                        if (showBackButton) {
+                            val backInteractionSource = remember {
+                                androidx.compose.foundation.interaction.MutableInteractionSource()
+                            }
+                            val backPressed by backInteractionSource.collectIsPressedAsState()
+                            val backScale by animateFloatAsState(
+                                targetValue = if (backPressed) 0.9f else 1f,
+                                animationSpec = spring(dampingRatio = 0.76f, stiffness = 780f),
+                                label = "project_detail_back_scale"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .size(24.dp)
+                                    .scale(backScale)
+                                    .clickable(
+                                        interactionSource = backInteractionSource,
+                                        indication = null,
+                                        onClick = onBackClick
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                BackArrowIcon()
+                            }
+                        }
+
+                        // Титул
+                        if (showTitle) {
+                            Text(
+                                text = title,
+                                fontFamily = fontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 40.sp,
+                                color = AppColors.Color3,
+                                modifier = Modifier.align(Alignment.Center)
+                            )
                         }
                     }
-
-                    // Титул "Проекты"
-                    Text(
-                        text = title,
-                        fontFamily = fontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 40.sp,
-                        color = AppColors.Color3,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
                 }
 
                 // Контент
@@ -749,19 +875,21 @@ internal fun ProjectDetailScreenContent(
                         }
 
                         is ProjectDetailUiState.Success -> {
-                            val contentBottomPadding = if (showMyProjectMenu) {
-                                140.dp
-                            } else {
-                                80.dp
-                            }
                             ProjectDetailContent(
                                 project = uiState.project,
                                 tags = uiState.tags,
                                 members = uiState.members,
+                                users = uiState.users,
                                 statusText = uiState.statusText,
                                 isAuthorized = isAuthorized,
                                 currentUserId = currentUserId,
-                                bottomPadding = contentBottomPadding
+                                bottomPadding = 80.dp,
+                                topPadding = if (showMyProjectActions) 48.dp else 32.dp,
+                                showMyProjectActions = showMyProjectActions,
+                                githubUrl = githubUrl,
+                                onOpenGithub = { url -> uriHandler.openUri(normalizeUrl(url)) },
+                                onOpenStats = onMyProjectOpenStats,
+                                onMemberClick = onTeamMemberClick
                             )
                         }
 
@@ -772,19 +900,8 @@ internal fun ProjectDetailScreenContent(
                             )
                         }
                     }
-
                 }
             }
-        }
-
-        if (showMyProjectMenu) {
-            MyProjectMenu(
-                githubUrl = githubUrl,
-                onBackToProjects = onMyProjectBackToProjects,
-                onOpenGithub = { url -> uriHandler.openUri(normalizeUrl(url)) },
-                onOpenStats = onMyProjectOpenStats,
-                modifier = Modifier.fillMaxSize()
-            )
         }
     }
 }
@@ -854,74 +971,36 @@ private fun MyProjectMenu(
     onOpenStats: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    var menuBtnHeightPx by remember { mutableStateOf(0) }
-    val density = LocalDensity.current
     val menuBaseOffset = (-95).dp
-    val menuBtnHeightDp = if (menuBtnHeightPx == 0) {
-        46.dp
-    } else {
-        with(density) { menuBtnHeightPx.toDp() }
-    }
 
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopEnd
     ) {
-        val anchorModifier = Modifier
-            .align(Alignment.BottomEnd)
-            .offset(y = menuBaseOffset)
-            .padding(end = 16.dp)
-
-        Box(
-            modifier = anchorModifier
-                .onSizeChanged { menuBtnHeightPx = it.height }
-        ) {
-            SuggestProjectButton(
-                onClick = { expanded = !expanded },
-                text = if (expanded) "Закрыть" else "Меню"
-            )
-        }
-
-        AnimatedVisibility(
-            visible = expanded,
-            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .offset(y = menuBaseOffset - menuBtnHeightDp - 10.dp)
-                .padding(end = 16.dp)
+                .offset(y = menuBaseOffset)
+                .padding(end = 16.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                SuggestProjectButton(
-                    onClick = {
-                        expanded = false
-                        onBackToProjects()
-                    },
-                    text = "Все проекты"
-                )
+            SuggestProjectButton(
+                onClick = onBackToProjects,
+                text = "Все проекты"
+            )
 
-                if (!githubUrl.isNullOrBlank()) {
-                    SuggestProjectButton(
-                        onClick = {
-                            expanded = false
-                            onOpenGithub(githubUrl)
-                        },
-                        text = "ГитХаб"
-                    )
-                }
-
+            if (!githubUrl.isNullOrBlank()) {
                 SuggestProjectButton(
-                    onClick = {
-                        expanded = false
-                        onOpenStats()
-                    },
-                    text = "Статистика проекта"
+                    onClick = { onOpenGithub(githubUrl) },
+                    text = "ГитХаб"
                 )
             }
+
+            SuggestProjectButton(
+                onClick = onOpenStats,
+                text = "Статистика проекта"
+            )
         }
     }
 }
@@ -932,10 +1011,17 @@ private fun ProjectDetailContent(
     project: ProjectDetail,
     tags: List<Tag>,
     members: List<Member>,
+    users: List<User>,
     statusText: String,
     isAuthorized: Boolean,
     currentUserId: Int? = null,
     bottomPadding: Dp = 80.dp,
+    topPadding: Dp = 32.dp,
+    showMyProjectActions: Boolean = false,
+    githubUrl: String? = null,
+    onOpenGithub: ((String) -> Unit)? = null,
+    onOpenStats: (() -> Unit)? = null,
+    onMemberClick: ((String, String, String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
@@ -944,6 +1030,16 @@ private fun ProjectDetailContent(
     val hasContactClient = !project.contact.isNullOrBlank() || !project.client.isNullOrBlank()
     val showTopFade by remember { derivedStateOf { scrollState.value > 0 } }
     val showBottomFade by remember { derivedStateOf { scrollState.value < scrollState.maxValue } }
+    val topFadeAlpha by animateFloatAsState(
+        targetValue = if (showTopFade) 1f else 0f,
+        animationSpec = tween(200),
+        label = "detail_top_fade"
+    )
+    val bottomFadeAlpha by animateFloatAsState(
+        targetValue = if (showBottomFade) 1f else 0f,
+        animationSpec = tween(200),
+        label = "detail_bottom_fade"
+    )
     
     // Требования проекта: из поля requirements или парсим из описания
     val requirements = project.requirements ?: emptyList()
@@ -960,7 +1056,7 @@ private fun ProjectDetailContent(
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 21.dp)
-                .padding(top = 32.dp, bottom = bottomPadding), // Увеличенный padding сверху и снизу
+                .padding(top = topPadding, bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Главная карточка с градиентом
@@ -1039,15 +1135,138 @@ private fun ProjectDetailContent(
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
-                
+
                 // Команда
                 if (members.isNotEmpty()) {
                     TeamCard(
                         members = members,
+                        users = users,
+                        preferredProjectName = project.name,
+                        onMemberClick = onMemberClick,
                         currentUserId = currentUserId
                     )
                 }
             }
+
+            // Кнопки "Мой проект": GitHub и Статистика в скролле
+            if (showMyProjectActions) {
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(AppColors.Color1)
+                )
+
+                if (!githubUrl.isNullOrBlank() && onOpenGithub != null) {
+                    MyProjectActionButton(
+                        iconRes = Res.drawable.github_logo,
+                        iconSize = 20.dp,
+                        text = "GitHub",
+                        onClick = { onOpenGithub(githubUrl) }
+                    )
+                }
+
+                MyProjectActionButton(
+                    iconRes = Res.drawable.stats_tab_logo,
+                    iconSize = 22.dp,
+                    text = "Статистика проекта",
+                    onClick = { onOpenStats?.invoke() },
+                    showBottomDivider = false
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+
+        // Верхний градиент — плавно появляется при скролле вниз
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .align(Alignment.TopCenter)
+                .alpha(topFadeAlpha)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White,
+                            Color.White.copy(alpha = 0f)
+                        )
+                    )
+                )
+        )
+
+        // Нижний градиент — плавно исчезает когда дошли до конца
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .align(Alignment.BottomCenter)
+                .alpha(bottomFadeAlpha)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0f),
+                            Color.White
+                        )
+                    )
+                )
+        )
+    }
+}
+
+@Composable
+private fun MyProjectActionButton(
+    iconRes: org.jetbrains.compose.resources.DrawableResource,
+    iconSize: Dp,
+    text: String,
+    onClick: () -> Unit,
+    showBottomDivider: Boolean = true
+) {
+    val fontFamily = openSansFamily()
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "action_btn_scale"
+    )
+
+    Column(modifier = Modifier.fillMaxWidth().scale(scale)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                )
+                .padding(vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Image(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(iconSize),
+                colorFilter = ColorFilter.tint(AppColors.Color3)
+            )
+            Text(
+                text = text,
+                fontFamily = fontFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                color = AppColors.Color3
+            )
+        }
+        if (showBottomDivider) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(AppColors.Color1)
+            )
         }
     }
 }

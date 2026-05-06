@@ -722,10 +722,10 @@ private fun RankingSearchField(
             decorationBox = { innerTextField ->
                 if (searchText.isBlank()) {
                     Text(
-                        text = "Пример поиска",
+                        text = "Поиск",
                         fontFamily = AppFonts.OpenSansSemiBold,
                         fontSize = 16.sp,
-                        color = RankingGray,
+                        color = RankingLightGray,
                         letterSpacing = 0.16.sp,
                     )
                 }
