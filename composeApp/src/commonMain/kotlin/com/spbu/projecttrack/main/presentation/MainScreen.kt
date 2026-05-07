@@ -33,6 +33,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,12 +45,16 @@ import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.projects.data.model.Project
 import com.spbu.projecttrack.projects.data.model.ProjectDetail
+import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.presentation.ProjectsScreen
+import com.spbu.projecttrack.projects.presentation.components.FiltersAlert
 import com.spbu.projecttrack.projects.presentation.components.SuggestProjectButton
+import com.spbu.projecttrack.projects.presentation.components.SuggestProjectAlert
 import com.spbu.projecttrack.projects.presentation.components.SuggestProjectResultAlert
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreen
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreenContent
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailUiState
+import com.spbu.projecttrack.projects.presentation.models.ProjectFilters
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import androidx.compose.ui.backhandler.BackHandler
@@ -125,9 +131,21 @@ private fun MainScreenContent(
     val contactRequestApi = remember { DependencyContainer.provideContactRequestApi() }
     val userProfileApi = remember { DependencyContainer.provideUserProfileApi() }
     val coroutineScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var submitAlert by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showFilters by remember { mutableStateOf(false) }
+    var projectFilters by remember { mutableStateOf(ProjectFilters()) }
+    var availableProjectTags by remember { mutableStateOf<List<Tag>>(emptyList()) }
     val logTag = "SuggestProject"
     val isPreview = LocalInspectionMode.current
+    val dismissKeyboard = remember(focusManager, keyboardController) {
+        {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+            Unit
+        }
+    }
 
     // Кэш "Мой проект" — загружается один раз при смене авторизации
     var cachedMyProject by remember { mutableStateOf<Project?>(null) }
@@ -158,162 +176,178 @@ private fun MainScreenContent(
         Modifier
     }
 
-    Scaffold(
-        containerColor = Color.White, // Белый фон для Scaffold
-        bottomBar = {
-            if (showTabBar) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CustomTabBar(
-                        selectedTab = selectedTab,
-                        onTabSelected = { onTabSelected(it) }
-                    )
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        Scaffold(
+            containerColor = Color.White,
+            bottomBar = {
+                if (showTabBar) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CustomTabBar(
+                            selectedTab = selectedTab,
+                            onTabSelected = { onTabSelected(it) }
+                        )
+                    }
                 }
             }
-        }
-    ) {
-        val contentModifier = modifier
-            .fillMaxSize()
-            .then(rootTopInsetModifier)
-        Box(
-            modifier = contentModifier
         ) {
-            when (selectedTab) {
-                0 -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.White)
-                    ) {
-                        ProjectsBackgroundLogo()
+            val contentModifier = Modifier
+                .fillMaxSize()
+                .then(rootTopInsetModifier)
+            Box(
+                modifier = contentModifier
+            ) {
+                when (selectedTab) {
+                    0 -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White)
+                        ) {
+                            ProjectsBackgroundLogo()
 
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            // Заголовок + сегментный контрол
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color.White)
-                                    .padding(top = 0.dp, bottom = 0.dp),
-                                contentAlignment = Alignment.TopCenter
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "Проекты",
-                                        fontFamily = AppFonts.OpenSansBold,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 40.sp,
-                                        color = AppColors.Color3
-                                    )
-                                }
-                            }
-                            ProjectsSegmentedControl(
-                                selectedPage = projectsPagerState.currentPage,
-                                onPageSelected = { page ->
-                                    coroutineScope.launch {
-                                        projectsPagerState.animateScrollToPage(page)
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color.White)
+                                        .padding(top = 0.dp, bottom = 0.dp),
+                                    contentAlignment = Alignment.TopCenter
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "Проекты",
+                                            fontFamily = AppFonts.OpenSansBold,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 40.sp,
+                                            color = AppColors.Color3
+                                        )
                                     }
                                 }
-                            )
+                                ProjectsSegmentedControl(
+                                    selectedPage = projectsPagerState.currentPage,
+                                    onPageSelected = { page ->
+                                        dismissKeyboard()
+                                        coroutineScope.launch {
+                                            projectsPagerState.animateScrollToPage(page)
+                                        }
+                                    }
+                                )
 
-                            // Контент — HorizontalPager
-                            Box(modifier = Modifier.weight(1f)) {
-                                HorizontalPager(
-                                    state = projectsPagerState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    userScrollEnabled = true
-                                ) { page ->
-                                    when (page) {
-                                        0 -> {
-                                            if (isPreview) {
-                                                Box(modifier = Modifier.fillMaxSize())
-                                            } else {
-                                                val projectsViewModel = remember { DependencyContainer.provideProjectsViewModel() }
-                                                ProjectsScreen(
-                                                    viewModel = projectsViewModel,
-                                                    onProjectClick = onProjectDetailClick,
-                                                    showTitle = false,
-                                                    showLogo = false
+                                Box(modifier = Modifier.weight(1f)) {
+                                    HorizontalPager(
+                                        state = projectsPagerState,
+                                        modifier = Modifier.fillMaxSize(),
+                                        userScrollEnabled = true
+                                    ) { page ->
+                                        when (page) {
+                                            0 -> {
+                                                if (isPreview) {
+                                                    Box(modifier = Modifier.fillMaxSize())
+                                                } else {
+                                                    val projectsViewModel = remember { DependencyContainer.provideProjectsViewModel() }
+                                                    ProjectsScreen(
+                                                        viewModel = projectsViewModel,
+                                                        onProjectClick = onProjectDetailClick,
+                                                        showTitle = false,
+                                                        showLogo = false,
+                                                        filters = projectFilters,
+                                                        onFilterClick = { showFilters = true },
+                                                        onDismissKeyboard = dismissKeyboard,
+                                                        onAvailableTagsChange = { availableProjectTags = it }
+                                                    )
+                                                }
+                                            }
+                                            1 -> {
+                                                MyProjectPage(
+                                                    isAuthorized = isAuthorized,
+                                                    isPreview = isPreview,
+                                                    myProject = cachedMyProject,
+                                                    onProjectStatsClick = onProjectStatsClick,
+                                                    onUserStatsClick = onUserStatsClick
                                                 )
                                             }
                                         }
-                                        1 -> {
-                                            MyProjectPage(
-                                                isAuthorized = isAuthorized,
-                                                isPreview = isPreview,
-                                                myProject = cachedMyProject,
-                                                onProjectStatsClick = onProjectStatsClick,
-                                                onUserStatsClick = onUserStatsClick
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(
+                                                end = FloatingActionInset,
+                                                bottom = TabBarVisibleLift + TabBarHeight + FloatingButtonToTabBarGap
+                                            )
+                                    ) {
+                                        androidx.compose.animation.AnimatedVisibility(
+                                            visible = projectsPagerState.currentPage == 0,
+                                            enter = fadeIn(tween(200)) + scaleIn(tween(200)),
+                                            exit = fadeOut(tween(150)) + scaleOut(tween(150)),
+                                        ) {
+                                            SuggestProjectButton(
+                                                onClick = {
+                                                    dismissKeyboard()
+                                                    onShowSuggestProjectChange(true)
+                                                },
+                                                text = "Предложить проект"
                                             )
                                         }
                                     }
                                 }
-
-                                // "Предложить проект" — только на странице "Все проекты"
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(
-                                            end = FloatingActionInset,
-                                            bottom = TabBarVisibleLift + TabBarHeight + FloatingButtonToTabBarGap
-                                        )
-                                ) {
-                                    androidx.compose.animation.AnimatedVisibility(
-                                        visible = projectsPagerState.currentPage == 0,
-                                        enter = fadeIn(tween(200)) + scaleIn(tween(200)),
-                                        exit = fadeOut(tween(150)) + scaleOut(tween(150)),
-                                    ) {
-                                        SuggestProjectButton(
-                                            onClick = { onShowSuggestProjectChange(true) },
-                                            text = "Предложить проект"
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
+
+                    1 -> RankingScreen(
+                        onProjectClick = onProjectStatsClick,
+                        onStudentClick = onUserStatsClick,
+                        onRootDestinationChange = onRankingRootChange,
+                    )
+                    2 -> SettingsTabScreen(
+                        onRootDestinationChange = onSettingsRootChange
+                    )
                 }
-
-                1 -> RankingScreen(
-                    onProjectClick = onProjectStatsClick,
-                    onStudentClick = onUserStatsClick,
-                    onRootDestinationChange = onRankingRootChange,
-                )
-                2 -> SettingsTabScreen(
-                    onRootDestinationChange = onSettingsRootChange
-                )
             }
+        }
 
-            // Алерт "Предложить проект"
-            com.spbu.projecttrack.projects.presentation.components.SuggestProjectAlert(
-                isVisible = showSuggestProject,
-                onDismiss = { onShowSuggestProjectChange(false) },
-                onSubmit = { name, email ->
-                    AppLog.d(logTag, "onSubmit: nameLen=${name.length}, emailLen=${email.length}")
-                    coroutineScope.launch {
-                        val result = contactRequestApi.sendRequest(name, email)
-                        if (result.isSuccess) {
-                            AppLog.d(logTag, "Request success")
-                            submitAlert = "Заявка отправлена" to
-                                "Мы свяжемся с вами в ближайшее время."
-                        } else {
-                            AppLog.e(logTag, "Request failed")
-                            submitAlert = "Не удалось отправить заявку" to
-                                "Попробуйте позже."
-                        }
+        FiltersAlert(
+            isVisible = selectedTab == 0 && showFilters,
+            onDismiss = { showFilters = false },
+            tags = availableProjectTags,
+            filters = projectFilters,
+            onFiltersChange = { projectFilters = it }
+        )
+
+        SuggestProjectAlert(
+            isVisible = showSuggestProject,
+            onDismiss = { onShowSuggestProjectChange(false) },
+            onSubmit = { name, email ->
+                AppLog.d(logTag, "onSubmit: nameLen=${name.length}, emailLen=${email.length}")
+                coroutineScope.launch {
+                    val result = contactRequestApi.sendRequest(name, email)
+                    if (result.isSuccess) {
+                        AppLog.d(logTag, "Request success")
+                        submitAlert = "Заявка отправлена" to
+                            "Мы свяжемся с вами в ближайшее время."
+                    } else {
+                        AppLog.e(logTag, "Request failed")
+                        submitAlert = "Не удалось отправить заявку" to
+                            "Попробуйте позже."
                     }
                 }
-            )
-        }
-    }
+            }
+        )
 
-    SuggestProjectResultAlert(
-        isVisible = submitAlert != null,
-        title = submitAlert?.first ?: "",
-        message = submitAlert?.second ?: "",
-        onDismiss = { submitAlert = null }
-    )
+        SuggestProjectResultAlert(
+            isVisible = submitAlert != null,
+            title = submitAlert?.first ?: "",
+            message = submitAlert?.second ?: "",
+            onDismiss = { submitAlert = null }
+        )
+    }
 }
 
 private fun Project.toProjectDetail(): ProjectDetail {

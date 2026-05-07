@@ -1,25 +1,26 @@
 package com.spbu.projecttrack.rating.presentation.projectstats
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -36,9 +37,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -58,11 +62,27 @@ import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.arrow_back
 import projecttrack.composeapp.generated.resources.stats_dropdown_chevron
+import androidx.compose.runtime.withFrameNanos
 
 private val CalendarDialogShape = RoundedCornerShape(16.dp)
-private val CalendarRangeFill = AppColors.Color3.copy(alpha = 0.18f)
+private val CalendarRangeFill = AppColors.Color3
+private val CalendarControlPressedFill = AppColors.Color3.copy(alpha = 0.08f)
+private val CalendarActionPressedFill = AppColors.Color3.copy(alpha = 0.12f)
 private val CalendarOnBackground = Color(0xFF1D1B20)
 private val CalendarMutedText = CalendarOnBackground.copy(alpha = 0.38f)
+private val CalendarGridHorizontalPadding = 12.dp
+private val CalendarDayCellSize = 48.dp
+private val CalendarDayCircleSize = 40.dp
+private val CalendarRangeTrackHeight = CalendarDayCircleSize
+private val CalendarInnerTrackOverlap = 2.dp
+private val CalendarEdgeTrackBleed = 2.dp
+private const val CalendarDialogAnimationDurationMs = 220L
+private const val CalendarDialogBackdropMaxAlpha = 0.16f
+
+private data class CalendarPressState(
+    val scale: Float,
+    val alpha: Float,
+)
 
 private data class StatsCalendarDayUi(
     val date: LocalDate,
@@ -98,49 +118,64 @@ internal fun StatsDateRangePickerDialog(
     val weeks = remember(displayedMonth) { buildCalendarWeeks(displayedMonth) }
 
     val coroutineScope = rememberCoroutineScope()
-    var panelVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { panelVisible = true }
+    var contentVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        contentVisible = false
+        withFrameNanos { }
+        contentVisible = true
+    }
 
-    fun finishDismiss() {
-        panelVisible = false
+    fun dismissWithAnimation() {
+        if (!contentVisible) return
+        contentVisible = false
         coroutineScope.launch {
-            delay(220)
+            delay(CalendarDialogAnimationDurationMs)
             onDismiss()
         }
     }
 
-    val dimAlpha by animateFloatAsState(
-        targetValue = if (panelVisible) 0.16f else 0f,
-        animationSpec = tween(200),
-        label = "statsCalendarDim",
+    val backdropAlpha by animateFloatAsState(
+        targetValue = if (contentVisible) 1f else 0f,
+        animationSpec = tween(CalendarDialogAnimationDurationMs.toInt()),
+        label = "stats_calendar_backdrop_alpha",
+    )
+    val panelAlpha by animateFloatAsState(
+        targetValue = if (contentVisible) 1f else 0f,
+        animationSpec = tween(CalendarDialogAnimationDurationMs.toInt()),
+        label = "stats_calendar_panel_alpha",
+    )
+    val panelScale by animateFloatAsState(
+        targetValue = if (contentVisible) 1f else 0.94f,
+        animationSpec = tween(CalendarDialogAnimationDurationMs.toInt()),
+        label = "stats_calendar_panel_scale",
     )
 
     Dialog(
-        onDismissRequest = { finishDismiss() },
+        onDismissRequest = ::dismissWithAnimation,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         val backdropInteraction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = dimAlpha))
+                .background(Color.Black.copy(alpha = CalendarDialogBackdropMaxAlpha * backdropAlpha))
                 .clickable(
                     indication = null,
                     interactionSource = backdropInteraction,
-                    onClick = { finishDismiss() },
+                    onClick = ::dismissWithAnimation,
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            AnimatedVisibility(
-                visible = panelVisible,
-                enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.94f, animationSpec = tween(200)),
-                exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.97f, animationSpec = tween(180)),
-            ) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 26.dp)
-                    .widthIn(max = 360.dp),
+                    .widthIn(max = 360.dp)
+                    .graphicsLayer {
+                        alpha = panelAlpha
+                        scaleX = panelScale
+                        scaleY = panelScale
+                    },
                 shape = CalendarDialogShape,
                 color = Color.White,
                 shadowElevation = 6.dp,
@@ -191,35 +226,26 @@ internal fun StatsDateRangePickerDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
                             .padding(bottom = 4.dp),
                     ) {
                         CalendarWeekHeader()
                         weeks.forEach { week ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                week.forEach { day ->
-                                    CalendarDayCell(
-                                        day = day,
-                                        selectedStart = selectedStart,
-                                        selectedEnd = selectedEnd,
-                                        onClick = { clickedDate ->
-                                            when {
-                                                selectedStart != selectedEnd -> {
-                                                    selectedStart = clickedDate
-                                                    selectedEnd = clickedDate
-                                                }
+                            CalendarWeekRow(
+                                week = week,
+                                selectedStart = selectedStart,
+                                selectedEnd = selectedEnd,
+                                onDateClick = { clickedDate ->
+                                    when {
+                                        selectedStart != selectedEnd -> {
+                                            selectedStart = clickedDate
+                                            selectedEnd = clickedDate
+                                        }
 
-                                                clickedDate < selectedStart -> selectedStart = clickedDate
-                                                else -> selectedEnd = clickedDate
-                                            }
-                                        },
-                                        modifier = Modifier.size(48.dp),
-                                    )
-                                }
-                            }
+                                        clickedDate < selectedStart -> selectedStart = clickedDate
+                                        else -> selectedEnd = clickedDate
+                                    }
+                                },
+                            )
                         }
                     }
 
@@ -230,36 +256,21 @@ internal fun StatsDateRangePickerDialog(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
+                        CalendarActionTextButton(
                             text = "Cancel",
-                            fontFamily = AppFonts.OpenSansMedium,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            letterSpacing = 0.1.sp,
-                            color = Color.Black,
-                            modifier = Modifier
-                                .clickable(onClick = { finishDismiss() })
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            onClick = ::dismissWithAnimation,
                         )
-                        Text(
+                        CalendarActionTextButton(
                             text = "OK",
-                            fontFamily = AppFonts.OpenSansMedium,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            letterSpacing = 0.1.sp,
-                            color = Color.Black,
-                            modifier = Modifier
-                                .clickable {
-                                    val start = minOf(selectedStart, selectedEnd)
-                                    val end = maxOf(selectedStart, selectedEnd)
-                                    onConfirm(start.toIsoDateString(), end.toIsoDateString())
-                                    finishDismiss()
-                                }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            onClick = {
+                                val start = minOf(selectedStart, selectedEnd)
+                                val end = maxOf(selectedStart, selectedEnd)
+                                onConfirm(start.toIsoDateString(), end.toIsoDateString())
+                                dismissWithAnimation()
+                            },
                         )
                     }
                 }
-            }
             }
         }
     }
@@ -279,6 +290,18 @@ private fun CalendarSelectionControl(
     var anchorSize by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
     val menuWidth = with(density) { anchorSize.width.toDp() }.coerceAtLeast(96.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressState = rememberCalendarPressState(
+        interactionSource = interactionSource,
+        pressedScale = 0.97f,
+        pressedAlpha = 0.94f,
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = if (expanded || isPressed) CalendarControlPressedFill else Color.Transparent,
+        animationSpec = tween(180),
+        label = "calendar_selection_background",
+    )
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 700f),
@@ -297,7 +320,13 @@ private fun CalendarSelectionControl(
         Box(
             modifier = Modifier
                 .onSizeChanged { anchorSize = it }
-                .clickable { onExpandedChange(!expanded) }
+                .scale(pressState.scale)
+                .alpha(pressState.alpha)
+                .background(backgroundColor, RoundedCornerShape(10.dp))
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                ) { onExpandedChange(!expanded) }
                 .padding(start = 8.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -349,10 +378,33 @@ private fun CalendarNavigationButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressState = rememberCalendarPressState(
+        interactionSource = interactionSource,
+        pressedScale = 0.92f,
+        pressedAlpha = 0.88f,
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isPressed) {
+            CalendarControlPressedFill
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(140),
+        label = "calendar_nav_background",
+    )
     Box(
         modifier = modifier
             .size(48.dp)
-            .clickable(onClick = onClick),
+            .scale(pressState.scale)
+            .alpha(pressState.alpha)
+            .background(backgroundColor, CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Image(
@@ -369,12 +421,16 @@ private fun CalendarNavigationButton(
 @Composable
 private fun CalendarWeekHeader() {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = CalendarGridHorizontalPadding),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         listOf("Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб").forEach { label ->
             Box(
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(CalendarDayCellSize),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -385,6 +441,118 @@ private fun CalendarWeekHeader() {
                     letterSpacing = 0.5.sp,
                     color = CalendarOnBackground,
                     textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarWeekRow(
+    week: List<StatsCalendarDayUi>,
+    selectedStart: LocalDate,
+    selectedEnd: LocalDate,
+    onDateClick: (LocalDate) -> Unit,
+) {
+    val rangeStart = minOf(selectedStart, selectedEnd)
+    val rangeEnd = maxOf(selectedStart, selectedEnd)
+    var trackVisible by remember(week, rangeStart, rangeEnd) { mutableStateOf(false) }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(CalendarDayCellSize),
+    ) {
+        val rowWidth = maxWidth
+        val contentWidth = rowWidth - CalendarGridHorizontalPadding * 2
+        val cellWidth = contentWidth / 7
+        val rangeIndices = week.mapIndexedNotNull { index, day ->
+            if (day.date >= rangeStart && day.date <= rangeEnd) index else null
+        }
+        val shouldDrawTrack = rangeIndices.isNotEmpty() && rangeStart != rangeEnd
+
+        LaunchedEffect(shouldDrawTrack, rangeStart, rangeEnd, week) {
+            if (!shouldDrawTrack) {
+                trackVisible = false
+            } else {
+                trackVisible = false
+                withFrameNanos { }
+                trackVisible = true
+            }
+        }
+
+        if (shouldDrawTrack) {
+            val firstIndex = rangeIndices.first()
+            val lastIndex = rangeIndices.last()
+            val firstDate = week[firstIndex].date
+            val lastDate = week[lastIndex].date
+            val startsWithSelectedDate = firstDate == rangeStart
+            val endsWithSelectedDate = lastDate == rangeEnd
+            val leadingOverflow = if (!startsWithSelectedDate && firstIndex == 0) {
+                CalendarGridHorizontalPadding + CalendarEdgeTrackBleed
+            } else {
+                0.dp
+            }
+            val trailingOverflow = if (!endsWithSelectedDate && lastIndex == week.lastIndex) {
+                CalendarGridHorizontalPadding + CalendarEdgeTrackBleed
+            } else {
+                0.dp
+            }
+            val trackStart = if (startsWithSelectedDate) {
+                CalendarGridHorizontalPadding + cellWidth * firstIndex + cellWidth / 2
+            } else if (firstIndex == 0) {
+                0.dp - CalendarEdgeTrackBleed
+            } else {
+                CalendarGridHorizontalPadding + cellWidth * firstIndex - leadingOverflow
+            }
+            val trackEnd = if (endsWithSelectedDate) {
+                CalendarGridHorizontalPadding + cellWidth * lastIndex + cellWidth / 2
+            } else if (lastIndex == week.lastIndex) {
+                rowWidth + CalendarEdgeTrackBleed
+            } else {
+                CalendarGridHorizontalPadding + cellWidth * (lastIndex + 1) + trailingOverflow
+            }
+            val targetTrackWidth = trackEnd - trackStart
+            val animatedTrackWidth by animateDpAsState(
+                targetValue = if (trackVisible) targetTrackWidth else 0.dp,
+                animationSpec = tween(durationMillis = 220),
+                label = "calendar_range_track_width",
+            )
+            val trackAlpha by animateFloatAsState(
+                targetValue = if (trackVisible) 1f else 0f,
+                animationSpec = tween(durationMillis = 160),
+                label = "calendar_range_track_alpha",
+            )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = trackStart)
+                    .alpha(trackAlpha)
+                    .requiredWidth(animatedTrackWidth)
+                    .height(CalendarRangeTrackHeight)
+                    .background(
+                        color = CalendarRangeFill,
+                        shape = RoundedCornerShape(0.dp),
+                    ),
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = CalendarGridHorizontalPadding),
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            week.forEach { day ->
+                CalendarDayCell(
+                    day = day,
+                    selectedStart = selectedStart,
+                    selectedEnd = selectedEnd,
+                    onClick = onDateClick,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(CalendarDayCellSize),
                 )
             }
         }
@@ -406,54 +574,118 @@ private fun CalendarDayCell(
     val isSingle = rangeStart == rangeEnd && isStart
     val isBetween = day.date > rangeStart && day.date < rangeEnd
     val inRange = isSingle || isStart || isEnd || isBetween
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressState = rememberCalendarPressState(
+        interactionSource = interactionSource,
+        pressedScale = 0.93f,
+        pressedAlpha = 0.96f,
+    )
 
     Box(
-        modifier = modifier.clickable { onClick(day.date) },
+        modifier = modifier
+            .scale(pressState.scale)
+            .alpha(pressState.alpha)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+            ) { onClick(day.date) },
         contentAlignment = Alignment.Center,
     ) {
-        if (inRange && !isSingle) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp)
-                    .padding(
-                        start = if (isStart) 20.dp else 0.dp,
-                        end = if (isEnd) 20.dp else 0.dp,
-                    )
-                    .background(
-                        color = CalendarRangeFill,
-                        shape = when {
-                            isStart -> RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp)
-                            isEnd -> RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
-                            else -> RoundedCornerShape(0.dp)
-                        },
-                    ),
-            )
-        }
-
         Box(
             modifier = Modifier
-                .size(40.dp)
-                .background(
-                    color = if (isStart || isEnd) AppColors.Color3 else Color.Transparent,
-                    shape = CircleShape,
-                ),
+                .fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = day.date.dayOfMonth.toString(),
-                fontFamily = AppFonts.OpenSansRegular,
-                fontSize = 16.sp,
-                lineHeight = 24.sp,
-                letterSpacing = 0.5.sp,
-                color = when {
-                    isStart || isEnd -> Color.White
-                    day.inCurrentMonth -> CalendarOnBackground
-                    else -> CalendarMutedText
-                },
-            )
+            Box(
+                modifier = Modifier
+                    .size(CalendarDayCircleSize)
+                    .background(
+                        color = if (isStart || isEnd) AppColors.Color3 else Color.Transparent,
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = day.date.dayOfMonth.toString(),
+                    fontFamily = AppFonts.OpenSansRegular,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                    letterSpacing = 0.5.sp,
+                    color = when {
+                        inRange -> Color.White
+                        day.inCurrentMonth -> CalendarOnBackground
+                        else -> CalendarMutedText
+                    },
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun CalendarActionTextButton(
+    text: String,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressState = rememberCalendarPressState(
+        interactionSource = interactionSource,
+        pressedScale = 0.94f,
+        pressedAlpha = 0.9f,
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isPressed) {
+            CalendarActionPressedFill
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(140),
+        label = "calendar_action_button_background",
+    )
+
+    Box(
+        modifier = Modifier
+            .scale(pressState.scale)
+            .alpha(pressState.alpha)
+            .background(backgroundColor, RoundedCornerShape(10.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            fontFamily = AppFonts.OpenSansMedium,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            letterSpacing = 0.1.sp,
+            color = Color.Black,
+        )
+    }
+}
+
+@Composable
+private fun rememberCalendarPressState(
+    interactionSource: MutableInteractionSource,
+    pressedScale: Float,
+    pressedAlpha: Float,
+): CalendarPressState {
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) pressedScale else 1f,
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = 760f),
+        label = "calendar_button_scale",
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (isPressed) pressedAlpha else 1f,
+        animationSpec = tween(130),
+        label = "calendar_button_alpha",
+    )
+    return remember(scale, alpha) { CalendarPressState(scale = scale, alpha = alpha) }
 }
 
 private fun buildCalendarWeeks(month: LocalDate): List<List<StatsCalendarDayUi>> {

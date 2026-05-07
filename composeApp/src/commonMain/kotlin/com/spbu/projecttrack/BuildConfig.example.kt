@@ -26,6 +26,12 @@ object BuildConfigExample {
      * URL продакшн API
      */
     const val PRODUCTION_BASE_URL = "https://citec.spb.ru/api"
+
+    /**
+     * URL веб-хоста для auth proxy.
+     * Пример: https://citec.spb.ru/auth
+     */
+    const val AUTH_PRODUCTION_BASE_URL = "https://citec.spb.ru/auth"
     
     /**
      * Порт локального API
@@ -33,7 +39,14 @@ object BuildConfigExample {
     const val LOCAL_PORT = 8000
 
     /**
+     * Порт локального web-хоста, через который проксируется /auth.
+     */
+    const val AUTH_LOCAL_PORT = 3000
+
+    /**
      * IP адрес машины разработчика в локальной сети для реальных устройств.
+     * Для GitHub OAuth локальный auth host должен совпадать с callback host,
+     * поэтому для auth лучше указывать реальный LAN IP, а не 10.0.2.2.
      * Оставьте пустым, если хотите полагаться только на ручную настройку через NetworkDebugScreen.
      */
     const val LOCAL_HOST_IP = ""
@@ -47,6 +60,11 @@ object BuildConfigExample {
      * Порт локального API для метрик
      */
     const val METRIC_LOCAL_PORT = 4173
+
+    /**
+     * Deep link, в который auth backend возвращает мобильное приложение.
+     */
+    const val MOBILE_AUTH_REDIRECT_URL = "itclinicapp://auth/callback"
     
     /**
      * GitHub OAuth Client ID (если используется)

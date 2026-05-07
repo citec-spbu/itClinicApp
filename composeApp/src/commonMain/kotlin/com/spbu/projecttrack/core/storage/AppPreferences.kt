@@ -5,6 +5,8 @@ interface AppPreferences {
     fun setOnboardingCompleted()
     fun getAccessToken(): String?
     fun saveAccessToken(token: String)
+    fun getRefreshToken(): String?
+    fun saveRefreshToken(token: String)
     fun clearTokens()
     fun getCustomHostIP(): String?
     fun saveCustomHostIP(ip: String)

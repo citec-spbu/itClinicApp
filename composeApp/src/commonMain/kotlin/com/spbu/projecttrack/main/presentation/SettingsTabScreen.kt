@@ -76,6 +76,7 @@ import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.di.DependencyContainer
 import com.spbu.projecttrack.core.email.FeedbackMailPayload
 import com.spbu.projecttrack.core.email.FeedbackMailSender
+import com.spbu.projecttrack.core.platform.openExternalUrl
 import com.spbu.projecttrack.core.settings.AppLanguage
 import com.spbu.projecttrack.core.settings.AppThemeMode
 import com.spbu.projecttrack.core.settings.LocalAppStrings
@@ -127,6 +128,7 @@ fun SettingsTabScreen(
     val settingsController = LocalAppUiSettingsController.current
     val preferences = remember { createAppPreferences() }
     val userProfileApi = remember { DependencyContainer.provideUserProfileApi() }
+    val mobileAuthApi = remember { DependencyContainer.provideMobileAuthApi() }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val isAuthorized by AuthManager.isAuthorized.collectAsState(initial = false)
@@ -225,10 +227,7 @@ fun SettingsTabScreen(
                     }
                 },
                 onLoginClick = {
-                    AuthManager.setTestToken()
-                    scope.launch {
-                        snackbarHostState.showSnackbar(strings.loginSuccessMessage)
-                    }
+                    openExternalUrl(mobileAuthApi.loginUrl)
                 },
             )
 
@@ -397,8 +396,12 @@ fun SettingsTabScreen(
                 onDismiss = { showLogoutDialog = false },
                 onConfirm = {
                     showLogoutDialog = false
-                    AuthManager.clearToken()
-                    destination = SettingsDestination.Home
+                    scope.launch {
+                        DependencyContainer.provideMobileAuthApi().logout()
+                        preferences.clearTokens()
+                        AuthManager.clearToken()
+                        destination = SettingsDestination.Home
+                    }
                 },
             )
         }

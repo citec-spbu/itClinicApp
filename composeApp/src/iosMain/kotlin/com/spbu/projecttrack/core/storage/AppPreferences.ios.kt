@@ -21,6 +21,14 @@ class AppPreferencesImpl : AppPreferences {
     override fun saveAccessToken(token: String) {
         userDefaults.setObject(token, KEY_ACCESS_TOKEN)
     }
+
+    override fun getRefreshToken(): String? {
+        return userDefaults.stringForKey(KEY_REFRESH_TOKEN)
+    }
+
+    override fun saveRefreshToken(token: String) {
+        userDefaults.setObject(token, KEY_REFRESH_TOKEN)
+    }
     
     override fun clearTokens() {
         userDefaults.removeObjectForKey(KEY_ACCESS_TOKEN)

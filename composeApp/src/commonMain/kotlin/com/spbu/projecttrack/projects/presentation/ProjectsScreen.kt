@@ -14,6 +14,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -39,7 +40,6 @@ import projecttrack.composeapp.generated.resources.*
 import com.spbu.projecttrack.projects.data.model.Project
 import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.presentation.components.SearchBar
-import com.spbu.projecttrack.projects.presentation.components.FiltersAlert
 import com.spbu.projecttrack.projects.presentation.models.ProjectFilters
 import com.spbu.projecttrack.core.theme.AppColors
 import androidx.compose.foundation.rememberScrollState
@@ -173,12 +173,14 @@ fun ProjectsScreen(
     onProjectClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
-    showLogo: Boolean = true
+    showLogo: Boolean = true,
+    filters: ProjectFilters = ProjectFilters(),
+    onFilterClick: () -> Unit = {},
+    onDismissKeyboard: () -> Unit = {},
+    onAvailableTagsChange: (List<Tag>) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var searchText by remember { mutableStateOf("") }
-    var showFilters by remember { mutableStateOf(false) }
-    var filters by remember { mutableStateOf(ProjectFilters()) }
     val hasActiveFilters = filters.hasActiveFilters()
     val isAuthorized by com.spbu.projecttrack.core.auth.AuthManager.isAuthorized.collectAsState(initial = false)
     val focusManager = LocalFocusManager.current
@@ -267,7 +269,10 @@ fun ProjectsScreen(
                 SearchBar(
                     searchText = searchText,
                     onSearchTextChange = { searchText = it },
-                    onFilterClick = { showFilters = true },
+                    onFilterClick = {
+                        onDismissKeyboard()
+                        onFilterClick()
+                    },
                     hasActiveFilters = hasActiveFilters,
                     onFocusChange = { focused -> isSearchFocused = focused },
                     modifier = Modifier.fillMaxWidth()
@@ -281,6 +286,9 @@ fun ProjectsScreen(
                         LoadingContent()
                     }
                     is ProjectsUiState.Success -> {
+                        LaunchedEffect(state.tags) {
+                            onAvailableTagsChange(state.tags)
+                        }
                         val projectsByFilters = applyProjectFilters(state.projects, filters)
                         val filteredProjects = searchProjects(projectsByFilters, searchText)
 
@@ -333,17 +341,6 @@ fun ProjectsScreen(
                     )
                 )
         )
-        
-        // FiltersAlert
-        if (uiState is ProjectsUiState.Success) {
-            FiltersAlert(
-                isVisible = showFilters,
-                onDismiss = { showFilters = false },
-                tags = (uiState as ProjectsUiState.Success).tags,
-                filters = filters,
-                onFiltersChange = { filters = it }
-            )
-        }
     }
 }
 

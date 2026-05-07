@@ -1,13 +1,7 @@
 package com.spbu.projecttrack.projects.presentation.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -20,15 +14,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -42,23 +33,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.core.time.PlatformTime
@@ -66,7 +56,6 @@ import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.presentation.models.ProjectFilters
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsDateRangePickerDialog
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -77,7 +66,6 @@ import projecttrack.composeapp.generated.resources.close_icon
 import projecttrack.composeapp.generated.resources.spbu_logo
 import projecttrack.composeapp.generated.resources.stats_dropdown_chevron
 
-private const val FiltersAlertExitDurationMs = 180L
 private val FiltersAlertShape = RoundedCornerShape(20.dp)
 private val FiltersFieldShape = RoundedCornerShape(10.dp)
 private val FiltersActionChipShape = RoundedCornerShape(15.dp)
@@ -86,7 +74,6 @@ private val FiltersDropdownShape = RoundedCornerShape(10.dp)
 private val FiltersDropdownItemShape = RoundedCornerShape(7.dp)
 private val FiltersDropdownBorder = Color(0xFFE4E4E7)
 private val FiltersDropdownSelectedRow = AppColors.Color3.copy(alpha = 0.08f)
-private val FiltersDimColor = Color.Black
 
 @Composable
 fun FiltersAlert(
@@ -97,158 +84,94 @@ fun FiltersAlert(
     onFiltersChange: (ProjectFilters) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var renderDialog by remember { mutableStateOf(false) }
-    var panelVisible by remember { mutableStateOf(false) }
     var showTagsMenu by remember { mutableStateOf(false) }
     var showEnrollmentCalendar by remember { mutableStateOf(false) }
     var showProjectCalendar by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
-    val dimAlpha by animateFloatAsState(
-        targetValue = if (panelVisible) 0.18f else 0f,
-        animationSpec = tween(220),
-        label = "filters_dim_alpha"
-    )
-
     LaunchedEffect(isVisible) {
-        if (isVisible) {
-            renderDialog = true
-            panelVisible = true
-        } else if (renderDialog) {
-            panelVisible = false
-            delay(FiltersAlertExitDurationMs)
-            renderDialog = false
+        if (!isVisible) {
+            delay(ProjectOverlayDialogAnimationDurationMs)
             showTagsMenu = false
         }
     }
 
-    fun dismissWithAnimation() {
-        if (!panelVisible) return
-        panelVisible = false
-        showTagsMenu = false
-        coroutineScope.launch {
-            delay(FiltersAlertExitDurationMs)
+    ProjectOverlayDialog(
+        isVisible = isVisible,
+        onDismiss = {
+            showTagsMenu = false
             onDismiss()
+        },
+        modifier = modifier,
+        maxWidth = 350.dp,
+        shape = FiltersAlertShape,
+        borderColor = AppColors.Color1,
+        containerColor = AppColors.White,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+        backgroundContent = {
+            Image(
+                painter = painterResource(Res.drawable.spbu_logo),
+                contentDescription = null,
+                modifier = Modifier
+                    .matchParentSize()
+                    .alpha(1.0f),
+                alignment = Alignment.Center,
+                contentScale = ContentScale.FillWidth
+            )
         }
-    }
-
-    if (!renderDialog) return
-
-    Dialog(
-        onDismissRequest = ::dismissWithAnimation,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        val backdropInteraction = remember { MutableInteractionSource() }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(FiltersDimColor.copy(alpha = dimAlpha))
-                .clickable(
-                    interactionSource = backdropInteraction,
-                    indication = null,
-                    onClick = ::dismissWithAnimation
-                ),
-            contentAlignment = Alignment.Center
+    ) { dismiss ->
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            AnimatedVisibility(
-                visible = panelVisible,
-                enter = fadeIn(animationSpec = tween(220)) + scaleIn(
-                    initialScale = 0.94f,
-                    animationSpec = tween(220)
-                ),
-                exit = fadeOut(animationSpec = tween(FiltersAlertExitDurationMs.toInt())) + scaleOut(
-                    targetScale = 0.97f,
-                    animationSpec = tween(FiltersAlertExitDurationMs.toInt())
-                )
-            ) {
-                Box(
-                    modifier = modifier
-                        .width(350.dp)
-                        .widthIn(max = 350.dp)
-                        .wrapContentHeight()
-                        .background(
-                            color = AppColors.White,
-                            shape = FiltersAlertShape
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = AppColors.Color1,
-                            shape = FiltersAlertShape
-                        )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        )
-                ) {
-                    Image(
-                        painter = painterResource(Res.drawable.spbu_logo),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.Center)
-                            .alpha(0.06f),
-                        contentScale = ContentScale.FillWidth
-                    )
+            FiltersAlertHeader(onClose = dismiss)
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        FiltersAlertHeader(onClose = ::dismissWithAnimation)
-
-                        TagsFilterSection(
-                            tags = tags,
-                            selectedTags = filters.selectedTags,
-                            expanded = showTagsMenu,
-                            onExpandedChange = { showTagsMenu = it },
-                            onTagsChange = { newTags ->
-                                onFiltersChange(filters.copy(selectedTags = newTags))
-                            }
-                        )
-
-                        FilterDateSection(
-                            title = "Срок записи на проект",
-                            startDate = filters.enrollmentStartDate,
-                            endDate = filters.enrollmentEndDate,
-                            onClear = {
-                                onFiltersChange(
-                                    filters.copy(
-                                        enrollmentStartDate = null,
-                                        enrollmentEndDate = null
-                                    )
-                                )
-                            },
-                            onClick = { showEnrollmentCalendar = true }
-                        )
-
-                        FilterDateSection(
-                            title = "Срок реализации",
-                            startDate = filters.projectStartDate,
-                            endDate = filters.projectEndDate,
-                            onClear = {
-                                onFiltersChange(
-                                    filters.copy(
-                                        projectStartDate = null,
-                                        projectEndDate = null
-                                    )
-                                )
-                            },
-                            onClick = { showProjectCalendar = true }
-                        )
-
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            ClearAllButton(onClick = {
-                                showTagsMenu = false
-                                onFiltersChange(filters.clear())
-                            })
-                        }
-                    }
+            TagsFilterSection(
+                tags = tags,
+                selectedTags = filters.selectedTags,
+                expanded = showTagsMenu,
+                onExpandedChange = { showTagsMenu = it },
+                onTagsChange = { newTags ->
+                    onFiltersChange(filters.copy(selectedTags = newTags))
                 }
+            )
+
+            FilterDateSection(
+                title = "Срок записи на проект",
+                startDate = filters.enrollmentStartDate,
+                endDate = filters.enrollmentEndDate,
+                onClear = {
+                    onFiltersChange(
+                        filters.copy(
+                            enrollmentStartDate = null,
+                            enrollmentEndDate = null
+                        )
+                    )
+                },
+                onClick = { showEnrollmentCalendar = true }
+            )
+
+            FilterDateSection(
+                title = "Срок реализации",
+                startDate = filters.projectStartDate,
+                endDate = filters.projectEndDate,
+                onClear = {
+                    onFiltersChange(
+                        filters.copy(
+                            projectStartDate = null,
+                            projectEndDate = null
+                        )
+                    )
+                },
+                onClick = { showProjectCalendar = true }
+            )
+
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                ClearAllButton(onClick = {
+                    showTagsMenu = false
+                    onFiltersChange(filters.clear())
+                })
             }
         }
     }
@@ -362,7 +285,7 @@ private fun TagsFilterSection(
                 shadowElevation = 14.dp,
                 border = BorderStroke(1.dp, FiltersDropdownBorder),
                 modifier = Modifier
-                    .width(300.dp)
+                    .fillMaxWidth()
                     .heightIn(max = 260.dp)
             ) {
                 Column(
@@ -447,8 +370,8 @@ private fun TagSelectionField(
 
     Row(
         modifier = Modifier
-            .width(200.dp)
-            .height(30.dp)
+            .fillMaxWidth()
+            .height(46.dp)
             .scale(scale)
             .background(
                 color = AppColors.White,
@@ -476,7 +399,7 @@ private fun TagSelectionField(
             },
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 12.sp,
-            lineHeight = 10.sp,
+            lineHeight = 14.sp,
             color = if (selectedNames.isEmpty()) AppColors.Color1 else AppColors.Color2,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -525,7 +448,7 @@ private fun FilterSectionHeader(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -537,6 +460,7 @@ private fun FilterSectionHeader(
 
         if (showClear) {
             FilterActionChip(
+                modifier = Modifier.align(Alignment.CenterVertically),
                 text = "Очистить",
                 shape = FiltersActionChipShape,
                 textSize = 10.sp,
@@ -564,8 +488,8 @@ private fun DateRangeField(
 
     Row(
         modifier = Modifier
-            .width(200.dp)
-            .height(30.dp)
+            .fillMaxWidth()
+            .height(46.dp)
             .scale(scale)
             .background(
                 color = AppColors.White,
@@ -589,7 +513,7 @@ private fun DateRangeField(
             text = formatFilterDateRangeDisplay(startDate, endDate),
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 12.sp,
-            lineHeight = 10.sp,
+            lineHeight = 14.sp,
             color = if (startDate != null || endDate != null) AppColors.Color2 else AppColors.Color1,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -609,17 +533,19 @@ private fun ClearAllButton(
     onClick: () -> Unit
 ) {
     FilterActionChip(
+        modifier = Modifier.height(30.dp),
         text = "Очистить все",
         shape = FiltersClearAllShape,
         textSize = 15.sp,
         horizontalPadding = 15.dp,
-        verticalPadding = 10.dp,
+        verticalPadding = 0.dp,
         onClick = onClick
     )
 }
 
 @Composable
 private fun FilterActionChip(
+    modifier: Modifier = Modifier,
     text: String,
     shape: RoundedCornerShape,
     textSize: androidx.compose.ui.unit.TextUnit,
@@ -636,32 +562,46 @@ private fun FilterActionChip(
     )
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .scale(scale)
+            .dropShadow(
+                shape = shape,
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.07f),
+                    offset = DpOffset(0.dp, 2.dp),
+                    radius = 4.dp
+                )
+            )
             .background(
-                color = AppColors.Color3,
+                color = Color(0xFF9F2D20),
                 shape = shape
             )
             .border(
                 width = 1.dp,
-                color = AppColors.BorderColor,
+                color = Color(0xFFCF3F2F),
                 shape = shape
             )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
-            )
-            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            fontFamily = AppFonts.OpenSansSemiBold,
-            fontSize = textSize,
-            color = AppColors.White,
-            textAlign = TextAlign.Center
-        )
+        Box(
+            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                fontFamily = AppFonts.OpenSansSemiBold,
+                fontSize = textSize,
+                lineHeight = textSize,
+                letterSpacing = 0.1.sp,
+                color = AppColors.White,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
