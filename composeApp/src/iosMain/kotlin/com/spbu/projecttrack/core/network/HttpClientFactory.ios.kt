@@ -5,6 +5,7 @@ import io.ktor.client.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.logging.*
+import io.ktor.client.plugins.cookies.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 
@@ -30,11 +31,14 @@ actual object HttpClientFactory {
                 logger = Logger.DEFAULT
                 level = LogLevel.INFO
             }
+
+            install(HttpCookies) {
+                storage = AcceptAllCookiesStorage()
+            }
             
             // Автоматическое добавление токена авторизации
             install(AuthInterceptor)
         }
     }
 }
-
 

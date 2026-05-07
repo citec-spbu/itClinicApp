@@ -36,6 +36,8 @@ data class Project(
     val tags: List<Int>? = null,
     val client: String? = null, // Заказчик
     val links: List<ProjectLink> = emptyList(),
+    val teams: List<Int>? = null,
+    val teamLimit: Int? = null,
 )
 
 @Serializable

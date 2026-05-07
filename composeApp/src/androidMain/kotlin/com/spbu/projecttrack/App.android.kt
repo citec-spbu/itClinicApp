@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import com.spbu.projecttrack.core.auth.AuthDeepLinkBridge
 import com.spbu.projecttrack.core.auth.AuthManager
+import com.spbu.projecttrack.core.auth.MobileAuthSession
 import com.spbu.projecttrack.core.di.DependencyContainer
 import com.spbu.projecttrack.core.network.NetworkSettings
-import com.spbu.projecttrack.core.platform.isDebugBuild
+import com.spbu.projecttrack.core.platform.openExternalUrl
 import com.spbu.projecttrack.core.settings.AppLanguage
 import com.spbu.projecttrack.core.settings.AppThemeMode
 import com.spbu.projecttrack.core.settings.AppUiSettingsController
@@ -35,6 +37,7 @@ import com.spbu.projecttrack.onboarding.presentation.OnboardingScreen
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreen
 import com.spbu.projecttrack.rating.presentation.projectstats.ProjectStatsScreen
 import com.spbu.projecttrack.rating.presentation.userstats.UserStatsScreen
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 sealed class Screen {
@@ -53,9 +56,9 @@ sealed class Screen {
 actual fun App() {
     val context = LocalContext.current
     val preferences = remember { createAppPreferences() }
+    val mobileAuthApi = remember { DependencyContainer.provideMobileAuthApi() }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val debugBuild = isDebugBuild()
     val customHostIp by NetworkSettings.customHostIP.collectAsState()
     val authToken by AuthManager.authToken.collectAsState()
     val storedCustomHostIp = remember { preferences.getCustomHostIP() }
@@ -67,18 +70,60 @@ actual fun App() {
     }
     val strings = appStrings(appLanguage)
     var authBootstrapComplete by remember { mutableStateOf(false) }
+    var isOnboardingVisible by remember {
+        mutableStateOf(true)
+    }
+    var lastProcessedAuthCode by remember { mutableStateOf<String?>(null) }
+
+    fun applyMobileAuthSession(session: MobileAuthSession) {
+        AuthManager.setToken(session.accessToken)
+        preferences.saveRefreshToken(session.refreshToken)
+        preferences.setOnboardingCompleted()
+        isOnboardingVisible = false
+        scope.launch {
+            snackbarHostState.showSnackbar(strings.loginSuccessMessage)
+        }
+    }
 
     LaunchedEffect(Unit) {
         println(com.spbu.projecttrack.core.network.ApiConfig.getDebugInfo())
-        if (debugBuild) {
-            AuthManager.clearToken()
-            preferences.clearTokens()
+        val savedRefreshToken = preferences.getRefreshToken()
+            ?.takeIf { it.isNotBlank() }
+        val savedAccessToken = preferences.getAccessToken()
+            ?.takeIf { it.isNotBlank() }
+
+        if (!savedRefreshToken.isNullOrBlank()) {
+            mobileAuthApi.restoreSession(savedRefreshToken)
+                .onSuccess { session ->
+                    AuthManager.setToken(session.accessToken)
+                    preferences.saveRefreshToken(session.refreshToken)
+                }
+                .onFailure {
+                    AuthManager.clearToken()
+                    preferences.clearTokens()
+                }
         } else {
-            preferences.getAccessToken()
-                ?.takeIf { it.isNotBlank() }
-                ?.let(AuthManager::setToken)
+            savedAccessToken?.let(AuthManager::setToken)
         }
         authBootstrapComplete = true
+    }
+
+    LaunchedEffect(Unit) {
+        AuthDeepLinkBridge.redirects.collect { redirectUrl ->
+            val redirect = redirectUrl ?: return@collect
+            val code = AuthDeepLinkBridge.extractCode(redirect) ?: run {
+                AuthDeepLinkBridge.clear(redirect)
+                return@collect
+            }
+            if (code == lastProcessedAuthCode) return@collect
+            lastProcessedAuthCode = code
+            mobileAuthApi.exchangeCode(code)
+                .onSuccess(::applyMobileAuthSession)
+                .onFailure {
+                    snackbarHostState.showSnackbar(strings.loginErrorMessage)
+                }
+            AuthDeepLinkBridge.clear(redirect)
+        }
     }
 
     LaunchedEffect(storedCustomHostIp) {
@@ -109,9 +154,6 @@ actual fun App() {
         preferences.saveAppThemeMode(appThemeMode.storageValue)
     }
 
-    var isOnboardingVisible by remember {
-        mutableStateOf(debugBuild || !preferences.isOnboardingCompleted())
-    }
     var availableAndroidUpdate by remember { mutableStateOf<AndroidAppUpdate?>(null) }
     var mainSelectedTab by rememberSaveable { mutableStateOf(0) }
     val screenStack = remember { mutableStateListOf<Screen>() }
@@ -151,12 +193,7 @@ actual fun App() {
         if (isOnboardingVisible) {
             OnboardingScreen(
                 onGitHubAuth = {
-                    AuthManager.setTestToken()
-                    preferences.setOnboardingCompleted()
-                    isOnboardingVisible = false
-                    scope.launch {
-                        snackbarHostState.showSnackbar(strings.loginSuccessMessage)
-                    }
+                    openExternalUrl(mobileAuthApi.loginUrl)
                 },
                 onContinueWithoutAuth = {
                     preferences.setOnboardingCompleted()
@@ -219,7 +256,16 @@ actual fun App() {
                             }
                             ProjectDetailScreen(
                                 viewModel = detailViewModel,
-                                onBackClick = ::popScreen
+                                onBackClick = ::popScreen,
+                                onTeamMemberClick = { userId, userName, preferredProjectName ->
+                                    openScreen(
+                                        Screen.UserStats(
+                                            userId = userId,
+                                            userName = userName,
+                                            preferredProjectName = preferredProjectName
+                                        )
+                                    )
+                                }
                             )
                         }
 

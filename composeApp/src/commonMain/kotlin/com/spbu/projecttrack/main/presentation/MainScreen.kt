@@ -1,8 +1,14 @@
 package com.spbu.projecttrack.main.presentation
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -11,6 +17,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,9 +31,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,11 +45,16 @@ import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.projects.data.model.Project
 import com.spbu.projecttrack.projects.data.model.ProjectDetail
+import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.presentation.ProjectsScreen
+import com.spbu.projecttrack.projects.presentation.components.FiltersAlert
+import com.spbu.projecttrack.projects.presentation.components.SuggestProjectButton
+import com.spbu.projecttrack.projects.presentation.components.SuggestProjectAlert
 import com.spbu.projecttrack.projects.presentation.components.SuggestProjectResultAlert
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreen
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreenContent
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailUiState
+import com.spbu.projecttrack.projects.presentation.models.ProjectFilters
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import androidx.compose.ui.backhandler.BackHandler
@@ -53,6 +67,10 @@ private val UnselectedTabColor = Color(0xFFA6A6A6)
 private val SelectedTabColor = Color.White
 private val SelectionGradientTop = Color(0xFFCF3F2F)
 private val SelectionGradientBottom = Color(0xFFB13123)
+private val FloatingActionInset = 16.dp
+private val FloatingButtonToTabBarGap = 16.dp
+private val TabBarVisibleLift = 30.dp
+private val TabBarHeight = 60.dp
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -65,12 +83,11 @@ fun MainScreen(
     modifier: Modifier = Modifier
 ) {
     var showSuggestProject by remember { mutableStateOf(false) }
-    var showMyProject by remember { mutableStateOf(false) }
     var isRankingRoot by remember { mutableStateOf(true) }
     var isSettingsRoot by remember { mutableStateOf(true) }
     val isAuthorized by AuthManager.isAuthorized.collectAsState()
     val showTabBar = when (selectedTab) {
-        0 -> !showMyProject
+        0 -> true
         1 -> isRankingRoot
         2 -> isSettingsRoot
         else -> true
@@ -86,8 +103,6 @@ fun MainScreen(
         onTabSelected = onTabSelected,
         showSuggestProject = showSuggestProject,
         onShowSuggestProjectChange = { showSuggestProject = it },
-        isMyProjectOpen = showMyProject,
-        onMyProjectOpenChange = { showMyProject = it },
         onRankingRootChange = { isRankingRoot = it },
         isSettingsRoot = isSettingsRoot,
         onSettingsRootChange = { isSettingsRoot = it },
@@ -107,8 +122,6 @@ private fun MainScreenContent(
     onTabSelected: (Int) -> Unit,
     showSuggestProject: Boolean,
     onShowSuggestProjectChange: (Boolean) -> Unit,
-    isMyProjectOpen: Boolean,
-    onMyProjectOpenChange: (Boolean) -> Unit,
     onRankingRootChange: (Boolean) -> Unit,
     isSettingsRoot: Boolean,
     onSettingsRootChange: (Boolean) -> Unit,
@@ -118,39 +131,41 @@ private fun MainScreenContent(
     val contactRequestApi = remember { DependencyContainer.provideContactRequestApi() }
     val userProfileApi = remember { DependencyContainer.provideUserProfileApi() }
     val coroutineScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var submitAlert by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showFilters by remember { mutableStateOf(false) }
+    var projectFilters by remember { mutableStateOf(ProjectFilters()) }
+    var availableProjectTags by remember { mutableStateOf<List<Tag>>(emptyList()) }
     val logTag = "SuggestProject"
-    // Личный проект пользователя загружается из профиля
-    var myProject by remember { mutableStateOf(initialMyProject) }
     val isPreview = LocalInspectionMode.current
-
-
-
-    LaunchedEffect(isAuthorized, isPreview) {
-        if (isPreview) return@LaunchedEffect
-        if (!isAuthorized) {
-            myProject = null
-            return@LaunchedEffect
-        }
-
-        val result = userProfileApi.getProfile()
-        if (result.isSuccess) {
-            val projects = result.getOrNull()?.projects.orEmpty()
-            myProject = projects.firstOrNull()
-            AppLog.d("MyProject", "Loaded projects: ${projects.size}")
-        } else {
-            val error = result.exceptionOrNull()
-            if (error != null) {
-                AppLog.e("MyProject", "Failed to load profile", error)
-            } else {
-                AppLog.e("MyProject", "Failed to load profile")
-            }
-            myProject = null
+    val dismissKeyboard = remember(focusManager, keyboardController) {
+        {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+            Unit
         }
     }
 
-    BackHandler(enabled = isMyProjectOpen) {
-        onMyProjectOpenChange(false)
+    // Кэш "Мой проект" — загружается один раз при смене авторизации
+    var cachedMyProject by remember { mutableStateOf<Project?>(null) }
+    LaunchedEffect(isAuthorized, isPreview) {
+        if (isPreview || !isAuthorized) { cachedMyProject = null; return@LaunchedEffect }
+        val result = userProfileApi.getProfile()
+        if (result.isSuccess) {
+            cachedMyProject = result.getOrNull()?.projects?.firstOrNull()
+            AppLog.d("MyProject", "Cached project: ${cachedMyProject?.name}")
+        } else {
+            AppLog.e("MyProject", "Profile load failed")
+            cachedMyProject = null
+        }
+    }
+
+    // Pager для первой вкладки: 0 = Все проекты, 1 = Мой проект
+    val projectsPagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
+
+    BackHandler(enabled = selectedTab == 0 && projectsPagerState.currentPage == 1) {
+        coroutineScope.launch { projectsPagerState.animateScrollToPage(0) }
     }
 
     val rootTopInsetModifier = if (showTabBar) {
@@ -161,162 +176,178 @@ private fun MainScreenContent(
         Modifier
     }
 
-    Scaffold(
-        containerColor = Color.White, // Белый фон для Scaffold
-        bottomBar = {
-            if (showTabBar) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CustomTabBar(
-                        selectedTab = selectedTab,
-                        onTabSelected = { onTabSelected(it) }
-                    )
-
-                    if (selectedTab == 0 && !isMyProjectOpen) {
-                        val density = LocalDensity.current
-                        var suggestBtnHeightPx by remember { mutableStateOf(0) }
-                        val suggestBtnHeightDp = if (suggestBtnHeightPx == 0) {
-                            46.dp
-                        } else {
-                            with(density) { suggestBtnHeightPx.toDp() }
-                        }
-
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        Scaffold(
+            containerColor = Color.White,
+            bottomBar = {
+                if (showTabBar) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CustomTabBar(
+                            selectedTab = selectedTab,
+                            onTabSelected = { onTabSelected(it) }
+                        )
+                    }
+                }
+            }
+        ) {
+            val contentModifier = Modifier
+                .fillMaxSize()
+                .then(rootTopInsetModifier)
+            Box(
+                modifier = contentModifier
+            ) {
+                when (selectedTab) {
+                    0 -> {
                         Box(
                             modifier = Modifier
-                                .width(380.dp)
-                                .offset(y = (-95).dp),
-                            contentAlignment = Alignment.TopEnd
+                                .fillMaxSize()
+                                .background(Color.White)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .onSizeChanged { suggestBtnHeightPx = it.height }
-                            ) {
-                                com.spbu.projecttrack.projects.presentation.components.SuggestProjectButton(
-                                    onClick = { onShowSuggestProjectChange(true) }
-                                )
-                            }
+                            ProjectsBackgroundLogo()
 
-                            if (isAuthorized) {
-                                com.spbu.projecttrack.projects.presentation.components.MyProjectButton(
-                                    onClick = { onMyProjectOpenChange(true) },
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Box(
                                     modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .offset(y = -(suggestBtnHeightDp + 10.dp))
+                                        .fillMaxWidth()
+                                        .background(Color.White)
+                                        .padding(top = 0.dp, bottom = 0.dp),
+                                    contentAlignment = Alignment.TopCenter
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "Проекты",
+                                            fontFamily = AppFonts.OpenSansBold,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 40.sp,
+                                            color = AppColors.Color3
+                                        )
+                                    }
+                                }
+                                ProjectsSegmentedControl(
+                                    selectedPage = projectsPagerState.currentPage,
+                                    onPageSelected = { page ->
+                                        dismissKeyboard()
+                                        coroutineScope.launch {
+                                            projectsPagerState.animateScrollToPage(page)
+                                        }
+                                    }
                                 )
+
+                                Box(modifier = Modifier.weight(1f)) {
+                                    HorizontalPager(
+                                        state = projectsPagerState,
+                                        modifier = Modifier.fillMaxSize(),
+                                        userScrollEnabled = true
+                                    ) { page ->
+                                        when (page) {
+                                            0 -> {
+                                                if (isPreview) {
+                                                    Box(modifier = Modifier.fillMaxSize())
+                                                } else {
+                                                    val projectsViewModel = remember { DependencyContainer.provideProjectsViewModel() }
+                                                    ProjectsScreen(
+                                                        viewModel = projectsViewModel,
+                                                        onProjectClick = onProjectDetailClick,
+                                                        showTitle = false,
+                                                        showLogo = false,
+                                                        filters = projectFilters,
+                                                        onFilterClick = { showFilters = true },
+                                                        onDismissKeyboard = dismissKeyboard,
+                                                        onAvailableTagsChange = { availableProjectTags = it }
+                                                    )
+                                                }
+                                            }
+                                            1 -> {
+                                                MyProjectPage(
+                                                    isAuthorized = isAuthorized,
+                                                    isPreview = isPreview,
+                                                    myProject = cachedMyProject,
+                                                    onProjectStatsClick = onProjectStatsClick,
+                                                    onUserStatsClick = onUserStatsClick
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(
+                                                end = FloatingActionInset,
+                                                bottom = TabBarVisibleLift + TabBarHeight + FloatingButtonToTabBarGap
+                                            )
+                                    ) {
+                                        androidx.compose.animation.AnimatedVisibility(
+                                            visible = projectsPagerState.currentPage == 0,
+                                            enter = fadeIn(tween(200)) + scaleIn(tween(200)),
+                                            exit = fadeOut(tween(150)) + scaleOut(tween(150)),
+                                        ) {
+                                            SuggestProjectButton(
+                                                onClick = {
+                                                    dismissKeyboard()
+                                                    onShowSuggestProjectChange(true)
+                                                },
+                                                text = "Предложить проект"
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
+
+                    1 -> RankingScreen(
+                        onProjectClick = onProjectStatsClick,
+                        onStudentClick = onUserStatsClick,
+                        onRootDestinationChange = onRankingRootChange,
+                    )
+                    2 -> SettingsTabScreen(
+                        onRootDestinationChange = onSettingsRootChange
+                    )
                 }
             }
         }
-    ) {
-        val contentModifier = modifier
-            .fillMaxSize()
-            .then(rootTopInsetModifier)
-        Box(
-            modifier = contentModifier
-        ) {
-            when (selectedTab) {
-                0 -> {
-                    if (isMyProjectOpen) {
-                        val project = myProject
-                        if (project == null) {
-                            MyProjectEmptyState(modifier = Modifier.fillMaxSize())
-                        } else if (isPreview) {
-                            val projectDetail = project.toProjectDetail()
-                            ProjectDetailScreenContent(
-                                uiState = ProjectDetailUiState.Success(
-                                    project = projectDetail,
-                                    tags = emptyList(),
-                                    teams = emptyList(),
-                                    members = emptyList(),
-                                    users = emptyList(),
-                                    statusText = ""
-                                ),
-                                isAuthorized = isAuthorized,
-                                onBackClick = { onMyProjectOpenChange(false) },
-                                onRetry = {},
-                                title = "Мой проект",
-                                showBackButton = false,
-                                showMyProjectMenu = true,
-                                onMyProjectBackToProjects = { onMyProjectOpenChange(false) },
-                                onMyProjectOpenStats = {
-                                    onProjectStatsClick(project.slug ?: project.id)
-                                }
-                            )
-                        } else {
-                            val projectId = project.slug ?: project.id
-                            val detailViewModel = remember(projectId) {
-                                DependencyContainer.provideProjectDetailViewModel(projectId)
-                            }
-                            ProjectDetailScreen(
-                                viewModel = detailViewModel,
-                                onBackClick = { onMyProjectOpenChange(false) },
-                                title = "Мой проект",
-                                showBackButton = false,
-                                showMyProjectMenu = true,
-                                onMyProjectBackToProjects = { onMyProjectOpenChange(false) },
-                                onMyProjectOpenStats = {
-                                    onProjectStatsClick(projectId)
-                                }
-                            )
-                        }
+
+        FiltersAlert(
+            isVisible = selectedTab == 0 && showFilters,
+            onDismiss = { showFilters = false },
+            tags = availableProjectTags,
+            filters = projectFilters,
+            onFiltersChange = { projectFilters = it }
+        )
+
+        SuggestProjectAlert(
+            isVisible = showSuggestProject,
+            onDismiss = { onShowSuggestProjectChange(false) },
+            onSubmit = { name, email ->
+                AppLog.d(logTag, "onSubmit: nameLen=${name.length}, emailLen=${email.length}")
+                coroutineScope.launch {
+                    val result = contactRequestApi.sendRequest(name, email)
+                    if (result.isSuccess) {
+                        AppLog.d(logTag, "Request success")
+                        submitAlert = "Заявка отправлена" to
+                            "Мы свяжемся с вами в ближайшее время."
                     } else {
-                        if (isPreview) {
-                            // В превью не дергаем DI/VM
-                            Box(modifier = Modifier.fillMaxSize())
-                        } else {
-                            val projectsViewModel = remember { DependencyContainer.provideProjectsViewModel() }
-                            ProjectsScreen(
-                                viewModel = projectsViewModel,
-                                onProjectClick = onProjectDetailClick
-                            )
-                        }
+                        AppLog.e(logTag, "Request failed")
+                        submitAlert = "Не удалось отправить заявку" to
+                            "Попробуйте позже."
                     }
                 }
-
-                1 -> RankingScreen(
-                    onProjectClick = onProjectStatsClick,
-                    onStudentClick = onUserStatsClick,
-                    onRootDestinationChange = onRankingRootChange,
-                )
-                2 -> SettingsTabScreen(
-                    onRootDestinationChange = onSettingsRootChange
-                )
             }
+        )
 
-            // Алерт "Предложить проект"
-            com.spbu.projecttrack.projects.presentation.components.SuggestProjectAlert(
-                isVisible = showSuggestProject,
-                onDismiss = { onShowSuggestProjectChange(false) },
-                onSubmit = { name, email ->
-                    AppLog.d(logTag, "onSubmit: nameLen=${name.length}, emailLen=${email.length}")
-                    coroutineScope.launch {
-                        val result = contactRequestApi.sendRequest(name, email)
-                        if (result.isSuccess) {
-                            AppLog.d(logTag, "Request success")
-                            submitAlert = "Заявка отправлена" to
-                                "Мы свяжемся с вами в ближайшее время."
-                        } else {
-                            AppLog.e(logTag, "Request failed")
-                            submitAlert = "Не удалось отправить заявку" to
-                                "Попробуйте позже."
-                        }
-                    }
-                }
-            )
-        }
+        SuggestProjectResultAlert(
+            isVisible = submitAlert != null,
+            title = submitAlert?.first ?: "",
+            message = submitAlert?.second ?: "",
+            onDismiss = { submitAlert = null }
+        )
     }
-
-    SuggestProjectResultAlert(
-        isVisible = submitAlert != null,
-        title = submitAlert?.first ?: "",
-        message = submitAlert?.second ?: "",
-        onDismiss = { submitAlert = null }
-    )
 }
 
 private fun Project.toProjectDetail(): ProjectDetail {
@@ -333,6 +364,179 @@ private fun Project.toProjectDetail(): ProjectDetail {
     )
 }
 
+// ==================== Сегментный контрол "Все проекты / Мой проект" ====================
+
+private val ProjectsSegmentGray = Color(0xFF76767C)
+private val ProjectsSegmentLightGray = Color(0xFFBDBDBD)
+
+@Composable
+private fun ProjectsSegmentedControl(
+    selectedPage: Int,
+    onPageSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 18.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                ProjectsSegmentText(
+                    text = "Все проекты",
+                    selected = selectedPage == 0,
+                    onClick = { onPageSelected(0) },
+                )
+            }
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                ProjectsSegmentText(
+                    text = "Мой проект",
+                    selected = selectedPage == 1,
+                    onClick = { onPageSelected(1) },
+                )
+            }
+        }
+        // Вертикальный разделитель по центру
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .width(1.dp)
+                .height(20.dp)
+                .background(ProjectsSegmentGray),
+        )
+    }
+}
+
+@Composable
+private fun ProjectsSegmentText(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "projects_segment_scale",
+    )
+
+    Text(
+        text = text,
+        fontFamily = AppFonts.OpenSansRegular,
+        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+        fontSize = 20.sp,
+        color = if (selected) ProjectsSegmentGray else ProjectsSegmentLightGray,
+        modifier = Modifier
+            .scale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+    )
+}
+
+// ==================== Страница "Мой проект" ====================
+
+@Composable
+private fun MyProjectPage(
+    isAuthorized: Boolean,
+    isPreview: Boolean,
+    myProject: Project?,
+    onProjectStatsClick: (String) -> Unit,
+    onUserStatsClick: (String, String, String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (!isAuthorized) {
+        MyProjectUnauthorizedState(modifier = modifier)
+        return
+    }
+
+    val project = myProject
+    if (project == null) {
+        MyProjectEmptyState(modifier = modifier)
+        return
+    }
+
+    if (isPreview) {
+        val projectDetail = project.toProjectDetail()
+        ProjectDetailScreenContent(
+            uiState = ProjectDetailUiState.Success(
+                project = projectDetail,
+                tags = emptyList(),
+                teams = emptyList(),
+                members = emptyList(),
+                users = emptyList(),
+                statusText = ""
+            ),
+            isAuthorized = isAuthorized,
+            onBackClick = {},
+            onRetry = {},
+            showTitle = false,
+            showBackButton = false,
+            showMyProjectActions = true,
+            onMyProjectOpenStats = { onProjectStatsClick(project.slug ?: project.id) },
+            showBackgroundLogo = false,
+            modifier = modifier
+        )
+    } else {
+        val projectId = project.slug ?: project.id
+        val detailViewModel = remember(projectId) {
+            DependencyContainer.provideProjectDetailViewModel(projectId)
+        }
+        ProjectDetailScreen(
+            viewModel = detailViewModel,
+            onBackClick = {},
+            showTitle = false,
+            showBackButton = false,
+            showMyProjectActions = true,
+            onMyProjectOpenStats = { onProjectStatsClick(projectId) },
+            onTeamMemberClick = onUserStatsClick,
+            showBackgroundLogo = false,
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
+private fun BoxScope.ProjectsBackgroundLogo() {
+    Image(
+        painter = painterResource(Res.drawable.spbu_logo),
+        contentDescription = null,
+        modifier = Modifier
+            .fillMaxSize()
+            .align(Alignment.Center),
+        contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+    )
+}
+
+@Composable
+private fun MyProjectUnauthorizedState(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "Войдите, чтобы увидеть свой проект",
+            fontFamily = AppFonts.OpenSansRegular,
+            fontSize = 18.sp,
+            color = AppColors.Color2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(32.dp)
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MyProjectEmptyState(
@@ -341,58 +545,17 @@ private fun MyProjectEmptyState(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(AppColors.White)
+            .background(AppColors.White),
+        contentAlignment = Alignment.Center
     ) {
-        Image(
-            painter = painterResource(Res.drawable.spbu_logo),
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.Center),
-            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+        Text(
+            text = "У вас еще нет личного проекта",
+            fontFamily = AppFonts.OpenSansRegular,
+            fontSize = 20.sp,
+            color = AppColors.Color2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(32.dp)
         )
-
-        Scaffold(
-            containerColor = Color.Transparent,
-            contentColor = AppColors.Black
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
-                    )
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(AppColors.White)
-                        .padding(horizontal = 16.dp, vertical = 0.dp)
-                ) {
-                    Text(
-                        text = "Мой проект",
-                        fontFamily = AppFonts.OpenSansBold,
-                        fontSize = 40.sp,
-                        color = AppColors.Color3,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-
-                Box(
-                    modifier = Modifier.weight(1f).fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "У вас еще нет личного проекта",
-                        fontFamily = AppFonts.OpenSansRegular,
-                        fontSize = 20.sp,
-                        color = AppColors.Color2,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-            }
-        }
     }
 }
 

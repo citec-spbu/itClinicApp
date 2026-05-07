@@ -14,6 +14,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -39,7 +40,6 @@ import projecttrack.composeapp.generated.resources.*
 import com.spbu.projecttrack.projects.data.model.Project
 import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.presentation.components.SearchBar
-import com.spbu.projecttrack.projects.presentation.components.FiltersAlert
 import com.spbu.projecttrack.projects.presentation.models.ProjectFilters
 import com.spbu.projecttrack.core.theme.AppColors
 import androidx.compose.foundation.rememberScrollState
@@ -121,18 +121,66 @@ private fun searchProjects(projects: List<Project>, query: String, threshold: Do
         .map { it.first }
 }
 
+private fun applyProjectFilters(
+    projects: List<Project>,
+    filters: ProjectFilters
+): List<Project> {
+    return projects.filter { project -> matchesProjectFilters(project, filters) }
+}
+
+private fun matchesProjectFilters(
+    project: Project,
+    filters: ProjectFilters
+): Boolean {
+    if (filters.selectedTags.isNotEmpty()) {
+        val projectTags = project.tags?.map(Int::toString).orEmpty()
+        if (projectTags.none(filters.selectedTags::contains)) return false
+    }
+
+    if (!matchesProjectDateRange(project.dateStart, filters.enrollmentStartDate, filters.enrollmentEndDate)) {
+        return false
+    }
+
+    if (!matchesProjectDateRange(project.dateEnd, filters.projectStartDate, filters.projectEndDate)) {
+        return false
+    }
+
+    return true
+}
+
+private fun matchesProjectDateRange(
+    projectDate: String?,
+    rangeStart: String?,
+    rangeEnd: String?
+): Boolean {
+    if (rangeStart == null && rangeEnd == null) return true
+
+    val normalizedProjectDate = projectDate?.take(10)?.takeIf { it.length == 10 } ?: return false
+    val normalizedStart = rangeStart?.take(10)?.takeIf { it.length == 10 }
+    val normalizedEnd = rangeEnd?.take(10)?.takeIf { it.length == 10 }
+
+    if (normalizedStart != null && normalizedProjectDate < normalizedStart) return false
+    if (normalizedEnd != null && normalizedProjectDate > normalizedEnd) return false
+
+    return true
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectsScreen(
     viewModel: ProjectsViewModel,
     onProjectClick: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showTitle: Boolean = true,
+    showLogo: Boolean = true,
+    filters: ProjectFilters = ProjectFilters(),
+    onFilterClick: () -> Unit = {},
+    onDismissKeyboard: () -> Unit = {},
+    onAvailableTagsChange: (List<Tag>) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var searchText by remember { mutableStateOf("") }
-    var showFilters by remember { mutableStateOf(false) }
-    var filters by remember { mutableStateOf(ProjectFilters()) }
     val hasActiveFilters = filters.hasActiveFilters()
     val isAuthorized by com.spbu.projecttrack.core.auth.AuthManager.isAuthorized.collectAsState(initial = false)
     val focusManager = LocalFocusManager.current
@@ -158,7 +206,7 @@ fun ProjectsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(if (showLogo) Color.White else Color.Transparent)
     ) {
         // Невидимый фоновый слой для закрытия клавиатуры - самый нижний слой
         Box(
@@ -175,36 +223,39 @@ fun ProjectsScreen(
         )
         
         // Лого СПбГУ на весь экран по ширине
-        Image(
-            painter = painterResource(Res.drawable.spbu_logo),
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.Center)
-                .alpha(1.0f), 
-            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
-        )
+        if (showLogo) {
+            Image(
+                painter = painterResource(Res.drawable.spbu_logo),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Center)
+                    .alpha(1.0f),
+                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+            )
+        }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.White) // Белый фон навбара
-                    .padding(top = 0.dp, bottom = 0.dp),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Проекты",
-                        fontFamily = fontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 40.sp,
-                        color = titleColor
-                    )
-
+            if (showTitle) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White)
+                        .padding(top = 0.dp, bottom = 0.dp),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Проекты",
+                            fontFamily = fontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 40.sp,
+                            color = titleColor
+                        )
+                    }
                 }
             }
 
@@ -212,13 +263,16 @@ fun ProjectsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 17.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 SearchBar(
                     searchText = searchText,
                     onSearchTextChange = { searchText = it },
-                    onFilterClick = { showFilters = true },
+                    onFilterClick = {
+                        onDismissKeyboard()
+                        onFilterClick()
+                    },
                     hasActiveFilters = hasActiveFilters,
                     onFocusChange = { focused -> isSearchFocused = focused },
                     modifier = Modifier.fillMaxWidth()
@@ -232,8 +286,11 @@ fun ProjectsScreen(
                         LoadingContent()
                     }
                     is ProjectsUiState.Success -> {
-                        // Фильтруем проекты по названию с fuzzy search
-                        val filteredProjects = searchProjects(state.projects, searchText)
+                        LaunchedEffect(state.tags) {
+                            onAvailableTagsChange(state.tags)
+                        }
+                        val projectsByFilters = applyProjectFilters(state.projects, filters)
+                        val filteredProjects = searchProjects(projectsByFilters, searchText)
 
                         ProjectsContent(
                             projects = filteredProjects,
@@ -284,17 +341,6 @@ fun ProjectsScreen(
                     )
                 )
         )
-        
-        // FiltersAlert
-        if (uiState is ProjectsUiState.Success) {
-            FiltersAlert(
-                isVisible = showFilters,
-                onDismiss = { showFilters = false },
-                tags = (uiState as ProjectsUiState.Success).tags,
-                filters = filters,
-                onFiltersChange = { filters = it }
-            )
-        }
     }
 }
 
@@ -515,8 +561,28 @@ private fun ProjectCard(
                             color = AppColors.Color2,
                             modifier = Modifier.weight(1f)
                         )
-                        // Заглушка для статусов (24x24)
-                        Spacer(modifier = Modifier.size(24.dp))
+                        // Иконка статуса проекта
+                        val status = getProjectStatus(project.dateEnd, project.teams, project.teamLimit)
+                        val statusRes = when (status) {
+                            ProjectStatus.RECRUITING -> Res.drawable.status_recruiting
+                            ProjectStatus.ACTIVE     -> Res.drawable.status_active
+                            ProjectStatus.FINISHED   -> Res.drawable.status_finished
+                            ProjectStatus.UNKNOWN    -> null
+                        }
+                        if (statusRes != null) {
+                            Image(
+                                painter = painterResource(statusRes),
+                                contentDescription = when (status) {
+                                    ProjectStatus.RECRUITING -> "Идёт набор"
+                                    ProjectStatus.ACTIVE     -> "В работе"
+                                    ProjectStatus.FINISHED   -> "Завершён"
+                                    else -> null
+                                },
+                                modifier = Modifier.size(24.dp)
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.size(24.dp))
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -689,6 +755,45 @@ private fun TagChip(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         )
     }
+}
+
+private enum class ProjectStatus { RECRUITING, ACTIVE, FINISHED, UNKNOWN }
+
+private fun getProjectStatus(dateEnd: String?, teams: List<Int>?, teamLimit: Int?): ProjectStatus {
+    val now = getCurrentDateString()
+    // 1. Если дата окончания прошла — завершён
+    if (dateEnd != null && dateEnd.take(10) < now) return ProjectStatus.FINISHED
+    // 2. Если есть свободные места — идёт набор (как на сайте)
+    if (teamLimit != null) {
+        val takenSlots = teams?.size ?: 0
+        if (teamLimit - takenSlots > 0) return ProjectStatus.RECRUITING
+        return ProjectStatus.ACTIVE
+    }
+    // 3. Нет данных о команде — считаем активным если не завершён
+    return if (dateEnd != null) ProjectStatus.ACTIVE else ProjectStatus.UNKNOWN
+}
+
+// Возвращает текущую дату в формате "yyyy-MM-dd"
+private fun getCurrentDateString(): String {
+    val ms = com.spbu.projecttrack.core.time.PlatformTime.currentTimeMillis()
+    val days = ms / 86400000L
+    var y = 1970; var doy = days.toInt()
+    while (true) {
+        val leap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0))
+        val diy = if (leap) 366 else 365
+        if (doy < diy) break
+        doy -= diy; y++
+    }
+    val leap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0))
+    val months = if (leap) intArrayOf(31,29,31,30,31,30,31,31,30,31,30,31)
+                 else      intArrayOf(31,28,31,30,31,30,31,31,30,31,30,31)
+    var m = 1
+    for (dm in months) { if (doy < dm) break; doy -= dm; m++ }
+    val d = doy + 1
+    val yStr = y.toString().padStart(4, '0')
+    val mStr = m.toString().padStart(2, '0')
+    val dStr = d.toString().padStart(2, '0')
+    return "$yStr-$mStr-$dStr"
 }
 
 private fun formatDate(dateString: String): String {

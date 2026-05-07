@@ -25,6 +25,14 @@ class AppPreferencesImpl(context: Context) : AppPreferences {
     override fun saveAccessToken(token: String) {
         prefs.edit().putString(KEY_ACCESS_TOKEN, token).apply()
     }
+
+    override fun getRefreshToken(): String? {
+        return prefs.getString(KEY_REFRESH_TOKEN, null)
+    }
+
+    override fun saveRefreshToken(token: String) {
+        prefs.edit().putString(KEY_REFRESH_TOKEN, token).apply()
+    }
     
     override fun clearTokens() {
         prefs.edit()

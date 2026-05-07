@@ -52,9 +52,9 @@ object ApiConfig {
      */
     object AuthRequired {
         // User endpoints
-        const val USER_PROJECT_STATUS = "/user/project-status"
+        const val USER_PROJECT_STATUS = "/user/projectstatus"
         const val USER_PROFILE = "/user/profile"
-        const val USER_ME = "/user/me"
+        const val USER_ME = "/user"
         
         // Request endpoints
         const val REQUEST_CREATE = "/request"
