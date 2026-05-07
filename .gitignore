@@ -42,6 +42,8 @@ release-artifacts/**/*
 # Registry
 Registry/
 Registry/**/*
+RegistryActual/
+RegistryActual/**/*
 
 # Claude/agent scratchpad (project context notes)
 .claude/
