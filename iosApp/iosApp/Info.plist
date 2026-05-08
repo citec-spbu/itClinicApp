@@ -9,6 +9,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>CiteC needs local network access to connect to the authentication server and complete GitHub sign-in.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -19,6 +21,12 @@
 				<string>itclinicapp</string>
 			</array>
 		</dict>
+	</array>
+	<key>CFBundleDisplayName</key>
+	<string>CiteC</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Philosopher-Bold.ttf</string>
 	</array>
 	<key>UIStatusBarStyle</key>
 	<string>UIStatusBarStyleDarkContent</string>

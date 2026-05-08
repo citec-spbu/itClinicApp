@@ -22,6 +22,7 @@ import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.auth.MobileAuthSession
 import com.spbu.projecttrack.core.di.DependencyContainer
 import com.spbu.projecttrack.core.network.NetworkSettings
+import com.spbu.projecttrack.core.platform.isDebugBuild
 import com.spbu.projecttrack.core.platform.openExternalUrl
 import com.spbu.projecttrack.core.settings.AppLanguage
 import com.spbu.projecttrack.core.settings.AppThemeMode
@@ -32,6 +33,9 @@ import com.spbu.projecttrack.core.storage.createAppPreferences
 import com.spbu.projecttrack.core.update.AndroidAppUpdateChecker
 import com.spbu.projecttrack.core.update.AndroidAppUpdateDialog
 import com.spbu.projecttrack.core.update.AndroidAppUpdate
+import com.spbu.projecttrack.debug.AndroidSplashDebugLock
+import com.spbu.projecttrack.debug.SplashDebugPreviewOverlay
+import com.spbu.projecttrack.debug.shouldShowSplashDebugPreview
 import com.spbu.projecttrack.main.presentation.MainScreen
 import com.spbu.projecttrack.onboarding.presentation.OnboardingScreen
 import com.spbu.projecttrack.projects.presentation.detail.ProjectDetailScreen
@@ -53,8 +57,9 @@ sealed class Screen {
 }
 
 @Composable
-actual fun App() {
+actual fun App(onLaunchReady: () -> Unit) {
     val context = LocalContext.current
+    val debugBuild = isDebugBuild()
     val preferences = remember { createAppPreferences() }
     val mobileAuthApi = remember { DependencyContainer.provideMobileAuthApi() }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -71,9 +76,25 @@ actual fun App() {
     val strings = appStrings(appLanguage)
     var authBootstrapComplete by remember { mutableStateOf(false) }
     var isOnboardingVisible by remember {
-        mutableStateOf(true)
+        mutableStateOf(false)
+    }
+    var hasPrimedGitHubAuth by remember { mutableStateOf(false) }
+    var isSplashPreviewVisible by rememberSaveable {
+        mutableStateOf(shouldShowSplashDebugPreview(debugBuild))
     }
     var lastProcessedAuthCode by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(isSplashPreviewVisible) {
+        if (isSplashPreviewVisible) {
+            AndroidSplashDebugLock.release()
+        }
+    }
+
+    LaunchedEffect(authBootstrapComplete) {
+        if (authBootstrapComplete) {
+            onLaunchReady()
+        }
+    }
 
     fun applyMobileAuthSession(session: MobileAuthSession) {
         AuthManager.setToken(session.accessToken)
@@ -87,24 +108,31 @@ actual fun App() {
 
     LaunchedEffect(Unit) {
         println(com.spbu.projecttrack.core.network.ApiConfig.getDebugInfo())
+        val hasCompletedOnboarding = preferences.isOnboardingCompleted()
         val savedRefreshToken = preferences.getRefreshToken()
             ?.takeIf { it.isNotBlank() }
         val savedAccessToken = preferences.getAccessToken()
             ?.takeIf { it.isNotBlank() }
+        var isAuthorized = false
 
         if (!savedRefreshToken.isNullOrBlank()) {
             mobileAuthApi.restoreSession(savedRefreshToken)
                 .onSuccess { session ->
                     AuthManager.setToken(session.accessToken)
                     preferences.saveRefreshToken(session.refreshToken)
+                    isAuthorized = true
                 }
                 .onFailure {
                     AuthManager.clearToken()
                     preferences.clearTokens()
                 }
         } else {
-            savedAccessToken?.let(AuthManager::setToken)
+            savedAccessToken?.let {
+                AuthManager.setToken(it)
+                isAuthorized = true
+            }
         }
+        isOnboardingVisible = !isAuthorized && !hasCompletedOnboarding
         authBootstrapComplete = true
     }
 
@@ -123,6 +151,13 @@ actual fun App() {
                     snackbarHostState.showSnackbar(strings.loginErrorMessage)
                 }
             AuthDeepLinkBridge.clear(redirect)
+        }
+    }
+
+    LaunchedEffect(isOnboardingVisible) {
+        if (isOnboardingVisible && !hasPrimedGitHubAuth) {
+            hasPrimedGitHubAuth = true
+            mobileAuthApi.primeLoginPrerequisites()
         }
     }
 
@@ -158,8 +193,8 @@ actual fun App() {
     var mainSelectedTab by rememberSaveable { mutableStateOf(0) }
     val screenStack = remember { mutableStateListOf<Screen>() }
 
-    LaunchedEffect(isOnboardingVisible) {
-        if (!isOnboardingVisible) {
+    LaunchedEffect(authBootstrapComplete, isOnboardingVisible) {
+        if (authBootstrapComplete && !isOnboardingVisible) {
             availableAndroidUpdate = AndroidAppUpdateChecker.checkForAvailableUpdate(context)
         }
     }
@@ -190,149 +225,156 @@ actual fun App() {
             onThemeModeChange = { appThemeMode = it },
         ),
     ) {
-        if (isOnboardingVisible) {
-            OnboardingScreen(
-                onGitHubAuth = {
-                    openExternalUrl(mobileAuthApi.loginUrl)
-                },
-                onContinueWithoutAuth = {
-                    preferences.setOnboardingCompleted()
-                    isOnboardingVisible = false
-                }
-            )
-        } else if (!authBootstrapComplete) {
-            Box(modifier = Modifier.fillMaxSize())
-        } else {
-            Box(modifier = Modifier.fillMaxSize()) {
-                MainScreen(
-                    onProjectDetailClick = { projectId ->
-                        openScreen(Screen.ProjectDetail(projectId))
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (isOnboardingVisible) {
+                OnboardingScreen(
+                    onGitHubAuth = {
+                        openExternalUrl(mobileAuthApi.loginUrl)
                     },
-                    onProjectStatsClick = { projectId ->
-                        openScreen(Screen.ProjectStats(projectId))
-                    },
-                    onUserStatsClick = { userId, userName, preferredProjectName ->
-                        openScreen(
-                            Screen.UserStats(
-                                userId = userId,
-                                userName = userName,
-                                preferredProjectName = preferredProjectName
-                            )
-                        )
-                    },
-                    selectedTab = mainSelectedTab,
-                    onTabSelected = { mainSelectedTab = it },
+                    onContinueWithoutAuth = {
+                        preferences.setOnboardingCompleted()
+                        isOnboardingVisible = false
+                    }
                 )
-
-                AnimatedContent(
-                    targetState = screenStack.lastOrNull(),
-                    transitionSpec = {
-                        val involvesStats = targetState is Screen.ProjectStats ||
-                            targetState is Screen.UserStats ||
-                            initialState is Screen.ProjectStats ||
-                            initialState is Screen.UserStats
-                        if (involvesStats) {
-                            (fadeIn(animationSpec = tween(220)) + scaleIn(
-                                initialScale = 0.985f,
-                                animationSpec = tween(220),
-                            )).togetherWith(
-                                fadeOut(animationSpec = tween(160)) + scaleOut(
-                                    targetScale = 0.99f,
-                                    animationSpec = tween(160),
+            } else if (!authBootstrapComplete) {
+                Box(modifier = Modifier.fillMaxSize())
+            } else {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    MainScreen(
+                        onProjectDetailClick = { projectId ->
+                            openScreen(Screen.ProjectDetail(projectId))
+                        },
+                        onProjectStatsClick = { projectId ->
+                            openScreen(Screen.ProjectStats(projectId))
+                        },
+                        onUserStatsClick = { userId, userName, preferredProjectName ->
+                            openScreen(
+                                Screen.UserStats(
+                                    userId = userId,
+                                    userName = userName,
+                                    preferredProjectName = preferredProjectName
                                 )
                             )
-                        } else {
-                            fadeIn(animationSpec = tween(160)).togetherWith(
-                                fadeOut(animationSpec = tween(120))
-                            )
-                        }
-                    },
-                    label = "android_overlay_screen",
-                ) { screen ->
-                    when (screen) {
-                        is Screen.ProjectDetail -> {
-                            val detailViewModel = remember(screen.projectId) {
-                                DependencyContainer.provideProjectDetailViewModel(screen.projectId)
-                            }
-                            ProjectDetailScreen(
-                                viewModel = detailViewModel,
-                                onBackClick = ::popScreen,
-                                onTeamMemberClick = { userId, userName, preferredProjectName ->
-                                    openScreen(
-                                        Screen.UserStats(
-                                            userId = userId,
-                                            userName = userName,
-                                            preferredProjectName = preferredProjectName
-                                        )
-                                    )
-                                }
-                            )
-                        }
+                        },
+                        selectedTab = mainSelectedTab,
+                        onTabSelected = { mainSelectedTab = it },
+                    )
 
-                        is Screen.ProjectStats -> {
-                            val statsViewModel = remember(screen.projectId) {
-                                DependencyContainer.provideProjectStatsViewModel(screen.projectId)
-                            }
-                            ProjectStatsScreen(
-                                viewModel = statsViewModel,
-                                onBackClick = ::popScreen,
-                                onOverallRatingClick = {
-                                    mainSelectedTab = 1
-                                    screenStack.clear()
-                                },
-                                onMemberStatsClick = { member ->
-                                    openScreen(
-                                        Screen.UserStats(
-                                            userId = member.userId ?: member.login ?: member.name,
-                                            userName = member.name,
-                                            preferredProjectName = screen.projectId,
-                                        )
+                    AnimatedContent(
+                        targetState = screenStack.lastOrNull(),
+                        transitionSpec = {
+                            val involvesStats = targetState is Screen.ProjectStats ||
+                                targetState is Screen.UserStats ||
+                                initialState is Screen.ProjectStats ||
+                                initialState is Screen.UserStats
+                            if (involvesStats) {
+                                (fadeIn(animationSpec = tween(220)) + scaleIn(
+                                    initialScale = 0.985f,
+                                    animationSpec = tween(220),
+                                )).togetherWith(
+                                    fadeOut(animationSpec = tween(160)) + scaleOut(
+                                        targetScale = 0.99f,
+                                        animationSpec = tween(160),
                                     )
-                                },
-                            )
-                        }
-
-                        is Screen.UserStats -> {
-                            val statsViewModel = remember(screen.userId, screen.userName, screen.preferredProjectName) {
-                                DependencyContainer.provideUserStatsViewModel(
-                                    userId = screen.userId,
-                                    userName = screen.userName,
-                                    preferredProjectName = screen.preferredProjectName
+                                )
+                            } else {
+                                fadeIn(animationSpec = tween(160)).togetherWith(
+                                    fadeOut(animationSpec = tween(120))
                                 )
                             }
-                            UserStatsScreen(
-                                viewModel = statsViewModel,
-                                onBackClick = ::popScreen,
-                                onProjectClick = { projectId ->
-                                    openScreen(Screen.ProjectStats(projectId))
-                                },
-                                onOverallRatingClick = {
-                                    mainSelectedTab = 1
-                                    screenStack.clear()
+                        },
+                        label = "android_overlay_screen",
+                    ) { screen ->
+                        when (screen) {
+                            is Screen.ProjectDetail -> {
+                                val detailViewModel = remember(screen.projectId) {
+                                    DependencyContainer.provideProjectDetailViewModel(screen.projectId)
                                 }
-                            )
-                        }
+                                ProjectDetailScreen(
+                                    viewModel = detailViewModel,
+                                    onBackClick = ::popScreen,
+                                    onTeamMemberClick = { userId, userName, preferredProjectName ->
+                                        openScreen(
+                                            Screen.UserStats(
+                                                userId = userId,
+                                                userName = userName,
+                                                preferredProjectName = preferredProjectName
+                                            )
+                                        )
+                                    }
+                                )
+                            }
 
-                        else -> Unit
+                            is Screen.ProjectStats -> {
+                                val statsViewModel = remember(screen.projectId) {
+                                    DependencyContainer.provideProjectStatsViewModel(screen.projectId)
+                                }
+                                ProjectStatsScreen(
+                                    viewModel = statsViewModel,
+                                    onBackClick = ::popScreen,
+                                    onOverallRatingClick = {
+                                        mainSelectedTab = 1
+                                        screenStack.clear()
+                                    },
+                                    onMemberStatsClick = { member ->
+                                        openScreen(
+                                            Screen.UserStats(
+                                                userId = member.userId ?: member.login ?: member.name,
+                                                userName = member.name,
+                                                preferredProjectName = screen.projectId,
+                                            )
+                                        )
+                                    },
+                                )
+                            }
+
+                            is Screen.UserStats -> {
+                                val statsViewModel = remember(screen.userId, screen.userName, screen.preferredProjectName) {
+                                    DependencyContainer.provideUserStatsViewModel(
+                                        userId = screen.userId,
+                                        userName = screen.userName,
+                                        preferredProjectName = screen.preferredProjectName
+                                    )
+                                }
+                                UserStatsScreen(
+                                    viewModel = statsViewModel,
+                                    onBackClick = ::popScreen,
+                                    onProjectClick = { projectId ->
+                                        openScreen(Screen.ProjectStats(projectId))
+                                    },
+                                    onOverallRatingClick = {
+                                        mainSelectedTab = 1
+                                        screenStack.clear()
+                                    }
+                                )
+                            }
+
+                            else -> Unit
+                        }
                     }
                 }
             }
-        }
 
-        availableAndroidUpdate?.let { update ->
-            AndroidAppUpdateDialog(
-                update = update,
-                onDismiss = {
-                    AndroidAppUpdateChecker.dismissUpdate(context, update.versionCode)
-                    availableAndroidUpdate = null
-                },
-                onUpdateClick = {
-                    AndroidAppUpdateChecker.openUpdatePage(context, update.apkUrl)
-                    availableAndroidUpdate = null
-                },
+            availableAndroidUpdate?.let { update ->
+                AndroidAppUpdateDialog(
+                    update = update,
+                    onDismiss = {
+                        AndroidAppUpdateChecker.dismissUpdate(context, update.versionCode)
+                        availableAndroidUpdate = null
+                    },
+                    onUpdateClick = {
+                        AndroidAppUpdateChecker.openUpdatePage(context, update.apkUrl)
+                        availableAndroidUpdate = null
+                    },
+                )
+            }
+
+            SnackbarHost(hostState = snackbarHostState)
+
+            SplashDebugPreviewOverlay(
+                isVisible = isSplashPreviewVisible,
+                onDismiss = { isSplashPreviewVisible = false },
             )
         }
-
-        SnackbarHost(hostState = snackbarHostState)
     }
 }
