@@ -9,8 +9,8 @@ import platform.Foundation.languageCode
 actual fun getLocalizedAppName(): String {
     val languageCode = NSLocale.currentLocale.languageCode
     return when (languageCode) {
-        "ru" -> "IT Clinic"
-        else -> "IT Clinic"
+        "ru" -> "Citec"
+        else -> "Citec"
     }
 }
 
@@ -31,7 +31,6 @@ actual fun getLocalizedContinueText(): String {
         else -> "Continue without authorization"
     }
 }
-
 
 
 

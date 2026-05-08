@@ -8,8 +8,8 @@ import java.util.Locale
 actual fun getLocalizedAppName(): String {
     val locale = currentLocale()
     return when (locale.language) {
-        "ru" -> "IT Clinic"
-        else -> "IT Clinic"
+        "ru" -> "Citec"
+        else -> "Citec"
     }
 }
 
@@ -36,4 +36,3 @@ private fun currentLocale(): Locale {
     val configuration = LocalConfiguration.current
     return configuration.locales[0] ?: Locale.getDefault()
 }
-
