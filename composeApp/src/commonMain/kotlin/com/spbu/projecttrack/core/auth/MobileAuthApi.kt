@@ -18,6 +18,15 @@ class MobileAuthApi(
     val loginUrl: String
         get() = "${AuthApiConfig.baseUrl}/mobile/githubauthenticate"
 
+    suspend fun primeLoginPrerequisites(): Result<Unit> {
+        if (!AuthApiConfig.usesLocalApi) return Result.success(Unit)
+
+        return runCatching {
+            client.get(AuthApiConfig.baseUrl)
+            Unit
+        }
+    }
+
     suspend fun exchangeCode(code: String): Result<MobileAuthSession> {
         return runCatching {
             val response = client.post("${AuthApiConfig.baseUrl}/mobile/exchange") {

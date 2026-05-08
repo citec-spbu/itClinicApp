@@ -16,6 +16,14 @@ if [[ "${CI:-}" != "true" && "${FORCE_CI_STUBS:-0}" != "1" ]]; then
   fi
 fi
 
+escape_kotlin_string() {
+  local value="$1"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//\$/\\$}
+  printf '%s' "$value"
+}
+
 cat > "$BUILD_CONFIG_FILE" <<'EOF'
 package com.spbu.projecttrack
 
@@ -29,7 +37,9 @@ object BuildConfig {
     const val TEST_TOKEN = ""
     const val USE_LOCAL_API = false
     const val PRODUCTION_BASE_URL = "https://citec.spb.ru/api"
+    const val AUTH_PRODUCTION_BASE_URL = "https://citec.spb.ru/auth"
     const val LOCAL_PORT = 8000
+    const val AUTH_LOCAL_PORT = 3000
     const val LOCAL_HOST_IP = ""
     const val METRIC_PRODUCTION_BASE_URL = "https://metrics.example.com"
     const val METRIC_LOCAL_PORT = 4173
@@ -38,23 +48,32 @@ object BuildConfig {
 }
 EOF
 
-cat > "$MAIL_CONFIG_FILE" <<'EOF'
+mail_smtp_host="$(escape_kotlin_string "${CI_SMTP_HOST:-smtp.invalid}")"
+mail_smtp_port="${CI_SMTP_PORT:-465}"
+mail_smtp_username="$(escape_kotlin_string "${CI_SMTP_USERNAME:-}")"
+mail_smtp_password="$(escape_kotlin_string "${CI_SMTP_PASSWORD:-}")"
+mail_smtp_from_email="$(escape_kotlin_string "${CI_SMTP_FROM_EMAIL:-}")"
+mail_smtp_from_name="$(escape_kotlin_string "${CI_SMTP_FROM_NAME:-itClinicApp CI}")"
+mail_feedback_to_email="$(escape_kotlin_string "${CI_FEEDBACK_TO_EMAIL:-}")"
+mail_feedback_subject="$(escape_kotlin_string "${CI_FEEDBACK_SUBJECT:-CI feedback stub}")"
+
+cat > "$MAIL_CONFIG_FILE" <<EOF
 package com.spbu.projecttrack
 
 /**
- * CI-safe fallback SMTP configuration.
+ * CI-generated SMTP configuration.
  *
- * Runtime feedback delivery is not exercised in CI, so these placeholder
- * values only exist to satisfy compilation.
+ * Values are sourced from CI secrets when provided and fall back to
+ * placeholder values otherwise.
  */
 object MailConfig {
-    const val SMTP_HOST = "smtp.invalid"
-    const val SMTP_PORT = 465
-    const val SMTP_USERNAME = ""
-    const val SMTP_PASSWORD = ""
-    const val SMTP_FROM_EMAIL = ""
-    const val SMTP_FROM_NAME = "itClinicApp CI"
-    const val FEEDBACK_TO_EMAIL = ""
-    const val FEEDBACK_SUBJECT = "CI feedback stub"
+    const val SMTP_HOST = "$mail_smtp_host"
+    const val SMTP_PORT = $mail_smtp_port
+    const val SMTP_USERNAME = "$mail_smtp_username"
+    const val SMTP_PASSWORD = "$mail_smtp_password"
+    const val SMTP_FROM_EMAIL = "$mail_smtp_from_email"
+    const val SMTP_FROM_NAME = "$mail_smtp_from_name"
+    const val FEEDBACK_TO_EMAIL = "$mail_feedback_to_email"
+    const val FEEDBACK_SUBJECT = "$mail_feedback_subject"
 }
 EOF

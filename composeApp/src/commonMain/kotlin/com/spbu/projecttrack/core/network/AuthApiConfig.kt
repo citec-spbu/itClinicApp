@@ -22,4 +22,7 @@ object AuthApiConfig {
         } else {
             PRODUCTION_BASE_URL.trimEnd('/')
         }
+
+    val usesLocalApi: Boolean
+        get() = USE_LOCAL_API
 }

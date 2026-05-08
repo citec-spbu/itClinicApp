@@ -5,4 +5,4 @@ import androidx.compose.runtime.*
 
 // Common App - platform specific implementations in androidMain/iosMain
 @Composable
-expect fun App()
+expect fun App(onLaunchReady: () -> Unit = {})
