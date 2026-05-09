@@ -1,86 +1,108 @@
 package com.spbu.projecttrack.rating.data.model
 
+import com.spbu.projecttrack.core.settings.localizeRuntime
+
 enum class RankingMetricKey(
-    val title: String,
-    val chipLabel: String = title,
+    private val titleRu: String,
+    private val titleEn: String,
     val supportsPeriod: Boolean = false,
     val supportsThreshold: Boolean = false,
     val supportsWeekDay: Boolean = false,
 ) {
     Commits(
-        title = "Commits",
+        titleRu = "Commits",
+        titleEn = "Commits",
         supportsPeriod = true,
     ),
     Issues(
-        title = "Issues",
+        titleRu = "Issues",
+        titleEn = "Issues",
         supportsPeriod = true,
     ),
     PullRequests(
-        title = "Pull Requests",
+        titleRu = "Pull Requests",
+        titleEn = "Pull Requests",
         supportsPeriod = true,
     ),
     PerformanceGrade(
-        title = "Оценка производительности",
+        titleRu = "Оценка производительности",
+        titleEn = "Performance Grade",
         supportsPeriod = true,
     ),
     TotalCommits(
-        title = "Общее количество коммитов",
+        titleRu = "Общее количество коммитов",
+        titleEn = "Total Commits",
     ),
     IssueCompleteness(
-        title = "Завершенность задач",
+        titleRu = "Завершенность задач",
+        titleEn = "Issue Completeness",
     ),
     PullRequestHangTime(
-        title = "Время жизни Pull Request",
+        titleRu = "Время жизни Pull Request",
+        titleEn = "PR Hang Time",
     ),
     RapidPullRequests(
-        title = "Быстрые Pull Requests",
+        titleRu = "Быстрые Pull Requests",
+        titleEn = "Rapid Pull Requests",
         supportsThreshold = true,
     ),
     CodeChurn(
-        title = "Изменчивость кода",
+        titleRu = "Изменчивость кода",
+        titleEn = "Code Churn",
     ),
     CodeOwnership(
-        title = "Владение кодом",
+        titleRu = "Владение кодом",
+        titleEn = "Code Ownership",
     ),
     DominantWeekDay(
-        title = "Доминирующий день недели",
+        titleRu = "Доминирующий день недели",
+        titleEn = "Dominant Weekday",
         supportsWeekDay = true,
     );
+
+    val title: String get() = localizeRuntime(titleRu, titleEn)
+    val chipLabel: String get() = title
 }
 
 enum class RankingPeriodPreset(
-    val label: String,
+    private val labelRu: String,
+    private val labelEn: String,
     val days: Int,
 ) {
-    ThreeDays("3 дня", 3),
-    FiveDays("5 дней", 5),
-    OneWeek("1 неделя", 7),
-    TwoWeeks("2 недели", 14),
-    OneMonth("1 месяц", 30),
-    TwoMonths("2 месяца", 60),
-    ThreeMonths("3 месяца", 90),
-    SixMonths("6 месяцев", 180),
+    ThreeDays("3 дня", "3 days", 3),
+    FiveDays("5 дней", "5 days", 5),
+    OneWeek("1 неделя", "1 week", 7),
+    TwoWeeks("2 недели", "2 weeks", 14),
+    OneMonth("1 месяц", "1 month", 30),
+    TwoMonths("2 месяца", "2 months", 60),
+    ThreeMonths("3 месяца", "3 months", 90),
+    SixMonths("6 месяцев", "6 months", 180),
     ;
+
+    val label: String get() = localizeRuntime(labelRu, labelEn)
 }
 
 enum class RankingThresholdPreset(
-    val label: String,
+    private val labelRu: String,
+    private val labelEn: String,
     val minutes: Int,
 ) {
-    TenMinutes("10 минут", 10),
-    FifteenMinutes("15 минут", 15),
-    ThirtyMinutes("30 минут", 30),
-    OneHour("1 час", 60),
-    TwoAndHalfHours("2,5 часа", 150),
-    FourHours("4 часа", 240),
-    SixHours("6 часов", 360),
-    TwelveHours("12 часов", 720),
-    TwentyFourHours("24 часа", 1440),
+    TenMinutes("10 минут", "10 minutes", 10),
+    FifteenMinutes("15 минут", "15 minutes", 15),
+    ThirtyMinutes("30 минут", "30 minutes", 30),
+    OneHour("1 час", "1 hour", 60),
+    TwoAndHalfHours("2,5 часа", "2.5 hours", 150),
+    FourHours("4 часа", "4 hours", 240),
+    SixHours("6 часов", "6 hours", 360),
+    TwelveHours("12 часов", "12 hours", 720),
+    TwentyFourHours("24 часа", "24 hours", 1440),
     ;
+
+    val label: String get() = localizeRuntime(labelRu, labelEn)
 }
 
 enum class RankingWeekDay(
-    val label: String,
+    private val labelRu: String,
     val backendValue: String,
 ) {
     Monday("Понедельник", "Monday"),
@@ -90,6 +112,8 @@ enum class RankingWeekDay(
     Friday("Пятница", "Friday"),
     Saturday("Суббота", "Saturday"),
     Sunday("Воскресенье", "Sunday");
+
+    val label: String get() = localizeRuntime(labelRu, backendValue)
 }
 
 data class RankingMetricFilter(
@@ -155,13 +179,13 @@ fun rankingBuiltInTemplates(
     return listOf(
         RankingFilterTemplate(
             id = "none",
-            title = "Нет",
+            title = localizeRuntime("Нет", "None"),
             filters = defaultFilters,
             isBuiltIn = true,
         ),
         RankingFilterTemplate(
             id = "commits",
-            title = "Коммиты",
+            title = localizeRuntime("Коммиты", "Commits"),
             filters = RankingFilters(
                 metrics = metrics.toMutableMap().apply {
                     this[RankingMetricKey.Commits] = getValue(RankingMetricKey.Commits).copy(enabled = true)
@@ -172,7 +196,7 @@ fun rankingBuiltInTemplates(
         ),
         RankingFilterTemplate(
             id = "pull_requests",
-            title = "Пулл Реквесты",
+            title = localizeRuntime("Пулл Реквесты", "Pull Requests"),
             filters = RankingFilters(
                 metrics = metrics.toMutableMap().apply {
                     this[RankingMetricKey.PullRequests] = getValue(RankingMetricKey.PullRequests).copy(enabled = true)
@@ -184,7 +208,7 @@ fun rankingBuiltInTemplates(
         ),
         RankingFilterTemplate(
             id = "code_work",
-            title = "Работа с кодом",
+            title = localizeRuntime("Работа с кодом", "Code Work"),
             filters = RankingFilters(
                 metrics = metrics.toMutableMap().apply {
                     this[RankingMetricKey.CodeChurn] = getValue(RankingMetricKey.CodeChurn).copy(enabled = true)

@@ -42,6 +42,7 @@ import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.presentation.components.SearchBar
 import com.spbu.projecttrack.projects.presentation.models.ProjectFilters
 import com.spbu.projecttrack.core.theme.AppColors
+import com.spbu.projecttrack.core.theme.appPalette
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import com.spbu.projecttrack.core.settings.localizedString
+import com.spbu.projecttrack.core.settings.localizeRuntime
 
 
 @Composable
@@ -179,6 +182,7 @@ fun ProjectsScreen(
     onDismissKeyboard: () -> Unit = {},
     onAvailableTagsChange: (List<Tag>) -> Unit = {}
 ) {
+    val projectsTitle = localizedString("Проекты", "Projects")
     val uiState by viewModel.uiState.collectAsState()
     var searchText by remember { mutableStateOf("") }
     val hasActiveFilters = filters.hasActiveFilters()
@@ -230,7 +234,7 @@ fun ProjectsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.Center)
-                    .alpha(1.0f),
+                    .alpha(appPalette().spbuBackdropLogoAlpha),
                 contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
             )
         }
@@ -249,7 +253,7 @@ fun ProjectsScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "Проекты",
+                            text = projectsTitle,
                             fontFamily = fontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 40.sp,
@@ -346,6 +350,7 @@ fun ProjectsScreen(
 
 @Composable
 private fun LoadingContent(modifier: Modifier = Modifier) {
+    val loadingProjectsLabel = localizedString("Загрузка проектов...", "Loading projects...")
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -356,7 +361,7 @@ private fun LoadingContent(modifier: Modifier = Modifier) {
         ) {
             CircularProgressIndicator()
             Text(
-                text = "Загрузка проектов...",
+                text = loadingProjectsLabel,
                 style = MaterialTheme.typography.bodyLarge
             )
         }
@@ -369,6 +374,8 @@ private fun ErrorContent(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val loadingErrorLabel = localizedString("Ошибка загрузки", "Loading error")
+    val retryLabel = localizedString("Повторить", "Retry")
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -379,17 +386,18 @@ private fun ErrorContent(
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                text = "Ошибка загрузки",
+                text = loadingErrorLabel,
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.error
             )
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
             Button(onClick = onRetry) {
-                Text("Повторить")
+                Text(retryLabel)
             }
         }
     }
@@ -404,6 +412,7 @@ private fun ProjectsContent(
     onLoadMore: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val noActiveProjectsLabel = localizedString("Нет активных проектов", "No active projects")
     val tagMap = tags.associateBy { it.id }
 
     if (projects.isEmpty()) {
@@ -412,7 +421,7 @@ private fun ProjectsContent(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "Нет активных проектов",
+                text = noActiveProjectsLabel,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -466,6 +475,13 @@ private fun ProjectCard(
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
+    val recruitingLabel = localizedString("Идёт набор", "Recruiting")
+    val activeLabel = localizedString("В работе", "In progress")
+    val finishedLabel = localizedString("Завершён", "Finished")
+    val enrollmentDeadlineLabel = localizedString("Срок записи\nна проект", "Enrollment\nperiod")
+    val implementationDeadlineLabel = localizedString("Срок реализации\nпроекта", "Project\nduration")
+    val clientLabel = localizedString("Заказчик", "Client")
+    val notSpecifiedLabel = localizedString("Не указан", "Not specified")
     
     // Состояние для анимации нажатия
     var isPressed by remember { mutableStateOf(false) }
@@ -573,9 +589,9 @@ private fun ProjectCard(
                             Image(
                                 painter = painterResource(statusRes),
                                 contentDescription = when (status) {
-                                    ProjectStatus.RECRUITING -> "Идёт набор"
-                                    ProjectStatus.ACTIVE     -> "В работе"
-                                    ProjectStatus.FINISHED   -> "Завершён"
+                                    ProjectStatus.RECRUITING -> recruitingLabel
+                                    ProjectStatus.ACTIVE     -> activeLabel
+                                    ProjectStatus.FINISHED   -> finishedLabel
                                     else -> null
                                 },
                                 modifier = Modifier.size(24.dp)
@@ -626,7 +642,7 @@ private fun ProjectCard(
                             verticalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Срок записи\nна проект",
+                                text = enrollmentDeadlineLabel,
                                 fontFamily = fontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 10.sp,
@@ -663,7 +679,7 @@ private fun ProjectCard(
                             verticalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Срок реализации\nпроекта",
+                                text = implementationDeadlineLabel,
                                 fontFamily = fontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 10.sp,
@@ -700,7 +716,7 @@ private fun ProjectCard(
                             verticalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Заказчик",
+                                text = clientLabel,
                                 fontFamily = fontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 10.sp,
@@ -709,7 +725,7 @@ private fun ProjectCard(
                                 maxLines = 1
                             )
                             Text(
-                                text = project.client ?: "Не указан",
+                                text = project.client ?: notSpecifiedLabel,
                                 fontFamily = fontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 10.sp,
@@ -802,7 +818,7 @@ private fun formatDate(dateString: String): String {
 }
 
 private fun formatDateDots(dateString: String?): String {
-    if (dateString.isNullOrBlank()) return "Не указано"
+    if (dateString.isNullOrBlank()) return localizeRuntime("Не указано", "Not specified")
     val s = dateString.take(10)
     val parts = s.split("-")
     return if (parts.size == 3) {
@@ -817,18 +833,18 @@ private fun formatDateForCard(dateString: String): List<String> {
     if (parts.size == 3) {
         val day = parts[2]
         val month = when(parts[1]) {
-            "01" -> "янв"
-            "02" -> "фев"
-            "03" -> "мар"
-            "04" -> "апр"
-            "05" -> "май"
-            "06" -> "июн"
-            "07" -> "июл"
-            "08" -> "авг"
-            "09" -> "сен"
-            "10" -> "окт"
-            "11" -> "ноя"
-            "12" -> "дек"
+            "01" -> localizeRuntime("янв", "Jan")
+            "02" -> localizeRuntime("фев", "Feb")
+            "03" -> localizeRuntime("мар", "Mar")
+            "04" -> localizeRuntime("апр", "Apr")
+            "05" -> localizeRuntime("май", "May")
+            "06" -> localizeRuntime("июн", "Jun")
+            "07" -> localizeRuntime("июл", "Jul")
+            "08" -> localizeRuntime("авг", "Aug")
+            "09" -> localizeRuntime("сен", "Sep")
+            "10" -> localizeRuntime("окт", "Oct")
+            "11" -> localizeRuntime("ноя", "Nov")
+            "12" -> localizeRuntime("дек", "Dec")
             else -> parts[1]
         }
         val year = parts[0]
@@ -842,9 +858,9 @@ private fun formatDateRange(start: String?, end: String?): String {
     val endFormatted = end?.take(10) ?: ""
     return when {
         startFormatted.isNotEmpty() && endFormatted.isNotEmpty() -> "$startFormatted - $endFormatted"
-        startFormatted.isNotEmpty() -> "с $startFormatted"
-        endFormatted.isNotEmpty() -> "до $endFormatted"
-        else -> "Не указано"
+        startFormatted.isNotEmpty() -> localizeRuntime("с $startFormatted", "from $startFormatted")
+        endFormatted.isNotEmpty() -> localizeRuntime("до $endFormatted", "until $endFormatted")
+        else -> localizeRuntime("Не указано", "Not specified")
     }
 }
 

@@ -2,6 +2,7 @@ package com.spbu.projecttrack.rating.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spbu.projecttrack.core.network.toShortMessage
 import com.spbu.projecttrack.rating.data.model.RankingData
 import com.spbu.projecttrack.rating.data.model.RankingFilters
 import com.spbu.projecttrack.rating.data.model.rankingDefaultFilters
@@ -46,7 +47,7 @@ class RankingViewModel(
                 _uiState.value = RankingUiState.Success(result.getOrThrow())
             } else {
                 _uiState.value = RankingUiState.Error(
-                    result.exceptionOrNull()?.message ?: "Не удалось загрузить рейтинг"
+                    result.exceptionOrNull().toShortMessage("Ошибка загрузки", "Loading error")
                 )
             }
         }
@@ -69,7 +70,7 @@ class RankingViewModel(
                 _uiState.value = RankingUiState.Success(result.getOrThrow())
             } else if (_uiState.value !is RankingUiState.Success) {
                 _uiState.value = RankingUiState.Error(
-                    result.exceptionOrNull()?.message ?: "Не удалось загрузить рейтинг"
+                    result.exceptionOrNull().toShortMessage("Ошибка загрузки", "Loading error")
                 )
             }
             _isRefreshing.value = false
@@ -85,7 +86,7 @@ class RankingViewModel(
                 _uiState.value = RankingUiState.Success(result.getOrThrow())
             } else if (_uiState.value !is RankingUiState.Success) {
                 _uiState.value = RankingUiState.Error(
-                    result.exceptionOrNull()?.message ?: "Не удалось загрузить рейтинг"
+                    result.exceptionOrNull().toShortMessage("Ошибка загрузки", "Loading error")
                 )
             }
         }
@@ -97,4 +98,12 @@ class RankingViewModel(
         _isRefreshing.value = false
         _uiState.value = RankingUiState.Idle
     }
+
+    // Сохранение UI-состояния между переключениями вкладок таббара.
+    // Поля намеренно var — пишутся из composable при уходе (DisposableEffect).
+    var savedPage: Int = 0
+    var savedProjectsScrollIndex: Int = 0
+    var savedProjectsScrollOffset: Int = 0
+    var savedStudentsScrollIndex: Int = 0
+    var savedStudentsScrollOffset: Int = 0
 }

@@ -25,5 +25,8 @@ class ProjectsRepository(private val api: ProjectsApi) {
     suspend fun getProjectById(id: String): Result<ProjectDetailResponse> {
         return api.getProjectById(id)
     }
-}
 
+    suspend fun editMemberRole(memberId: Int, role: String): Result<Unit> {
+        return api.editMemberRole(memberId, role)
+    }
+}

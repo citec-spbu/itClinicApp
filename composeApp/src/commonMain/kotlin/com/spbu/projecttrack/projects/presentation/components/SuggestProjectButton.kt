@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import projecttrack.composeapp.generated.resources.*
@@ -29,8 +30,9 @@ import projecttrack.composeapp.generated.resources.*
 fun SuggestProjectButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    text: String = "Предложить проект"
+    text: String? = null
 ) {
+    val resolvedText = text ?: localizedString("Предложить проект", "Suggest a project")
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -68,7 +70,7 @@ fun SuggestProjectButton(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = text,
+            text = resolvedText,
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 14.sp,
             color = AppColors.White,

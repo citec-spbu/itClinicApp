@@ -2,6 +2,8 @@ package com.spbu.projecttrack.projects.presentation.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spbu.projecttrack.core.network.toShortMessage
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.projects.data.model.*
 import com.spbu.projecttrack.projects.data.repository.ProjectsRepository
@@ -86,12 +88,17 @@ class ProjectDetailViewModel(
                             )
                         )
                     } else {
-                        _uiState.value = ProjectDetailUiState.Error("Проект не найден")
+                        _uiState.value = ProjectDetailUiState.Error(
+                            localizeRuntime("Проект не найден", "Project not found")
+                        )
                     }
                 }
                 .onFailure { error ->
                     _uiState.value = ProjectDetailUiState.Error(
-                        message = error.message ?: "Неизвестная ошибка"
+                        message = error.toShortMessage(
+                            "Ошибка загрузки",
+                            "Loading error",
+                        )
                     )
                 }
         }
@@ -100,15 +107,27 @@ class ProjectDetailViewModel(
     fun retry() {
         loadProjectDetail()
     }
+
+    fun updateMemberRole(memberId: Int, newRole: String) {
+        val current = _uiState.value as? ProjectDetailUiState.Success ?: return
+        val updatedMembers = current.members.map { member ->
+            if (member.id == memberId) member.copy(roles = listOf(newRole)) else member
+        }
+        _uiState.value = current.copy(members = updatedMembers)
+
+        viewModelScope.launch {
+            repository.editMemberRole(memberId, newRole)
+        }
+    }
 }
 
 private fun resolveProjectStatusText(project: ProjectDetail, teams: List<Team>): String {
     val computedStage = computeProjectStage(project, teams)
     if (computedStage != null) {
         return when (computedStage) {
-            ProjectStage.Completed -> "Проект завершен"
-            ProjectStage.Hiring -> "На проект идет набор"
-            ProjectStage.Active -> "Назначена команда"
+            ProjectStage.Completed -> localizeRuntime("Проект завершен", "Project completed")
+            ProjectStage.Hiring -> localizeRuntime("На проект идет набор", "Recruitment is open")
+            ProjectStage.Active -> localizeRuntime("Назначена команда", "Team assigned")
         }
     }
 
@@ -136,12 +155,12 @@ private fun parseLocalDate(value: String): LocalDate? {
 
 private fun mapStatusToDisplay(status: String?): String {
     return when (status?.lowercase()) {
-        "assigned", "team_assigned" -> "Назначена команда"
-        "in_progress", "active" -> "В процессе"
-        "completed", "done" -> "Проект завершен"
-        "new", "open" -> "Открыт для записи"
-        "pending" -> "Ожидание"
-        "cancelled" -> "Отменен"
-        else -> status ?: "Не указан"
+        "assigned", "team_assigned" -> localizeRuntime("Назначена команда", "Team assigned")
+        "in_progress", "active" -> localizeRuntime("В процессе", "In progress")
+        "completed", "done" -> localizeRuntime("Проект завершен", "Project completed")
+        "new", "open" -> localizeRuntime("Открыт для записи", "Open for enrollment")
+        "pending" -> localizeRuntime("Ожидание", "Pending")
+        "cancelled" -> localizeRuntime("Отменен", "Cancelled")
+        else -> status ?: localizeRuntime("Не указан", "Not specified")
     }
 }

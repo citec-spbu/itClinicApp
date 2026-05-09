@@ -1,5 +1,6 @@
 package com.spbu.projecttrack.rating.common
 
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import kotlin.math.roundToInt
 
 private const val MILLIS_PER_SECOND = 1_000.0
@@ -11,7 +12,8 @@ fun formatDurationMillisLabel(milliseconds: Double?): String? {
     if (milliseconds == null || milliseconds <= 0.0) return null
     if (milliseconds < MILLIS_PER_MINUTE) {
         val seconds = (milliseconds / MILLIS_PER_SECOND).roundToInt().coerceIn(1, 59)
-        return "$seconds сек"
+        val unit = localizeRuntime("сек", "s")
+        return "$seconds $unit"
     }
 
     val minutes = (milliseconds / MILLIS_PER_MINUTE).roundToInt()
@@ -20,17 +22,22 @@ fun formatDurationMillisLabel(milliseconds: Double?): String? {
 
 fun formatDurationMinutesLabel(minutes: Int?): String {
     if (minutes == null) return "—"
-    if (minutes < MINUTES_PER_HOUR) return "$minutes мин"
+    val minUnit = localizeRuntime("мин", "min")
+    if (minutes < MINUTES_PER_HOUR) return "$minutes $minUnit"
+    val hUnit = localizeRuntime("ч", "h")
     if (minutes < MINUTES_PER_DAY) {
         val hours = minutes / MINUTES_PER_HOUR
         val restMinutes = minutes % MINUTES_PER_HOUR
-        return if (restMinutes == 0) "$hours ч" else "$hours ч $restMinutes мин"
+        return if (restMinutes == 0) "$hours $hUnit" else "$hours $hUnit $restMinutes $minUnit"
     }
 
     val days = minutes / MINUTES_PER_DAY
     val restHours = (minutes % MINUTES_PER_DAY) / MINUTES_PER_HOUR
-    val dayWord = pluralizeRussian(days, "день", "дня", "дней")
-    return if (restHours == 0) "$days $dayWord" else "$days $dayWord $restHours ч"
+    val dayWord = localizeRuntime(
+        pluralizeRussian(days, "день", "дня", "дней"),
+        if (days == 1) "day" else "days",
+    )
+    return if (restHours == 0) "$days $dayWord" else "$days $dayWord $restHours $hUnit"
 }
 
 private fun pluralizeRussian(

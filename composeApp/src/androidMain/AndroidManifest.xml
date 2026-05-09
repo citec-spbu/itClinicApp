@@ -15,6 +15,7 @@
         <activity
             android:exported="true"
             android:name=".SplashActivity"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.ProjectTrack.Launch">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -27,6 +28,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:name=".MainActivity"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.ProjectTrack">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

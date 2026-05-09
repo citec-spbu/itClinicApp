@@ -37,7 +37,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.platform.LocalUriHandler
+import com.spbu.projecttrack.core.settings.localizedString
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.theme.AppColors
+import com.spbu.projecttrack.core.theme.appPalette
+import com.spbu.projecttrack.core.theme.subtleBorder
 import com.spbu.projecttrack.projects.data.model.*
 import com.spbu.projecttrack.projects.presentation.components.ProjectTeamCard
 import com.spbu.projecttrack.projects.presentation.components.SuggestProjectButton
@@ -69,7 +73,7 @@ private fun BackArrowIcon(
 ) {
     Image(
         painter = painterResource(Res.drawable.arrow_back),
-        contentDescription = "Назад",
+        contentDescription = localizedString("Назад", "Back"),
         modifier = modifier.size(24.dp)
     )
 }
@@ -82,6 +86,7 @@ private fun RequirementTagChip(
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
+    val palette = appPalette()
 
     Surface(
         modifier = modifier
@@ -94,7 +99,7 @@ private fun RequirementTagChip(
                 )
             ),
         shape = RoundedCornerShape(10.dp),
-        color = AppColors.White,
+        color = palette.surface,
         border = BorderStroke(1.dp, AppColors.CardBorder)
     ) {
         Text(
@@ -102,7 +107,7 @@ private fun RequirementTagChip(
             fontFamily = fontFamily,
             fontWeight = FontWeight.Medium,
             fontSize = 10.sp,
-            color = AppColors.Black,
+            color = palette.primaryText,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         )
     }
@@ -116,12 +121,13 @@ private fun ProjectTagChip(
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
+    val palette = appPalette()
 
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(40.dp),
         color = Color.Transparent,
-        border = BorderStroke(1.dp, AppColors.Color1),
+        border = BorderStroke(1.dp, palette.subtleBorder),
 
     ) {
         Text(
@@ -129,7 +135,7 @@ private fun ProjectTagChip(
             fontFamily = fontFamily,
             fontWeight = FontWeight.Medium,
             fontSize = 10.sp,
-            color = AppColors.Color2,
+            color = palette.primaryText,
             modifier = Modifier.padding(horizontal = 5.dp, vertical = 0.dp)
         )
     }
@@ -144,6 +150,7 @@ private fun InfoCard(
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
+    val palette = appPalette()
 
     Surface(
         modifier = modifier
@@ -156,7 +163,7 @@ private fun InfoCard(
                 )
             ),
         shape = RoundedCornerShape(10.dp),
-        color = AppColors.White,
+        color = palette.surface,
         border = BorderStroke(0.5.dp, AppColors.CardBorder)
     ) {
         Row(
@@ -168,14 +175,14 @@ private fun InfoCard(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = 10.sp,
-                color = AppColors.Color2
+                color = palette.primaryText
             )
             Text(
                 text = value,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = 10.sp,
-                color = AppColors.Black
+                color = palette.primaryText
             )
         }
     }
@@ -190,6 +197,8 @@ private fun ContactClientBlock(
     client: String?,
     modifier: Modifier = Modifier
 ) {
+    val contactLabel = localizedString("Контакты", "Contacts")
+    val clientLabel = localizedString("Заказчик", "Client")
     val hasContact = !contact.isNullOrBlank()
     val hasClient = !client.isNullOrBlank()
     if (!hasContact && !hasClient) return
@@ -201,13 +210,13 @@ private fun ContactClientBlock(
     ) {
         if (hasContact) {
             InfoCard(
-                label = "Контакты",
+                label = contactLabel,
                 value = contact!!
             )
         }
         if (hasClient) {
             InfoCard(
-                label = "Заказчик",
+                label = clientLabel,
                 value = client!!
             )
         }
@@ -222,7 +231,8 @@ private fun StatusCard(
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
-    
+    val palette = appPalette()
+
     Surface(
         modifier = modifier
             .dropShadow(
@@ -234,7 +244,7 @@ private fun StatusCard(
                 )
             ),
         shape = RoundedCornerShape(10.dp),
-        color = AppColors.White,
+        color = palette.surface,
         border = BorderStroke(0.5.dp, AppColors.CardBorder)
     ) {
         Box(
@@ -249,7 +259,7 @@ private fun StatusCard(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
-                color = AppColors.Color3,
+                color = palette.accent,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
@@ -319,6 +329,8 @@ private fun ProjectHeaderCard(
     project: ProjectDetail,
     modifier: Modifier = Modifier
 ) {
+    val enrollmentLabel = localizedString("Срок записи", "Enrollment")
+    val durationLabel = localizedString("Срок реализации", "Duration")
     val fontFamily = openSansFamily()
     
     Surface(
@@ -399,12 +411,12 @@ private fun ProjectHeaderCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     HeaderDateBlock(
-                        title = "Срок записи",
+                        title = enrollmentLabel,
                         date = formatDateDots(project.dateStart),
                         modifier = Modifier.weight(1f)
                     )
                     HeaderDateBlock(
-                        title = "Срок реализации",
+                        title = durationLabel,
                         date = formatDateDots(project.dateEnd),
                         modifier = Modifier.weight(1f)
                     )
@@ -422,13 +434,14 @@ private fun SectionTitle(
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
-    
+    val palette = appPalette()
+
     Text(
         text = text,
         fontFamily = fontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
-        color = AppColors.Black,
+        color = palette.primaryText,
         modifier = modifier
     )
 }
@@ -442,37 +455,38 @@ private fun RequirementItem(
     modifier: Modifier = Modifier
 ) {
     val fontFamily = openSansFamily()
-    
+    val palette = appPalette()
+
     Column(modifier = modifier.fillMaxWidth()) {
         // Разделитель сверху
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(AppColors.Color1)
+                .background(palette.subtleBorder)
         )
-        
+
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         Row(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = "$number",
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp,
-                color = AppColors.Color2,
+                color = palette.primaryText,
                 modifier = Modifier.width(20.dp)
             )
-            
+
             Spacer(modifier = Modifier.width(8.dp))
-            
+
             Text(
                 text = text,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Normal,
                 fontSize = 11.sp,
                 lineHeight = 15.sp,
-                color = AppColors.Color2
+                color = palette.primaryText
             )
         }
     }
@@ -486,18 +500,18 @@ private fun formatDateForCard(dateString: String): List<String> {
     if (parts.size == 3) {
         val day = parts[2]
         val month = when(parts[1]) {
-            "01" -> "янв"
-            "02" -> "фев"
-            "03" -> "мар"
-            "04" -> "апр"
-            "05" -> "май"
-            "06" -> "июн"
-            "07" -> "июл"
-            "08" -> "авг"
-            "09" -> "сен"
-            "10" -> "окт"
-            "11" -> "ноя"
-            "12" -> "дек"
+            "01" -> localizeRuntime("янв", "Jan")
+            "02" -> localizeRuntime("фев", "Feb")
+            "03" -> localizeRuntime("мар", "Mar")
+            "04" -> localizeRuntime("апр", "Apr")
+            "05" -> localizeRuntime("май", "May")
+            "06" -> localizeRuntime("июн", "Jun")
+            "07" -> localizeRuntime("июл", "Jul")
+            "08" -> localizeRuntime("авг", "Aug")
+            "09" -> localizeRuntime("сен", "Sep")
+            "10" -> localizeRuntime("окт", "Oct")
+            "11" -> localizeRuntime("ноя", "Nov")
+            "12" -> localizeRuntime("дек", "Dec")
             else -> parts[1]
         }
         val year = parts[0]
@@ -507,7 +521,7 @@ private fun formatDateForCard(dateString: String): List<String> {
 }
 
 private fun formatDateDots(dateString: String?): String {
-    if (dateString.isNullOrBlank()) return "Не указано"
+    if (dateString.isNullOrBlank()) return localizeRuntime("Не указано", "Not specified")
     val s = dateString.take(10)
     val parts = s.split("-")
     return if (parts.size == 3) {
@@ -522,17 +536,19 @@ fun ProjectDetailScreen(
     viewModel: ProjectDetailViewModel,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
-    title: String = "Проекты",
+    title: String? = null,
     showTitle: Boolean = true,
     showBackButton: Boolean = true,
     showMyProjectActions: Boolean = false,
     onMyProjectOpenStats: () -> Unit = {},
     onTeamMemberClick: ((String, String, String?) -> Unit)? = null,
+    onMemberRoleEdit: ((memberId: Int, newRole: String) -> Unit)? = null,
     showBackgroundLogo: Boolean = true
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isAuthorized by com.spbu.projecttrack.core.auth.AuthManager.isAuthorized.collectAsState(initial = false)
     val currentUserId by com.spbu.projecttrack.core.auth.AuthManager.currentUserId.collectAsState(initial = null)
+    val resolvedTitle = title ?: localizedString("Проекты", "Projects")
 
     ProjectDetailScreenContent(
         uiState = uiState,
@@ -540,12 +556,15 @@ fun ProjectDetailScreen(
         currentUserId = currentUserId,
         onBackClick = onBackClick,
         onRetry = { viewModel.retry() },
-        title = title,
+        title = resolvedTitle,
         showTitle = showTitle,
         showBackButton = showBackButton,
         showMyProjectActions = showMyProjectActions,
         onMyProjectOpenStats = onMyProjectOpenStats,
         onTeamMemberClick = onTeamMemberClick,
+        onMemberRoleEdit = onMemberRoleEdit ?: { memberId, newRole ->
+            viewModel.updateMemberRole(memberId, newRole)
+        },
         showBackgroundLogo = showBackgroundLogo,
         modifier = modifier
     )
@@ -558,24 +577,29 @@ internal fun ProjectDetailScreenContent(
     currentUserId: Int? = null,
     onBackClick: () -> Unit,
     onRetry: () -> Unit,
-    title: String = "Проекты",
+    title: String? = null,
     showTitle: Boolean = true,
     showBackButton: Boolean = true,
     showMyProjectActions: Boolean = false,
     onMyProjectOpenStats: () -> Unit = {},
     onTeamMemberClick: ((String, String, String?) -> Unit)? = null,
+    onMemberRoleEdit: ((memberId: Int, newRole: String) -> Unit)? = null,
     showBackgroundLogo: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val loadingErrorLabel = localizedString("Ошибка загрузки", "Loading error")
+    val retryLabel = localizedString("Повторить", "Retry")
+    val resolvedTitle = title ?: localizedString("Проекты", "Projects")
     val fontFamily = openSansFamily()
     val uriHandler = LocalUriHandler.current
     val projectDetail = (uiState as? ProjectDetailUiState.Success)?.project
     val githubUrl = remember(projectDetail) { extractGithubUrl(projectDetail) }
-    
+    val palette = appPalette()
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (showBackgroundLogo) AppColors.White else Color.Transparent)
+            .background(if (showBackgroundLogo) palette.background else Color.Transparent)
     ) {
         if (showBackgroundLogo) {
             Image(
@@ -583,14 +607,15 @@ internal fun ProjectDetailScreenContent(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.Center),
+                    .align(Alignment.Center)
+                    .alpha(palette.spbuBackdropLogoAlpha),
                 contentScale = ContentScale.FillWidth
             )
         }
 
         Scaffold (
             containerColor = Color.Transparent,
-            contentColor = AppColors.Black
+            contentColor = palette.primaryText
         ) {
             Column(
                 modifier = Modifier
@@ -604,7 +629,7 @@ internal fun ProjectDetailScreenContent(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.White)
+                            .background(palette.background)
                             .padding(horizontal = 16.dp, vertical = 0.dp)
                     ) {
                         // Кнопка назад
@@ -637,11 +662,11 @@ internal fun ProjectDetailScreenContent(
                         // Титул
                         if (showTitle) {
                             Text(
-                                text = title,
+                                text = resolvedTitle,
                                 fontFamily = fontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 40.sp,
-                                color = AppColors.Color3,
+                                color = palette.accent,
                                 modifier = Modifier.align(Alignment.Center)
                             )
                         }
@@ -670,7 +695,8 @@ internal fun ProjectDetailScreenContent(
                                 githubUrl = githubUrl,
                                 onOpenGithub = { url -> uriHandler.openUri(normalizeUrl(url)) },
                                 onOpenStats = onMyProjectOpenStats,
-                                onMemberClick = onTeamMemberClick
+                                onMemberClick = onTeamMemberClick,
+                                onMemberRoleEdit = onMemberRoleEdit
                             )
                         }
 
@@ -689,11 +715,13 @@ internal fun ProjectDetailScreenContent(
 
 @Composable
 private fun LoadingContent(modifier: Modifier = Modifier) {
+    val palette = appPalette()
+
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator(color = AppColors.Color3)
+        CircularProgressIndicator(color = palette.accent)
     }
 }
 
@@ -703,8 +731,11 @@ private fun ErrorContent(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val loadingErrorLabel = localizedString("Ошибка загрузки", "Loading error")
+    val retryLabel = localizedString("Повторить", "Retry")
     val fontFamily = openSansFamily()
-    
+    val palette = appPalette()
+
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -715,27 +746,27 @@ private fun ErrorContent(
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                text = "Ошибка загрузки",
+                text = loadingErrorLabel,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp,
-                color = AppColors.Color3
+                color = palette.accent
             )
             Text(
                 text = message,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Normal,
                 fontSize = 14.sp,
-                color = AppColors.Color2
+                color = palette.primaryText
             )
             Button(
                 onClick = onRetry,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AppColors.Color3
+                    containerColor = palette.accent
                 )
             ) {
                 Text(
-                    text = "Повторить",
+                    text = retryLabel,
                     fontFamily = fontFamily,
                     fontWeight = FontWeight.Medium
                 )
@@ -752,6 +783,9 @@ private fun MyProjectMenu(
     onOpenStats: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val allProjectsLabel = localizedString("Все проекты", "All projects")
+    val githubLabel = localizedString("ГитХаб", "GitHub")
+    val projectStatsLabel = localizedString("Статистика проекта", "Project stats")
     val menuBaseOffset = (-95).dp
 
     Box(
@@ -768,19 +802,19 @@ private fun MyProjectMenu(
         ) {
             SuggestProjectButton(
                 onClick = onBackToProjects,
-                text = "Все проекты"
+                text = allProjectsLabel
             )
 
             if (!githubUrl.isNullOrBlank()) {
                 SuggestProjectButton(
                     onClick = { onOpenGithub(githubUrl) },
-                    text = "ГитХаб"
+                    text = githubLabel
                 )
             }
 
             SuggestProjectButton(
                 onClick = onOpenStats,
-                text = "Статистика проекта"
+                text = projectStatsLabel
             )
         }
     }
@@ -803,9 +837,19 @@ private fun ProjectDetailContent(
     onOpenGithub: ((String) -> Unit)? = null,
     onOpenStats: (() -> Unit)? = null,
     onMemberClick: ((String, String, String?) -> Unit)? = null,
+    onMemberRoleEdit: ((memberId: Int, newRole: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val descriptionTitle = localizedString("Описание проекта", "Project description")
+    val requirementsTitle = localizedString("Требования проекта", "Project requirements")
+    val performerRequirementsTitle = localizedString(
+        "Требования для исполнителей",
+        "Requirements for contributors",
+    )
+    val githubLabel = localizedString("GitHub", "GitHub")
+    val projectStatsLabel = localizedString("Статистика проекта", "Project stats")
     val fontFamily = openSansFamily()
+    val palette = appPalette()
     val scrollState = rememberScrollState()
     val projectTags = tags.filter { tag -> project.tags?.contains(tag.id) == true }
     val hasContactClient = !project.contact.isNullOrBlank() || !project.client.isNullOrBlank()
@@ -874,21 +918,20 @@ private fun ProjectDetailContent(
             
             // Описание проекта
             if (!project.description.isNullOrBlank()) {
-                SectionTitle(text = "Описание проекта")
-                
+                SectionTitle(text = descriptionTitle)
                 Text(
                     text = project.description,
                     fontFamily = fontFamily,
                     fontWeight = FontWeight.Normal,
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
-                    color = AppColors.Color2
+                    color = palette.primaryText
                 )
             }
             
             // Требования проекта (если есть)
             if (requirements.isNotEmpty()) {
-                SectionTitle(text = "Требования проекта")
+                SectionTitle(text = requirementsTitle)
                 
                 requirements.forEachIndexed { index, requirement ->
                     RequirementItem(
@@ -902,7 +945,7 @@ private fun ProjectDetailContent(
             if (isAuthorized) {
                 // Требования для исполнителей (теги)
                 if (executorRequirements.isNotEmpty()) {
-                    SectionTitle(text = "Требования для исполнителей")
+                    SectionTitle(text = performerRequirementsTitle)
                     
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -924,7 +967,8 @@ private fun ProjectDetailContent(
                         users = users,
                         preferredProjectName = project.name,
                         onMemberClick = onMemberClick,
-                        currentUserId = currentUserId
+                        currentUserId = currentUserId,
+                        onMemberRoleEdit = onMemberRoleEdit
                     )
                 }
             }
@@ -937,14 +981,14 @@ private fun ProjectDetailContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(1.dp)
-                        .background(AppColors.Color1)
+                        .background(palette.subtleBorder)
                 )
 
                 if (!githubUrl.isNullOrBlank() && onOpenGithub != null) {
                     MyProjectActionButton(
                         iconRes = Res.drawable.github_logo,
                         iconSize = 20.dp,
-                        text = "GitHub",
+                        text = githubLabel,
                         onClick = { onOpenGithub(githubUrl) }
                     )
                 }
@@ -952,7 +996,7 @@ private fun ProjectDetailContent(
                 MyProjectActionButton(
                     iconRes = Res.drawable.stats_tab_logo,
                     iconSize = 22.dp,
-                    text = "Статистика проекта",
+                    text = projectStatsLabel,
                     onClick = { onOpenStats?.invoke() },
                     showBottomDivider = false
                 )
@@ -971,8 +1015,8 @@ private fun ProjectDetailContent(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.White,
-                            Color.White.copy(alpha = 0f)
+                            palette.background,
+                            palette.background.copy(alpha = 0f)
                         )
                     )
                 )
@@ -988,8 +1032,8 @@ private fun ProjectDetailContent(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0f),
-                            Color.White
+                            palette.background.copy(alpha = 0f),
+                            palette.background
                         )
                     )
                 )
@@ -1006,6 +1050,7 @@ private fun MyProjectActionButton(
     showBottomDivider: Boolean = true
 ) {
     val fontFamily = openSansFamily()
+    val palette = appPalette()
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -1031,14 +1076,14 @@ private fun MyProjectActionButton(
                 painter = painterResource(iconRes),
                 contentDescription = null,
                 modifier = Modifier.size(iconSize),
-                colorFilter = ColorFilter.tint(AppColors.Color3)
+                colorFilter = ColorFilter.tint(palette.accent)
             )
             Text(
                 text = text,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
-                color = AppColors.Color3
+                color = palette.accent
             )
         }
         if (showBottomDivider) {
@@ -1046,7 +1091,7 @@ private fun MyProjectActionButton(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(1.dp)
-                    .background(AppColors.Color1)
+                    .background(palette.subtleBorder)
             )
         }
     }
@@ -1090,8 +1135,8 @@ private fun getSampleTags() = listOf(
 )
 
 private fun getSampleMembers() = listOf(
-    Member(id = 1, name = "Студент Студентов Студентович", role = "Backend-разработчик", user = 1),
-    Member(id = 2, name = "Студент Студентов Студентович", role = "Frontend-разработчик"),
-    Member(id = 3, name = "Студент Студентов Студентович", role = "Designer"),
-    Member(id = 4, name = "Студент Студентов Студентович", role = "Project Manager")
+    Member(id = 1, name = "Студент Студентов Студентович", roles = listOf("Backend-разработчик"), user = 1),
+    Member(id = 2, name = "Студент Студентов Студентович", roles = listOf("Frontend-разработчик")),
+    Member(id = 3, name = "Студент Студентов Студентович", roles = listOf("Designer")),
+    Member(id = 4, name = "Студент Студентов Студентович", roles = listOf("Project Manager"))
 )

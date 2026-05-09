@@ -48,6 +48,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -60,7 +61,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
@@ -72,6 +75,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -115,9 +119,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.di.DependencyContainer
+import com.spbu.projecttrack.core.settings.LocalAppUiSettingsController
+import com.spbu.projecttrack.core.settings.localizedString
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.storage.createAppPreferences
 import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.core.theme.appPalette
+import com.spbu.projecttrack.core.theme.dimText
+import com.spbu.projecttrack.core.theme.subtleBorder
 import com.spbu.projecttrack.rating.data.model.RankingData
 import com.spbu.projecttrack.rating.data.model.RankingDateRangeFilter
 import com.spbu.projecttrack.rating.data.model.RankingFilterTemplate
@@ -167,16 +177,11 @@ private data class RankingMetricInfo(
     val note: String? = null,
 )
 
-private val RankingGray = Color(0xFF76767C)
-private val RankingLightGray = Color(0xFFBDBDBD)
-private val RankingDivider = Color(0xFFBDBDBD)
-private val RankingRed = Color(0xFF9F2D20)
-private val RankingRedLight = Color(0xFFCF3F2F)
-private val RankingRedGradientBottom = Color(0xFF842318)
-
 private val RankingGreen = Color(0xFF209F31)
 private val RankingYellow = Color(0xFF9F9220)
 private const val RankingPageSize = 10
+
+private fun rankingAccentGradientBottom(accent: Color): Color = lerp(accent, Color.Black, 0.25f)
 
 /** Max vertical scale at full pull / refresh (stretch from top, same on all platforms). */
 private const val RankingPullContentStretchMax = 0.022f
@@ -210,9 +215,31 @@ fun RankingScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val focusManager = LocalFocusManager.current
     val pagerState = rememberPagerState(
-        initialPage = RankingTab.Projects.ordinal,
+        initialPage = viewModel.savedPage,
         pageCount = { RankingTab.entries.size },
     )
+
+    // Список проектов и список студентов — создаём здесь, чтобы контролировать
+    // начальную позицию скролла и сохранять её при уходе со вкладки.
+    val projectsListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = viewModel.savedProjectsScrollIndex,
+        initialFirstVisibleItemScrollOffset = viewModel.savedProjectsScrollOffset,
+    )
+    val studentsListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = viewModel.savedStudentsScrollIndex,
+        initialFirstVisibleItemScrollOffset = viewModel.savedStudentsScrollOffset,
+    )
+
+    // Сохраняем позицию при уходе с экрана рейтинга
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.savedPage = pagerState.currentPage
+            viewModel.savedProjectsScrollIndex = projectsListState.firstVisibleItemIndex
+            viewModel.savedProjectsScrollOffset = projectsListState.firstVisibleItemScrollOffset
+            viewModel.savedStudentsScrollIndex = studentsListState.firstVisibleItemIndex
+            viewModel.savedStudentsScrollOffset = studentsListState.firstVisibleItemScrollOffset
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
 
     var searchText by remember { mutableStateOf("") }
@@ -228,10 +255,11 @@ fun RankingScreen(
     var rankingFilterPrefsLoaded by remember { mutableStateOf(false) }
     val appPreferences = remember { createAppPreferences() }
 
-    val noneTemplate = remember {
+    val language = LocalAppUiSettingsController.current.language
+    val noneTemplate = remember(language) {
         RankingFilterTemplate(
             id = "none",
-            title = "Нет",
+            title = localizeRuntime("Нет", "None"),
             filters = rankingDefaultFilters(),
             isBuiltIn = true,
         )
@@ -300,7 +328,7 @@ fun RankingScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         // Logo — first child, z=0, behind everything.
         // Same pattern as OnboardingScreen: Image as first child of the same Box as all content.
@@ -410,9 +438,10 @@ fun RankingScreen(
                                         }
                                         val searchedItems = searchRankingItems(sourceItems, searchText)
                                         val sortedItems = sortRankingItems(searchedItems, sortOrder)
-                                        val markerLabel = if (tab == RankingTab.Projects) "Текущий" else "Вы"
                                         val fullSortedItems = sortRankingItems(sourceItems, sortOrder)
-                                        val pinnedItem = fullSortedItems.firstOrNull { it.markerLabel == markerLabel }
+                                        val pinnedItem = fullSortedItems.firstOrNull {
+                                            !it.markerLabel.isNullOrBlank()
+                                        }
                                         val pinnedRank = if (pinnedItem != null) fullSortedItems.indexOf(pinnedItem) + 1 else -1
 
                                         RankingList(
@@ -421,10 +450,11 @@ fun RankingScreen(
                                             pinnedItem = pinnedItem,
                                             pinnedRank = pinnedRank,
                                             resetKey = "${tab.name}|${searchText.trim()}|${sortOrder.name}|${appliedFilters.hashCode()}",
+                                            listState = if (tab == RankingTab.Projects) projectsListState else studentsListState,
                                             emptyText = if (tab == RankingTab.Projects) {
-                                                "Нет данных по проектам"
+                                                localizedString("Нет данных по проектам", "No project data")
                                             } else {
-                                                "Нет данных по студентам"
+                                                localizedString("Нет данных по студентам", "No student data")
                                             },
                                             onProjectClick = handleProjectClick,
                                             onStudentClick = handleStudentClick,
@@ -558,11 +588,16 @@ fun RankingScreen(
 @Composable
 private fun BoxScope.RankingBackgroundLogo(
     modifier: Modifier = Modifier,
+    asWatermark: Boolean = false,
 ) {
+    val alpha =
+        if (asWatermark) appPalette().spbuWatermarkLogoAlpha
+        else appPalette().spbuBackdropLogoAlpha
     Image(
         painter = painterResource(Res.drawable.spbu_logo),
         contentDescription = null,
         modifier = modifier
+            .alpha(alpha)
             .fillMaxSize()
             .align(Alignment.Center),
         contentScale = ContentScale.FillWidth,
@@ -578,10 +613,10 @@ private fun RankingTitle() {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = "Рейтинг",
+            text = localizedString("Рейтинг", "Rating"),
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 40.sp,
-            color = RankingRed,
+            color = appPalette().title,
             letterSpacing = 0.4.sp,
         )
     }
@@ -593,6 +628,7 @@ private fun RankingTabs(
     onTabSelected: (RankingTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -607,7 +643,7 @@ private fun RankingTabs(
                 contentAlignment = Alignment.Center,
             ) {
                 RankingTabText(
-                    text = "Проекты",
+                    text = localizedString("Проекты", "Projects"),
                     selected = selectedTab == RankingTab.Projects,
                     onClick = { onTabSelected(RankingTab.Projects) },
                 )
@@ -617,7 +653,7 @@ private fun RankingTabs(
                 contentAlignment = Alignment.Center,
             ) {
                 RankingTabText(
-                    text = "Студенты",
+                    text = localizedString("Студенты", "Students"),
                     selected = selectedTab == RankingTab.Students,
                     onClick = { onTabSelected(RankingTab.Students) },
                 )
@@ -628,7 +664,7 @@ private fun RankingTabs(
                 .align(Alignment.Center)
                 .width(1.dp)
                 .height(20.dp)
-                .background(RankingGray),
+                .background(palette.border),
         )
     }
 }
@@ -639,6 +675,7 @@ private fun RankingTabText(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -652,7 +689,7 @@ private fun RankingTabText(
         fontFamily = AppFonts.OpenSansRegular,
         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
         fontSize = 20.sp,
-        color = if (selected) RankingGray else RankingLightGray,
+        color = if (selected) palette.primaryText else palette.secondaryText,
         modifier = Modifier
             .scale(scale)
             .clickable(
@@ -671,18 +708,19 @@ private fun RankingSearchField(
     modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
+    val palette = appPalette()
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(40.dp)
             .background(
-                color = Color(0xFFFEFEFE),
+                color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(20.dp),
             )
             .border(
                 width = 1.dp,
-                color = RankingDivider,
+                color = palette.subtleBorder,
                 shape = RoundedCornerShape(20.dp),
             )
             .padding(horizontal = 10.dp),
@@ -706,7 +744,7 @@ private fun RankingSearchField(
             textStyle = TextStyle(
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
-                color = RankingGray,
+                color = palette.primaryText,
                 letterSpacing = 0.16.sp,
             ),
             keyboardOptions = KeyboardOptions(
@@ -722,10 +760,10 @@ private fun RankingSearchField(
             decorationBox = { innerTextField ->
                 if (searchText.isBlank()) {
                     Text(
-                        text = "Поиск",
+                        text = localizedString("Поиск", "Search"),
                         fontFamily = AppFonts.OpenSansSemiBold,
                         fontSize = 16.sp,
-                        color = RankingLightGray,
+                        color = palette.dimText,
                         letterSpacing = 0.16.sp,
                     )
                 }
@@ -770,7 +808,7 @@ private fun RankingControlsRow(
     ) {
         RankingIconButton(
             painter = painterResource(Res.drawable.filter_icon),
-            contentDescription = "Открыть фильтры",
+            contentDescription = localizedString("Открыть фильтры", "Open filters"),
             onClick = onFilterClick,
             showBadge = activeFilters.hasActiveSelections(),
             iconModifier = Modifier.size(RankingFilterLaneIconTap),
@@ -870,7 +908,7 @@ private fun RankingIconButton(
                     .size(10.dp)
                     .align(Alignment.TopEnd)
                     .offset(x = (-1).dp, y = 1.dp)
-                    .background(RankingRed, CircleShape),
+                    .background(appPalette().accent, CircleShape),
             )
         }
     }
@@ -903,9 +941,9 @@ private fun RankingSortButton(
         Image(
             painter = painterResource(Res.drawable.stats_sort_asc),
             contentDescription = if (sortOrder == RankingSortOrder.Descending) {
-                "Сортировка по убыванию"
+                localizedString("Сортировка по убыванию", "Sort descending")
             } else {
-                "Сортировка по возрастанию"
+                localizedString("Сортировка по возрастанию", "Sort ascending")
             },
             modifier = Modifier
                 .size(24.dp)
@@ -918,16 +956,17 @@ private fun RankingSortButton(
 private fun RankingAppliedFilterChip(
     label: String,
 ) {
+    val palette = appPalette()
     Box(
         modifier = Modifier
-            .background(RankingGray, RoundedCornerShape(10.dp))
+            .background(palette.disabledButton, RoundedCornerShape(10.dp))
             .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Text(
             text = label,
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 15.sp,
-            color = Color.White,
+            color = palette.buttonText,
             lineHeight = 10.sp,
             letterSpacing = 0.15.sp,
             maxLines = 1,
@@ -938,6 +977,7 @@ private fun RankingAppliedFilterChip(
 
 @Composable
 private fun RankingUnauthorizedState() {
+    val palette = appPalette()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -946,19 +986,19 @@ private fun RankingUnauthorizedState() {
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "Рейтинг недоступен",
+            text = localizedString("Рейтинг недоступен", "Rating unavailable"),
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 22.sp,
-            color = RankingRed,
+            color = palette.title,
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = "Авторизуйтесь, чтобы увидеть рейтинг проектов и студентов.",
+            text = localizedString("Авторизуйтесь, чтобы увидеть рейтинг проектов и студентов.", "Sign in to view project and student rankings."),
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 16.sp,
-            color = RankingGray,
+            color = palette.secondaryText,
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
         )
@@ -971,6 +1011,7 @@ private fun RankingPullRefreshIndicator(
     isRefreshing: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     val visibilityEased = LinearOutSlowInEasing.transform(
         state.distanceFraction.coerceIn(0f, 1.2f),
     ).coerceIn(0f, 1f)
@@ -987,16 +1028,16 @@ private fun RankingPullRefreshIndicator(
         if (isRefreshing) {
             CircularProgressIndicator(
                 modifier = Modifier.size(28.dp),
-                color = RankingRed,
+                color = palette.accent,
                 strokeWidth = 2.5.dp,
             )
         } else {
             CircularProgressIndicator(
                 progress = { minOf(1f, state.distanceFraction) },
                 modifier = Modifier.size(28.dp),
-                color = RankingRed,
+                color = palette.accent,
                 strokeWidth = 2.5.dp,
-                trackColor = RankingLightGray.copy(alpha = 0.4f),
+                trackColor = palette.dimText.copy(alpha = 0.4f),
             )
         }
     }
@@ -1006,6 +1047,7 @@ private fun RankingPullRefreshIndicator(
 private fun LoadingContent(
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -1014,12 +1056,12 @@ private fun LoadingContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            CircularProgressIndicator(color = RankingRed)
+            CircularProgressIndicator(color = palette.accent)
             Text(
-                text = "Загрузка рейтинга...",
+                text = localizedString("Загрузка рейтинга...", "Loading..."),
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
-                color = RankingGray,
+                color = palette.secondaryText,
             )
         }
     }
@@ -1031,34 +1073,35 @@ private fun ErrorContent(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(horizontal = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(32.dp),
         ) {
             Text(
-                text = "Ошибка загрузки",
+                text = localizedString("Ошибка загрузки", "Load error"),
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 18.sp,
-                color = RankingRed,
+                color = palette.accent,
             )
             Text(
                 text = message,
                 fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 14.sp,
-                color = RankingGray,
+                color = palette.secondaryText,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
-            RankingActionButton(
-                text = "Повторить",
-                backgroundColor = RankingRed,
-                borderColor = RankingRedLight,
-                onClick = onRetry,
-                modifier = Modifier.width(150.dp),
-            )
+            Button(onClick = onRetry) {
+                Text(
+                    text = localizedString("Повторить", "Retry"),
+                    fontFamily = AppFonts.OpenSansMedium,
+                )
+            }
         }
     }
 }
@@ -1068,6 +1111,7 @@ private fun RankingList(
     items: List<RankingItem>,
     tab: RankingTab,
     resetKey: String,
+    listState: LazyListState,
     emptyText: String,
     pinnedItem: RankingItem? = null,
     pinnedRank: Int = -1,
@@ -1084,20 +1128,31 @@ private fun RankingList(
                 text = emptyText,
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
-                color = RankingGray,
+                color = appPalette().secondaryText,
             )
         }
         return
     }
 
-    val listState = rememberLazyListState()
     var visibleCount by remember(resetKey) {
         mutableStateOf(minOf(RankingPageSize, items.size))
     }
 
-    LaunchedEffect(resetKey, items.size) {
+    // Флаг: пропускаем скролл при первой композиции (восстановление позиции),
+    // но скроллим в начало когда resetKey реально меняется (поиск/фильтр/сортировка).
+    var isFirstComposition by remember { mutableStateOf(true) }
+
+    LaunchedEffect(resetKey) {
+        if (isFirstComposition) {
+            isFirstComposition = false
+        } else {
+            listState.scrollToItem(0)
+        }
         visibleCount = minOf(RankingPageSize, items.size)
-        listState.scrollToItem(0)
+    }
+
+    LaunchedEffect(items.size) {
+        visibleCount = minOf(RankingPageSize, items.size)
     }
 
     LaunchedEffect(listState, items.size, visibleCount) {
@@ -1264,10 +1319,10 @@ private fun RankingList(
                     .padding(start = 17.dp, end = 20.dp),
             ) {
                 Text(
-                    text = if (tab == RankingTab.Projects) "Ваш проект" else "Ваша позиция",
+                    text = if (tab == RankingTab.Projects) localizedString("Ваш проект", "Your project") else localizedString("Ваша позиция", "Your position"),
                     fontFamily = AppFonts.OpenSansSemiBold,
                     fontSize = 11.sp,
-                    color = RankingRed,
+                    color = appPalette().accent,
                     letterSpacing = 0.4.sp,
                     modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                 )
@@ -1295,6 +1350,7 @@ private fun RankingRow(
     modifier: Modifier = Modifier,
     showBody: Boolean = true,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -1323,7 +1379,7 @@ private fun RankingRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(RankingDivider),
+                .background(palette.subtleBorder),
         )
         Row(
             modifier = Modifier
@@ -1353,7 +1409,11 @@ private fun RankingRow(
                         text = item.scoreText,
                         fontFamily = AppFonts.OpenSansBold,
                         fontSize = 20.sp,
-                        color = scoreGradientColor(item.score),
+                        color = scoreGradientColor(
+                            item.score,
+                            palette.accent,
+                            palette.secondaryText,
+                        ),
                         lineHeight = 12.sp,
                     )
                 }
@@ -1376,6 +1436,7 @@ private fun RankingPositionIndicator(
     item: RankingItem,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     val movedUp = item.positionDelta?.let { it > 0 } == true
     val icon = when {
         item.positionDelta == null || item.positionDelta == 0 -> null
@@ -1391,7 +1452,7 @@ private fun RankingPositionIndicator(
             text = position.toString(),
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 24.sp,
-            color = RankingGray,
+            color = palette.secondaryText,
             lineHeight = 20.sp,
         )
         Spacer(modifier = Modifier.width(4.dp))
@@ -1403,9 +1464,9 @@ private fun RankingPositionIndicator(
                 Image(
                     painter = painterResource(icon),
                     contentDescription = if (movedUp) {
-                        "Поднялся в рейтинге"
+                        localizedString("Поднялся в рейтинге", "Moved up in ranking")
                     } else {
-                        "Опустился в рейтинге"
+                        localizedString("Опустился в рейтинге", "Moved down in ranking")
                     },
                     modifier = Modifier.size(16.dp),
                 )
@@ -1419,12 +1480,13 @@ private fun RankingTitleText(
     item: RankingItem,
     modifier: Modifier = Modifier,
 ) {
-    val titleText = remember(item.title, item.markerLabel) {
+    val accent = appPalette().accent
+    val titleText = remember(item.title, item.markerLabel, accent) {
         buildAnnotatedString {
             append(item.title)
             item.markerLabel?.takeIf { it.isNotBlank() }?.let { marker ->
                 append(" ")
-                withStyle(SpanStyle(color = RankingRed)) {
+                withStyle(SpanStyle(color = accent)) {
                     append("($marker)")
                 }
             }
@@ -1435,7 +1497,7 @@ private fun RankingTitleText(
         text = titleText,
         fontFamily = AppFonts.OpenSansBold,
         fontSize = 16.sp,
-        color = RankingGray,
+        color = appPalette().primaryText,
         lineHeight = 20.sp,
         letterSpacing = 0.16.sp,
         modifier = modifier,
@@ -1449,12 +1511,13 @@ private fun RankingTitleText(
 private fun ProjectRankingBody(
     item: RankingItem,
 ) {
+    val palette = appPalette()
     Column {
         Text(
-            text = item.description?.takeIf { it.isNotBlank() } ?: "Описание проекта пока недоступно",
+            text = item.description?.takeIf { it.isNotBlank() } ?: localizedString("Описание проекта пока недоступно", "Project description not yet available"),
             fontFamily = AppFonts.OpenSansRegular,
             fontSize = 10.sp,
-            color = RankingGray,
+            color = palette.secondaryText,
             lineHeight = 10.sp,
             maxLines = 6,
             overflow = TextOverflow.Ellipsis,
@@ -1478,24 +1541,25 @@ private fun ProjectRankingBody(
 private fun StudentRankingBody(
     item: RankingItem,
 ) {
+    val palette = appPalette()
     val projectText = buildAnnotatedString {
         withStyle(
             SpanStyle(
                 fontFamily = AppFonts.OpenSansBold,
-                color = RankingGray,
+                color = palette.primaryText,
             ),
         ) {
-            append("Проект:")
+            append(localizeRuntime("Проект:", "Project:"))
         }
         append(" ")
-        append(item.projectName?.takeIf { it.isNotBlank() } ?: "Не определен")
+        append(item.projectName?.takeIf { it.isNotBlank() } ?: localizeRuntime("Не определен", "Not defined"))
     }
 
     Text(
         text = projectText,
         fontFamily = AppFonts.OpenSansRegular,
         fontSize = 10.sp,
-        color = RankingGray,
+        color = palette.secondaryText,
         lineHeight = 10.sp,
     )
 }
@@ -1504,16 +1568,17 @@ private fun StudentRankingBody(
 private fun RankingTagChip(
     text: String,
 ) {
+    val palette = appPalette()
     Box(
         modifier = Modifier
-            .border(1.dp, RankingDivider, RoundedCornerShape(10.dp))
+            .border(1.dp, palette.subtleBorder, RoundedCornerShape(10.dp))
             .padding(horizontal = 5.dp, vertical = 4.dp),
     ) {
         Text(
             text = text,
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 10.sp,
-            color = RankingGray,
+            color = palette.secondaryText,
             lineHeight = 10.sp,
         )
     }
@@ -1527,6 +1592,7 @@ private fun RankingActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    useAccentGradient: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1535,6 +1601,11 @@ private fun RankingActionButton(
         animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
         label = "ranking_action_scale",
     )
+    val gradientColors = if (useAccentGradient) {
+        listOf(backgroundColor, rankingAccentGradientBottom(backgroundColor))
+    } else {
+        listOf(backgroundColor, backgroundColor)
+    }
 
     Box(
         modifier = modifier
@@ -1542,13 +1613,7 @@ private fun RankingActionButton(
             .scale(scale)
             .alpha(if (enabled) 1f else 0.5f)
             .background(
-                brush = Brush.verticalGradient(
-                    colors = if (backgroundColor == RankingRed) {
-                        listOf(RankingRed, RankingRedGradientBottom)
-                    } else {
-                        listOf(backgroundColor, backgroundColor)
-                    }
-                ),
+                brush = Brush.verticalGradient(colors = gradientColors),
                 shape = RoundedCornerShape(10.dp),
             )
             .border(1.dp, borderColor, RoundedCornerShape(10.dp))
@@ -1564,7 +1629,7 @@ private fun RankingActionButton(
             text = text,
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 16.sp,
-            color = Color.White,
+            color = appPalette().buttonText,
             letterSpacing = 0.16.sp,
         )
     }
@@ -1578,6 +1643,7 @@ private fun SaveDialogButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -1598,8 +1664,13 @@ private fun SaveDialogButton(
                     radius = 4.dp,
                 ),
             )
-            .background(RankingRed, RoundedCornerShape(15.dp))
-            .border(1.dp, RankingRedLight, RoundedCornerShape(15.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(palette.accent, rankingAccentGradientBottom(palette.accent)),
+                ),
+                RoundedCornerShape(15.dp),
+            )
+            .border(1.dp, palette.accentBorder, RoundedCornerShape(15.dp))
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
@@ -1613,7 +1684,7 @@ private fun SaveDialogButton(
             text = text,
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 15.sp,
-            color = Color.White,
+            color = palette.buttonText,
             letterSpacing = 0.15.sp,
         )
     }
@@ -1639,6 +1710,9 @@ private fun RankingFiltersScreen(
 ) {
     val scrollState = rememberScrollState()
     var showDateRangeCalendar by remember { mutableStateOf(false) }
+    val screenBg = MaterialTheme.colorScheme.background
+    val onBg = MaterialTheme.colorScheme.onBackground
+    val palette = appPalette()
 
     // Scroll fade helpers
     val canScrollUp by remember { derivedStateOf { scrollState.value > 0 } }
@@ -1666,7 +1740,7 @@ private fun RankingFiltersScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(screenBg)
             .imePadding()
             // Consume all taps so they don't fall through to the screen behind.
             .clickable(
@@ -1692,7 +1766,7 @@ private fun RankingFiltersScreen(
             ) {
                 Image(
                     painter = painterResource(Res.drawable.arrow_back),
-                    contentDescription = "Назад",
+                    contentDescription = localizedString("Назад", "Back"),
                     modifier = Modifier
                         .padding(start = 9.dp, top = 14.dp)
                         .size(24.dp)
@@ -1704,10 +1778,10 @@ private fun RankingFiltersScreen(
                         ),
                 )
                 Text(
-                    text = "Фильтры",
+                    text = localizedString("Фильтры", "Filters"),
                     fontFamily = AppFonts.OpenSansBold,
                     fontSize = 40.sp,
-                    color = RankingRed,
+                    color = palette.title,
                     letterSpacing = 0.4.sp,
                     modifier = Modifier.align(Alignment.Center),
                 )
@@ -1758,10 +1832,10 @@ private fun RankingFiltersScreen(
                     // Templates section – only shown when user has saved templates
                     if (templates.isNotEmpty()) {
                         Text(
-                            text = "Шаблоны",
+                            text = localizedString("Шаблоны", "Templates"),
                             fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 15.sp,
-                            color = Color.Black,
+                            color = onBg,
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         val templateListState = rememberLazyListState()
@@ -1797,7 +1871,7 @@ private fun RankingFiltersScreen(
                                     )
                                 }
                             }
-                            // Left fade overlay – matches filter-screen white background
+                            // Left fade overlay – matches filter-screen background
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
@@ -1806,7 +1880,7 @@ private fun RankingFiltersScreen(
                                     .alpha(tmplLeftAlpha)
                                     .background(
                                         Brush.horizontalGradient(
-                                            listOf(Color.White, Color.Transparent),
+                                            listOf(screenBg, Color.Transparent),
                                         )
                                     ),
                             )
@@ -1819,7 +1893,7 @@ private fun RankingFiltersScreen(
                                     .alpha(tmplRightAlpha)
                                     .background(
                                         Brush.horizontalGradient(
-                                            listOf(Color.Transparent, Color.White),
+                                            listOf(Color.Transparent, screenBg),
                                         )
                                     ),
                             )
@@ -1832,22 +1906,22 @@ private fun RankingFiltersScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = "Метрики",
+                            text = localizedString("Метрики", "Metrics"),
                             fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 15.sp,
-                            color = Color.Black,
+                            color = onBg,
                         )
                         SmallPillButton(
-                            text = "Очистить",
+                            text = localizedString("Очистить", "Clear"),
                             onClick = onClearMetrics,
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Выберите метрики, по которым будет составляться общая оценка:",
+                        text = localizedString("Выберите метрики, по которым будет составляться общая оценка:", "Select the metrics to use for the overall score:"),
                         fontFamily = AppFonts.OpenSansMedium,
                         fontSize = 14.sp,
-                        color = RankingGray,
+                        color = palette.secondaryText,
                         lineHeight = 16.sp,
                         modifier = Modifier.widthIn(max = 375.dp),
                     )
@@ -1873,13 +1947,13 @@ private fun RankingFiltersScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = "Диапазон дат",
+                            text = localizedString("Диапазон дат", "Date range"),
                             fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 15.sp,
-                            color = Color.Black,
+                            color = onBg,
                         )
                         SmallPillButton(
-                            text = "Очистить",
+                            text = localizedString("Очистить", "Clear"),
                             onClick = onClearDateRange,
                         )
                     }
@@ -1899,16 +1973,17 @@ private fun RankingFiltersScreen(
                 horizontalArrangement = Arrangement.spacedBy(13.dp),
             ) {
                 RankingActionButton(
-                    text = "Применить",
-                    backgroundColor = RankingGray,
-                    borderColor = RankingDivider,
+                    text = localizedString("Применить", "Apply"),
+                    backgroundColor = palette.disabledButton,
+                    borderColor = palette.subtleBorder,
                     onClick = onApply,
                     modifier = Modifier.weight(1f),
                 )
                 RankingActionButton(
-                    text = "Сохранить шаблон",
-                    backgroundColor = RankingRed,
-                    borderColor = RankingRedLight,
+                    text = localizedString("Сохранить шаблон", "Save template"),
+                    backgroundColor = palette.accent,
+                    borderColor = palette.accentBorder,
+                    useAccentGradient = true,
                     onClick = onSaveTemplate,
                     modifier = Modifier.weight(1f),
                 )
@@ -1937,6 +2012,7 @@ private fun RankingTemplateChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -1952,13 +2028,13 @@ private fun RankingTemplateChip(
             .dropShadow(
                 shape = RoundedCornerShape(10.dp),
                 shadow = Shadow(
-                    color = if (selected) RankingRed.copy(alpha = 0.40f) else Color.Black.copy(alpha = 0.15f),
+                    color = if (selected) palette.accent.copy(alpha = 0.40f) else Color.Black.copy(alpha = 0.15f),
                     offset = DpOffset(x = 0.dp, y = if (selected) 3.dp else 2.dp),
                     radius = if (selected) 6.dp else 3.dp,
                 )
             )
             .background(
-                color = if (selected) RankingRed else RankingGray,
+                color = if (selected) palette.accent else palette.disabledButton,
                 shape = RoundedCornerShape(10.dp),
             )
             .clickable(
@@ -1973,7 +2049,7 @@ private fun RankingTemplateChip(
             text = title,
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 13.sp,
-            color = Color.White,
+            color = palette.buttonText,
             letterSpacing = 0.15.sp,
             maxLines = 1,
         )
@@ -1996,6 +2072,7 @@ private fun RankingMetricRow(
 
     // Checkbox (24dp) + Spacer (2dp) = 26dp → sub-chip start offset
     val subFieldStartPadding = 26.dp
+    val palette = appPalette()
 
     Column {
         Row(
@@ -2011,7 +2088,7 @@ private fun RankingMetricRow(
                 text = metricKey.title,
                 fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 15.sp,
-                color = RankingLightGray,
+                color = palette.primaryText,
                 lineHeight = 10.sp,
                 modifier = Modifier.weight(1f),
             )
@@ -2084,7 +2161,7 @@ private fun RankingMetricRow(
 
     if (showPeriodPicker) {
         RankingWheelPickerDialog(
-            title = "Период",
+            title = localizedString("Период", "Period"),
             options = RankingPeriodPreset.entries.map { it.label },
             selectedIndex = RankingPeriodPreset.entries.indexOf(metricFilter.periodPreset).coerceAtLeast(0),
             onDismiss = { showPeriodPicker = false },
@@ -2097,7 +2174,7 @@ private fun RankingMetricRow(
 
     if (showThresholdPicker) {
         RankingWheelPickerDialog(
-            title = "Продолжительность",
+            title = localizedString("Продолжительность", "Duration"),
             options = RankingThresholdPreset.entries.map { it.label },
             selectedIndex = RankingThresholdPreset.entries.indexOf(metricFilter.thresholdPreset).coerceAtLeast(0),
             onDismiss = { showThresholdPicker = false },
@@ -2116,6 +2193,7 @@ private fun RankingSubFieldChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -2127,7 +2205,7 @@ private fun RankingSubFieldChip(
         modifier = modifier
             .height(30.dp)
             .scale(scale)
-            .border(1.dp, RankingDivider, RoundedCornerShape(10.dp))
+            .border(1.dp, palette.subtleBorder, RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -2140,7 +2218,7 @@ private fun RankingSubFieldChip(
             text = text,
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 14.sp,
-            color = RankingGray,
+            color = palette.secondaryText,
             lineHeight = 10.sp,
         )
     }
@@ -2175,6 +2253,8 @@ private fun RankingWheelPickerDialog(
     }
 
     val coroutineScope = rememberCoroutineScope()
+    val palette = appPalette()
+    val dialogSurface = MaterialTheme.colorScheme.surface
 
     // After every scroll-stop, animate to the exact snap position
     LaunchedEffect(scrollState) {
@@ -2213,21 +2293,20 @@ private fun RankingWheelPickerDialog(
                 modifier = Modifier
                     .fillMaxWidth(0.85f)
                     .widthIn(max = 320.dp)
-                    .background(Color.White, RoundedCornerShape(20.dp))
-                    .border(1.dp, RankingDivider, RoundedCornerShape(20.dp))
+                    .background(dialogSurface, RoundedCornerShape(20.dp))
+                    .border(1.dp, palette.subtleBorder, RoundedCornerShape(20.dp))
                     .padding(horizontal = 18.dp, vertical = 16.dp),
             ) {
                 RankingBackgroundLogo(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .alpha(0.05f),
+                    modifier = Modifier.matchParentSize(),
+                    asWatermark = true,
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = title,
                         fontFamily = AppFonts.OpenSansBold,
                         fontSize = 18.sp,
-                        color = RankingGray,
+                        color = palette.primaryText,
                     )
                     Spacer(modifier = Modifier.height(14.dp))
 
@@ -2258,7 +2337,7 @@ private fun RankingWheelPickerDialog(
                                         text = option,
                                         fontFamily = if (isCenter) AppFonts.OpenSansBold else AppFonts.OpenSansRegular,
                                         fontSize = if (isCenter) 17.sp else 14.sp,
-                                        color = if (isCenter) RankingRed else RankingGray,
+                                        color = if (isCenter) palette.accent else palette.secondaryText,
                                         maxLines = 1,
                                     )
                                 }
@@ -2267,7 +2346,7 @@ private fun RankingWheelPickerDialog(
                                 Spacer(modifier = Modifier.height(itemHeightDp))
                             }
                         }
-                        // Top fade (white gradient masks items scrolling away at the top)
+                        // Top fade (surface gradient masks items scrolling away at the top)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2275,7 +2354,7 @@ private fun RankingWheelPickerDialog(
                                 .align(Alignment.TopCenter)
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(Color.White, Color.Transparent),
+                                        listOf(dialogSurface, Color.Transparent),
                                     )
                                 ),
                         )
@@ -2287,7 +2366,7 @@ private fun RankingWheelPickerDialog(
                                 .align(Alignment.BottomCenter)
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(Color.Transparent, Color.White),
+                                        listOf(Color.Transparent, dialogSurface),
                                     )
                                 ),
                         )
@@ -2297,7 +2376,7 @@ private fun RankingWheelPickerDialog(
                                 .fillMaxWidth()
                                 .height(itemHeightDp)
                                 .align(Alignment.Center)
-                                .border(1.dp, RankingDivider, RoundedCornerShape(8.dp)),
+                                .border(1.dp, palette.subtleBorder, RoundedCornerShape(8.dp)),
                         )
                     }
 
@@ -2307,16 +2386,17 @@ private fun RankingWheelPickerDialog(
                         horizontalArrangement = Arrangement.spacedBy(13.dp),
                     ) {
                         RankingActionButton(
-                            text = "Отмена",
-                            backgroundColor = RankingGray,
-                            borderColor = RankingDivider,
+                            text = localizedString("Отмена", "Cancel"),
+                            backgroundColor = palette.disabledButton,
+                            borderColor = palette.subtleBorder,
                             onClick = ::dismiss,
                             modifier = Modifier.weight(1f),
                         )
                         RankingActionButton(
-                            text = "Выбрать",
-                            backgroundColor = RankingRed,
-                            borderColor = RankingRedLight,
+                            text = localizedString("Выбрать", "Select"),
+                            backgroundColor = palette.accent,
+                            borderColor = palette.accentBorder,
+                            useAccentGradient = true,
                             onClick = {
                                 onConfirm(pickedIndex)
                                 dismiss()
@@ -2335,6 +2415,7 @@ private fun RankingCheckbox(
     checked: Boolean,
     onClick: () -> Unit,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -2357,12 +2438,12 @@ private fun RankingCheckbox(
             modifier = Modifier
                 .size(18.dp)
                 .background(
-                    color = if (checked) RankingGray else Color.Transparent,
+                    color = if (checked) palette.disabledButton else Color.Transparent,
                     shape = RoundedCornerShape(2.dp),
                 )
                 .border(
                     width = if (checked) 0.dp else 2.dp,
-                    color = RankingGray,
+                    color = palette.border,
                     shape = RoundedCornerShape(2.dp),
                 ),
             contentAlignment = Alignment.Center,
@@ -2372,7 +2453,7 @@ private fun RankingCheckbox(
                     text = "✓",
                     fontFamily = AppFonts.OpenSansBold,
                     fontSize = 13.sp,
-                    color = Color.White,
+                    color = palette.buttonText,
                     lineHeight = 13.sp,
                 )
             }
@@ -2384,6 +2465,7 @@ private fun RankingCheckbox(
 private fun RankingInfoBadge(
     onClick: () -> Unit,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -2395,7 +2477,7 @@ private fun RankingInfoBadge(
         modifier = Modifier
             .size(15.dp)
             .scale(scale)
-            .border(1.dp, RankingGray, CircleShape)
+            .border(1.dp, palette.border, CircleShape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -2407,7 +2489,7 @@ private fun RankingInfoBadge(
             text = "i",
             fontFamily = AppFonts.OpenSansRegular,
             fontSize = 12.sp,
-            color = RankingGray,
+            color = palette.secondaryText,
             lineHeight = 10.sp,
         )
     }
@@ -2418,6 +2500,7 @@ private fun RankingDateRangeField(
     dateRange: RankingDateRangeFilter,
     onClick: () -> Unit,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -2430,7 +2513,7 @@ private fun RankingDateRangeField(
             .width(200.dp)
             .height(30.dp)
             .scale(scale)
-            .border(1.dp, RankingDivider, RoundedCornerShape(10.dp))
+            .border(1.dp, palette.subtleBorder, RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -2443,7 +2526,7 @@ private fun RankingDateRangeField(
             text = formatDateRangeField(dateRange),
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 12.sp,
-            color = RankingGray,
+            color = palette.secondaryText,
             modifier = Modifier.weight(1f),
             maxLines = 1,
         )
@@ -2460,6 +2543,7 @@ private fun SmallPillButton(
     text: String,
     onClick: () -> Unit,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -2470,8 +2554,13 @@ private fun SmallPillButton(
     Box(
         modifier = Modifier
             .scale(scale)
-            .background(RankingRed, RoundedCornerShape(15.dp))
-            .border(1.dp, RankingRedLight, RoundedCornerShape(15.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(palette.accent, rankingAccentGradientBottom(palette.accent)),
+                ),
+                RoundedCornerShape(15.dp),
+            )
+            .border(1.dp, palette.accentBorder, RoundedCornerShape(15.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -2483,7 +2572,7 @@ private fun SmallPillButton(
             text = text,
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 10.sp,
-            color = Color.White,
+            color = palette.buttonText,
             lineHeight = 10.sp,
         )
     }
@@ -2499,6 +2588,8 @@ private fun SaveTemplateDialog(
     val coroutineScope = rememberCoroutineScope()
     var visible by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val palette = appPalette()
+    val dialogSurface = MaterialTheme.colorScheme.surface
     LaunchedEffect(Unit) { visible = true }
 
     // Close-button press animation
@@ -2531,8 +2622,8 @@ private fun SaveTemplateDialog(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
                     .widthIn(max = 350.dp)
-                    .background(Color.White, RoundedCornerShape(20.dp))
-                    .border(1.dp, RankingGray, RoundedCornerShape(20.dp))
+                    .background(dialogSurface, RoundedCornerShape(20.dp))
+                    .border(1.dp, palette.subtleBorder, RoundedCornerShape(20.dp))
                     // No padding here — logo fills the full Box, clipped by rounded corners
                     .clip(RoundedCornerShape(20.dp)),
             ) {
@@ -2540,7 +2631,9 @@ private fun SaveTemplateDialog(
                 Image(
                     painter = painterResource(Res.drawable.spbu_logo),
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
+                    modifier = Modifier
+                        .matchParentSize()
+                        .alpha(appPalette().spbuBackdropLogoAlpha),
                     contentScale = ContentScale.FillWidth,
                 )
                 Column(
@@ -2550,15 +2643,15 @@ private fun SaveTemplateDialog(
                     // Title row with animated close button
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "Сохранить шаблон",
+                            text = localizedString("Сохранить шаблон", "Save template"),
                             fontFamily = AppFonts.OpenSansBold,
                             fontSize = 24.sp,
-                            color = RankingGray,
+                            color = palette.primaryText,
                             modifier = Modifier.align(Alignment.Center),
                         )
                         Image(
                             painter = painterResource(Res.drawable.close_icon),
-                            contentDescription = "Закрыть",
+                            contentDescription = localizedString("Закрыть", "Close"),
                             modifier = Modifier
                                 .size(24.dp)
                                 .scale(closeScale)
@@ -2582,7 +2675,7 @@ private fun SaveTemplateDialog(
                         textStyle = TextStyle(
                             fontFamily = AppFonts.OpenSansRegular,
                             fontSize = 12.sp,
-                            color = RankingGray,
+                            color = palette.primaryText,
                             textAlign = TextAlign.Center,
                         ),
                         decorationBox = { innerTextField ->
@@ -2594,10 +2687,10 @@ private fun SaveTemplateDialog(
                             ) {
                                 if (templateName.isBlank()) {
                                     Text(
-                                        text = "Введите название шаблона",
+                                        text = localizedString("Введите название шаблона", "Enter template name"),
                                         fontFamily = AppFonts.OpenSansRegular,
                                         fontSize = 12.sp,
-                                        color = RankingLightGray,
+                                        color = palette.dimText,
                                         textAlign = TextAlign.Center,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
@@ -2611,7 +2704,7 @@ private fun SaveTemplateDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(1.dp)
-                                .background(RankingGray),
+                                .background(palette.subtleBorder),
                         )
                         // Character counter — appears when user starts typing
                         if (templateName.isNotEmpty()) {
@@ -2619,7 +2712,7 @@ private fun SaveTemplateDialog(
                                 text = "${templateName.length}/$maxNameLength",
                                 fontFamily = AppFonts.OpenSansRegular,
                                 fontSize = 10.sp,
-                                color = if (templateName.length >= maxNameLength) RankingRed else RankingLightGray,
+                                color = if (templateName.length >= maxNameLength) palette.accent else palette.dimText,
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
                                     .padding(top = 4.dp),
@@ -2628,7 +2721,7 @@ private fun SaveTemplateDialog(
                     }
                     Spacer(modifier = Modifier.height(30.dp))
                     SaveDialogButton(
-                        text = "Сохранить",
+                        text = localizedString("Сохранить", "Save"),
                         enabled = templateName.isNotBlank(),
                         onClick = { onSave(templateName) },
                         modifier = Modifier.fillMaxWidth(),
@@ -2647,6 +2740,9 @@ private fun MetricInfoDialog(
     val coroutineScope = rememberCoroutineScope()
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
+    val palette = appPalette()
+    val dialogSurface = MaterialTheme.colorScheme.surface
+    val onBg = MaterialTheme.colorScheme.onSurface
 
     fun dismiss() {
         visible = false
@@ -2669,14 +2765,13 @@ private fun MetricInfoDialog(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
                     .widthIn(max = 350.dp)
-                    .background(Color.White, RoundedCornerShape(20.dp))
-                    .border(1.dp, RankingGray, RoundedCornerShape(20.dp))
+                    .background(dialogSurface, RoundedCornerShape(20.dp))
+                    .border(1.dp, palette.subtleBorder, RoundedCornerShape(20.dp))
                     .padding(horizontal = 10.dp, vertical = 12.dp),
             ) {
                 RankingBackgroundLogo(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .alpha(0.05f),
+                    modifier = Modifier.matchParentSize(),
+                    asWatermark = true,
                 )
                 Column(
                     modifier = Modifier
@@ -2689,12 +2784,12 @@ private fun MetricInfoDialog(
                             text = info.title,
                             fontFamily = AppFonts.OpenSansBold,
                             fontSize = 16.sp,
-                            color = Color.Black,
+                            color = onBg,
                             modifier = Modifier.align(Alignment.CenterStart),
                         )
                         Image(
                             painter = painterResource(Res.drawable.close_icon),
-                            contentDescription = "Закрыть",
+                            contentDescription = localizedString("Закрыть", "Close"),
                             modifier = Modifier
                                 .size(24.dp)
                                 .align(Alignment.CenterEnd)
@@ -2703,37 +2798,38 @@ private fun MetricInfoDialog(
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                     MetricInfoSection(
-                        title = "Что показывает:",
+                        title = localizedString("Что показывает:", "What it shows:"),
                         lines = listOf(info.whatShows),
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     MetricInfoSection(
-                        title = "Зачем нужна:",
+                        title = localizedString("Зачем нужна:", "Why it matters:"),
                         lines = info.whyNeeded,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     MetricInfoSection(
-                        title = "Как интерпретировать:",
+                        title = localizedString("Как интерпретировать:", "How to interpret:"),
                         lines = info.howToInterpret,
                     )
                     info.note?.let { note ->
                         Spacer(modifier = Modifier.height(12.dp))
+                        val noteLabel = localizedString("Примечание:", "Note:")
                         Text(
                             text = buildAnnotatedString {
                                 withStyle(
                                     SpanStyle(
                                         fontFamily = AppFonts.OpenSansBold,
-                                        color = RankingGray,
+                                        color = palette.secondaryText,
                                     )
                                 ) {
-                                    append("Примечание:")
+                                    append(noteLabel)
                                 }
                                 append(" ")
                                 append(note)
                             },
                             fontFamily = AppFonts.OpenSansRegular,
                             fontSize = 12.sp,
-                            color = RankingGray,
+                            color = palette.secondaryText,
                             lineHeight = 12.sp,
                         )
                     }
@@ -2748,11 +2844,12 @@ private fun MetricInfoSection(
     title: String,
     lines: List<String>,
 ) {
+    val palette = appPalette()
     Text(
         text = title,
         fontFamily = AppFonts.OpenSansBold,
         fontSize = 12.sp,
-        color = RankingGray,
+        color = palette.secondaryText,
         lineHeight = 12.sp,
     )
     Spacer(modifier = Modifier.height(6.dp))
@@ -2762,7 +2859,7 @@ private fun MetricInfoSection(
                 text = line,
                 fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 12.sp,
-                color = RankingGray,
+                color = palette.secondaryText,
                 lineHeight = 12.sp,
             )
         }
@@ -2782,175 +2879,245 @@ private fun rankingMetricInfo(metricKey: RankingMetricKey): RankingMetricInfo {
     return when (metricKey) {
         RankingMetricKey.Commits -> RankingMetricInfo(
             title = "Commits",
-            whatShows = "Сырой список всех коммитов за период: автор, дата, затронутые файлы. Это источник данных, а не самостоятельная оценка.",
+            whatShows = localizeRuntime(
+                "Сырой список всех коммитов за период: автор, дата, затронутые файлы. Это источник данных, а не самостоятельная оценка.",
+                "Raw list of all commits for the period: author, date, affected files. This is source data, not a standalone metric.",
+            ),
             whyNeeded = listOf(
-                "Служит основой для метрик Total Commits, Code Churn и Code Ownership.",
-                "Позволяет видеть регулярность и ритм разработки без агрегации.",
+                localizeRuntime("Служит основой для метрик Total Commits, Code Churn и Code Ownership.", "Serves as the foundation for Total Commits, Code Churn, and Code Ownership metrics."),
+                localizeRuntime("Позволяет видеть регулярность и ритм разработки без агрегации.", "Lets you see development regularity and rhythm without aggregation."),
             ),
             howToInterpret = listOf(
-                "Регулярные коммиты небольшого размера — признак здоровой разработки.",
-                "Длинные паузы между коммитами могут говорить о блокерах или завершении фазы.",
+                localizeRuntime("Регулярные коммиты небольшого размера — признак здоровой разработки.", "Regular small commits are a sign of healthy development."),
+                localizeRuntime("Длинные паузы между коммитами могут говорить о блокерах или завершении фазы.", "Long gaps between commits may indicate blockers or phase completion."),
             ),
-            note = "Метрика не оценивается напрямую. Оценка строится через производные: Total Commits, Code Churn, Code Ownership.",
+            note = localizeRuntime(
+                "Метрика не оценивается напрямую. Оценка строится через производные: Total Commits, Code Churn, Code Ownership.",
+                "This metric is not scored directly. Scores are derived through: Total Commits, Code Churn, Code Ownership.",
+            ),
         )
 
         RankingMetricKey.Issues -> RankingMetricInfo(
             title = "Issues",
-            whatShows = "Сырой список задач за период: созданные, открытые, закрытые, исполнители. Это источник данных, а не самостоятельная оценка.",
+            whatShows = localizeRuntime(
+                "Сырой список задач за период: созданные, открытые, закрытые, исполнители. Это источник данных, а не самостоятельная оценка.",
+                "Raw list of issues for the period: created, open, closed, assignees. This is source data, not a standalone metric.",
+            ),
             whyNeeded = listOf(
-                "Показывает, как команда управляет бэклогом задач.",
-                "Используется для расчёта Issue Completeness и Dominant Week Day.",
+                localizeRuntime("Показывает, как команда управляет бэклогом задач.", "Shows how the team manages the issue backlog."),
+                localizeRuntime("Используется для расчёта Issue Completeness и Dominant Week Day.", "Used to calculate Issue Completeness and Dominant Week Day."),
             ),
             howToInterpret = listOf(
-                "Большое число незакрытых задач при малом числе новых — признак накопленного долга.",
-                "Баланс открытых и закрытых задач говорит о стабильном процессе.",
+                localizeRuntime("Большое число незакрытых задач при малом числе новых — признак накопленного долга.", "Many unclosed issues with few new ones indicates accumulated debt."),
+                localizeRuntime("Баланс открытых и закрытых задач говорит о стабильном процессе.", "A balance of open and closed issues indicates a stable process."),
             ),
-            note = "Метрика не оценивается напрямую. Оценка строится через производные: Issue Completeness, Dominant Week Day.",
+            note = localizeRuntime(
+                "Метрика не оценивается напрямую. Оценка строится через производные: Issue Completeness, Dominant Week Day.",
+                "This metric is not scored directly. Scores are derived through: Issue Completeness, Dominant Week Day.",
+            ),
         )
 
         RankingMetricKey.PullRequests -> RankingMetricInfo(
             title = "Pull Requests",
-            whatShows = "Сырой список pull request за период: автор, время создания и закрытия. Это источник данных, а не самостоятельная оценка.",
+            whatShows = localizeRuntime(
+                "Сырой список pull request за период: автор, время создания и закрытия. Это источник данных, а не самостоятельная оценка.",
+                "Raw list of pull requests for the period: author, creation and close time. This is source data, not a standalone metric.",
+            ),
             whyNeeded = listOf(
-                "Показывает, как команда проводит code review.",
-                "Используется для расчёта PR Hang Time и Rapid Pull Requests.",
+                localizeRuntime("Показывает, как команда проводит code review.", "Shows how the team conducts code reviews."),
+                localizeRuntime("Используется для расчёта PR Hang Time и Rapid Pull Requests.", "Used to calculate PR Hang Time and Rapid Pull Requests."),
             ),
             howToInterpret = listOf(
-                "Быстро закрывающиеся PR без пометки «rapid» — признак хорошего ревью.",
-                "Слишком быстрые закрытия могут означать формальный или пропущенный ревью.",
+                localizeRuntime("Быстро закрывающиеся PR без пометки «rapid» — признак хорошего ревью.", "Quickly closed PRs without the \"rapid\" flag are a sign of good reviews."),
+                localizeRuntime("Слишком быстрые закрытия могут означать формальный или пропущенный ревью.", "Very fast closures may indicate a perfunctory or skipped review."),
             ),
-            note = "Метрика не оценивается напрямую. Оценка строится через производные: PR Hang Time, Rapid Pull Requests.",
+            note = localizeRuntime(
+                "Метрика не оценивается напрямую. Оценка строится через производные: PR Hang Time, Rapid Pull Requests.",
+                "This metric is not scored directly. Scores are derived through: PR Hang Time, Rapid Pull Requests.",
+            ),
         )
 
         RankingMetricKey.PerformanceGrade -> RankingMetricInfo(
-            title = "Оценка производительности",
-            whatShows = "Итоговую оценку ресурса по проекту, рассчитанную на основе всех включённых метрик с учётом их весов.",
+            title = localizeRuntime("Оценка производительности", "Performance Grade"),
+            whatShows = localizeRuntime(
+                "Итоговую оценку ресурса по проекту, рассчитанную на основе всех включённых метрик с учётом их весов.",
+                "The final resource score for the project, calculated from all enabled metrics weighted accordingly.",
+            ),
             whyNeeded = listOf(
-                "Даёт единое число для быстрого сравнения ресурсов.",
-                "Агрегирует все включённые метрики с их весами в одну шкалу от 2 до 5.",
+                localizeRuntime("Даёт единое число для быстрого сравнения ресурсов.", "Provides a single number for quick resource comparison."),
+                localizeRuntime("Агрегирует все включённые метрики с их весами в одну шкалу от 2 до 5.", "Aggregates all enabled metrics with their weights into a single 2–5 scale."),
             ),
             howToInterpret = listOf(
-                "5.0 — все включённые метрики на максимуме.",
-                "4.0–4.9 — высокий уровень, незначительные отклонения.",
-                "3.0–3.9 — средний уровень, есть зоны роста.",
-                "2.0–2.9 — низкий уровень, требуется анализ и улучшение процессов.",
+                localizeRuntime("5.0 — все включённые метрики на максимуме.", "5.0 — all enabled metrics are at maximum."),
+                localizeRuntime("4.0–4.9 — высокий уровень, незначительные отклонения.", "4.0–4.9 — high level, minor deviations."),
+                localizeRuntime("3.0–3.9 — средний уровень, есть зоны роста.", "3.0–3.9 — mid level, room for improvement."),
+                localizeRuntime("2.0–2.9 — низкий уровень, требуется анализ и улучшение процессов.", "2.0–2.9 — low level, process analysis and improvement required."),
             ),
-            note = "Оценка берётся из панели администратора как взвешенное среднее по всем активным метрикам.",
+            note = localizeRuntime(
+                "Оценка берётся из панели администратора как взвешенное среднее по всем активным метрикам.",
+                "Score is taken from the admin panel as a weighted average across all active metrics.",
+            ),
         )
 
         RankingMetricKey.TotalCommits -> RankingMetricInfo(
-            title = "Общее количество коммитов",
-            whatShows = "Среднюю частоту коммитов в день на одного участника команды за выбранный период.",
+            title = localizeRuntime("Общее количество коммитов", "Total Commits"),
+            whatShows = localizeRuntime(
+                "Среднюю частоту коммитов в день на одного участника команды за выбранный период.",
+                "Average daily commit frequency per team member over the selected period.",
+            ),
             whyNeeded = listOf(
-                "Показывает темп разработки с поправкой на размер команды.",
-                "Позволяет сравнивать активность между периодами и ресурсами.",
+                localizeRuntime("Показывает темп разработки с поправкой на размер команды.", "Shows development pace adjusted for team size."),
+                localizeRuntime("Позволяет сравнивать активность между периодами и ресурсами.", "Allows comparing activity between periods and resources."),
             ),
             howToInterpret = listOf(
-                "≥ 0.33 коммита в день на человека → оценка 5 (максимум).",
-                "0 коммитов → оценка 2 (минимум).",
-                "Линейный рост: каждые ~0.033 коммита в день на человека добавляют ~0.3 балла.",
+                localizeRuntime("≥ 0.33 коммита в день на человека → оценка 5 (максимум).", "≥ 0.33 commits per person per day → score 5 (maximum)."),
+                localizeRuntime("0 коммитов → оценка 2 (минимум).", "0 commits → score 2 (minimum)."),
+                localizeRuntime("Линейный рост: каждые ~0.033 коммита в день на человека добавляют ~0.3 балла.", "Linear growth: every ~0.033 commits per person per day adds ~0.3 points."),
             ),
-            note = "Формула: min(коммитов_в_день_на_участника × 9 + 2, 5). Шкала от 2 до 5.",
+            note = localizeRuntime(
+                "Формула: min(коммитов_в_день_на_участника × 9 + 2, 5). Шкала от 2 до 5.",
+                "Formula: min(commits_per_day_per_member × 9 + 2, 5). Scale: 2 to 5.",
+            ),
         )
 
         RankingMetricKey.IssueCompleteness -> RankingMetricInfo(
-            title = "Завершённость задач",
-            whatShows = "Долю закрытых задач от общего числа задач за выбранный период.",
+            title = localizeRuntime("Завершённость задач", "Issue Completeness"),
+            whatShows = localizeRuntime(
+                "Долю закрытых задач от общего числа задач за выбранный период.",
+                "The share of closed issues out of total issues for the selected period.",
+            ),
             whyNeeded = listOf(
-                "Оценивает способность команды доводить задачи до конца.",
-                "Сигнализирует о накапливающемся хвосте незакрытых задач.",
+                localizeRuntime("Оценивает способность команды доводить задачи до конца.", "Evaluates the team's ability to complete tasks."),
+                localizeRuntime("Сигнализирует о накапливающемся хвосте незакрытых задач.", "Signals an accumulating backlog of unclosed issues."),
             ),
             howToInterpret = listOf(
-                "100% закрыто → оценка 5.",
-                "0% закрыто → оценка 2.",
-                "Каждые 33% закрытых задач добавляют ~1 балл.",
+                localizeRuntime("100% закрыто → оценка 5.", "100% closed → score 5."),
+                localizeRuntime("0% закрыто → оценка 2.", "0% closed → score 2."),
+                localizeRuntime("Каждые 33% закрытых задач добавляют ~1 балл.", "Every 33% of closed issues adds ~1 point."),
             ),
-            note = "Формула: (закрытые / все) × 3 + 2. Шкала от 2 до 5.",
+            note = localizeRuntime(
+                "Формула: (закрытые / все) × 3 + 2. Шкала от 2 до 5.",
+                "Formula: (closed / total) × 3 + 2. Scale: 2 to 5.",
+            ),
         )
 
         RankingMetricKey.PullRequestHangTime -> RankingMetricInfo(
-            title = "Время жизни Pull Request",
-            whatShows = "Среднее время от открытия PR до его закрытия за выбранный период.",
+            title = localizeRuntime("Время жизни Pull Request", "PR Hang Time"),
+            whatShows = localizeRuntime(
+                "Среднее время от открытия PR до его закрытия за выбранный период.",
+                "Average time from PR opening to closure over the selected period.",
+            ),
             whyNeeded = listOf(
-                "Выявляет задержки на этапе ревью и слияния.",
-                "Помогает оценить скорость обратной связи внутри команды.",
+                localizeRuntime("Выявляет задержки на этапе ревью и слияния.", "Identifies delays at the review and merge stage."),
+                localizeRuntime("Помогает оценить скорость обратной связи внутри команды.", "Helps assess the speed of feedback within the team."),
             ),
             howToInterpret = listOf(
-                "Среднее время < 5 минут — отображается как сырое значение в минутах (возможно, автоматические PR).",
-                "0 дней (мгновенное закрытие) → оценка 5.",
-                "7+ дней среднего времени жизни → оценка ≤ 2.",
+                localizeRuntime("Среднее время < 5 минут — отображается как сырое значение в минутах (возможно, автоматические PR).", "Average time < 5 minutes — shown as raw value in minutes (possibly automated PRs)."),
+                localizeRuntime("0 дней (мгновенное закрытие) → оценка 5.", "0 days (instant closure) → score 5."),
+                localizeRuntime("7+ дней среднего времени жизни → оценка ≤ 2.", "7+ days average lifetime → score ≤ 2."),
             ),
-            note = "Формула: (1 − среднее_время / 7_дней) × 3 + 2. При среднем < 5 мин отображается время, а не балл.",
+            note = localizeRuntime(
+                "Формула: (1 − среднее_время / 7_дней) × 3 + 2. При среднем < 5 мин отображается время, а не балл.",
+                "Formula: (1 − avg_time / 7_days) × 3 + 2. When average < 5 min, time is shown instead of score.",
+            ),
         )
 
         RankingMetricKey.RapidPullRequests -> RankingMetricInfo(
-            title = "Быстрые Pull Requests",
-            whatShows = "Долю PR, закрытых быстрее заданного порога (возможно без полноценного ревью).",
+            title = localizeRuntime("Быстрые Pull Requests", "Rapid Pull Requests"),
+            whatShows = localizeRuntime(
+                "Долю PR, закрытых быстрее заданного порога (возможно без полноценного ревью).",
+                "The share of PRs closed faster than the set threshold (possibly without a proper review).",
+            ),
             whyNeeded = listOf(
-                "Выявляет PR, которые могли пройти без полноценного ревью.",
-                "Помогает контролировать качество code review в команде.",
+                localizeRuntime("Выявляет PR, которые могли пройти без полноценного ревью.", "Identifies PRs that may have been merged without a thorough review."),
+                localizeRuntime("Помогает контролировать качество code review в команде.", "Helps monitor code review quality in the team."),
             ),
             howToInterpret = listOf(
-                "0 быстрых PR из всех → оценка 5.",
-                "Все PR закрыты быстро → оценка 2.",
-                "Чем меньше доля быстрых PR, тем выше балл.",
+                localizeRuntime("0 быстрых PR из всех → оценка 5.", "0 rapid PRs out of all → score 5."),
+                localizeRuntime("Все PR закрыты быстро → оценка 2.", "All PRs closed rapidly → score 2."),
+                localizeRuntime("Чем меньше доля быстрых PR, тем выше балл.", "The lower the share of rapid PRs, the higher the score."),
             ),
-            note = "Формула: (1 − быстрые / все) × 3 + 2. Порог скорости задаётся в настройках фильтра.",
+            note = localizeRuntime(
+                "Формула: (1 − быстрые / все) × 3 + 2. Порог скорости задаётся в настройках фильтра.",
+                "Formula: (1 − rapid / total) × 3 + 2. Speed threshold is set in filter settings.",
+            ),
         )
 
         RankingMetricKey.CodeChurn -> RankingMetricInfo(
-            title = "Изменчивость кода",
-            whatShows = "Насколько интенсивно правится кодовая база: среднее число правок на коммит по всем файлам.",
+            title = localizeRuntime("Изменчивость кода", "Code Churn"),
+            whatShows = localizeRuntime(
+                "Насколько интенсивно правится кодовая база: среднее число правок на коммит по всем файлам.",
+                "How intensively the codebase is edited: average number of edits per commit across all files.",
+            ),
             whyNeeded = listOf(
-                "Высокий churn может говорить о нестабильной архитектуре или частых переработках.",
-                "Помогает найти «горячие» модули, которые постоянно меняются.",
+                localizeRuntime("Высокий churn может говорить о нестабильной архитектуре или частых переработках.", "High churn may indicate an unstable architecture or frequent rewrites."),
+                localizeRuntime("Помогает найти «горячие» модули, которые постоянно меняются.", "Helps identify \"hot\" modules that change frequently."),
             ),
             howToInterpret = listOf(
-                "~1 правка файла на коммит → оценка близка к 5 (стабильный код).",
-                "Рост churn снижает оценку по логарифмической шкале.",
-                "Очень высокий churn (десятки правок на коммит) → оценка стремится к 2.",
+                localizeRuntime("~1 правка файла на коммит → оценка близка к 5 (стабильный код).", "~1 file edit per commit → score close to 5 (stable code)."),
+                localizeRuntime("Рост churn снижает оценку по логарифмической шкале.", "Increasing churn reduces the score on a logarithmic scale."),
+                localizeRuntime("Очень высокий churn (десятки правок на коммит) → оценка стремится к 2.", "Very high churn (tens of edits per commit) → score approaches 2."),
             ),
-            note = "Клиент использует формулу 5 − ln(1 + churn_на_коммит) × 1.2. Backend считает частоту изменения файлов, но отдельной оценки не выставляет — клиент применяет собственную логарифмическую шкалу.",
+            note = localizeRuntime(
+                "Клиент использует формулу 5 − ln(1 + churn_на_коммит) × 1.2. Backend считает частоту изменения файлов, но отдельной оценки не выставляет — клиент применяет собственную логарифмическую шкалу.",
+                "Client uses formula 5 − ln(1 + churn_per_commit) × 1.2. Backend tracks file change frequency but does not assign its own score — the client applies its own logarithmic scale.",
+            ),
         )
 
         RankingMetricKey.CodeOwnership -> RankingMetricInfo(
-            title = "Владение кодом",
-            whatShows = "Равномерность распределения коммитов между участниками команды.",
+            title = localizeRuntime("Владение кодом", "Code Ownership"),
+            whatShows = localizeRuntime(
+                "Равномерность распределения коммитов между участниками команды.",
+                "How evenly commits are distributed among team members.",
+            ),
             whyNeeded = listOf(
-                "Выявляет зависимость от одного-двух разработчиков (bus factor).",
-                "Показывает, насколько знания о кодовой базе распределены по команде.",
+                localizeRuntime("Выявляет зависимость от одного-двух разработчиков (bus factor).", "Identifies dependency on one or two developers (bus factor)."),
+                localizeRuntime("Показывает, насколько знания о кодовой базе распределены по команде.", "Shows how well codebase knowledge is distributed across the team."),
             ),
             howToInterpret = listOf(
-                "Полностью равномерное распределение → оценка 5.",
-                "Один человек делает все коммиты → оценка 2.",
-                "Требуется минимум 2 участника: при одном авторе оценка не рассчитывается.",
+                localizeRuntime("Полностью равномерное распределение → оценка 5.", "Fully even distribution → score 5."),
+                localizeRuntime("Один человек делает все коммиты → оценка 2.", "One person makes all commits → score 2."),
+                localizeRuntime("Требуется минимум 2 участника: при одном авторе оценка не рассчитывается.", "Requires at least 2 participants: score is not calculated for a single author."),
             ),
-            note = "Формула: (1 − √(дисперсия / худший_случай)) × 3 + 2. Оценивает отклонение от идеально равного распределения.",
+            note = localizeRuntime(
+                "Формула: (1 − √(дисперсия / худший_случай)) × 3 + 2. Оценивает отклонение от идеально равного распределения.",
+                "Formula: (1 − √(variance / worst_case)) × 3 + 2. Measures deviation from a perfectly equal distribution.",
+            ),
         )
 
         RankingMetricKey.DominantWeekDay -> RankingMetricInfo(
-            title = "Доминирующий день недели",
-            whatShows = "Долю активности (коммиты + issues + PR) в выбранный нежелательный день относительно среднего по остальным дням.",
+            title = localizeRuntime("Доминирующий день недели", "Dominant Weekday"),
+            whatShows = localizeRuntime(
+                "Долю активности (коммиты + issues + PR) в выбранный нежелательный день относительно среднего по остальным дням.",
+                "The share of activity (commits + issues + PRs) on the selected undesired day relative to the average on other days.",
+            ),
             whyNeeded = listOf(
-                "Позволяет выявить нежелательные паттерны работы: переработки в выходные или неравномерную нагрузку.",
-                "Поощряет равномерное распределение активности по рабочей неделе.",
+                localizeRuntime("Позволяет выявить нежелательные паттерны работы: переработки в выходные или неравномерную нагрузку.", "Helps identify undesired work patterns: weekend overtime or uneven load."),
+                localizeRuntime("Поощряет равномерное распределение активности по рабочей неделе.", "Encourages even distribution of activity across the working week."),
             ),
             howToInterpret = listOf(
-                "Активность в нежелательный день ниже среднего → оценка 5.",
-                "Активность в ~3 раза выше среднего → оценка 2.",
-                "Нет активности в нежелательный день → максимальный балл.",
+                localizeRuntime("Активность в нежелательный день ниже среднего → оценка 5.", "Activity on the undesired day is below average → score 5."),
+                localizeRuntime("Активность в ~3 раза выше среднего → оценка 2.", "Activity ~3× above average → score 2."),
+                localizeRuntime("Нет активности в нежелательный день → максимальный балл.", "No activity on the undesired day → maximum score."),
             ),
-            note = "Формула: max(0, −1.5 × ratio + 6.5), где ratio = активность_в_день / средняя_активность. День выбирается в настройках фильтра.",
+            note = localizeRuntime(
+                "Формула: max(0, −1.5 × ratio + 6.5), где ratio = активность_в_день / средняя_активность. День выбирается в настройках фильтра.",
+                "Formula: max(0, −1.5 × ratio + 6.5), where ratio = activity_on_day / average_activity. Day is selected in filter settings.",
+            ),
         )
     }
 }
 
 private fun formatDateRangeField(dateRange: RankingDateRangeFilter): String {
-    if (!dateRange.isActive) return "с 00.00.0000 по 31.12.3000"
+    val from = localizeRuntime("с", "from")
+    val to = localizeRuntime("по", "to")
+    val defaultStart = localizeRuntime("00.00.0000", "01/01/0000")
+    val defaultEnd = localizeRuntime("31.12.3000", "12/31/3000")
+    if (!dateRange.isActive) return "$from $defaultStart $to $defaultEnd"
 
     val start = dateRange.startMillis?.let(::formatDate)
     val end = dateRange.endMillis?.let(::formatDate)
-    return "с ${start ?: "00.00.0000"} по ${end ?: "31.12.3000"}"
+    return "$from ${start ?: defaultStart} $to ${end ?: defaultEnd}"
 }
 
 /** Converts epoch-millis to an ISO-8601 date string (YYYY-MM-DD, UTC). */
@@ -3067,12 +3234,12 @@ private fun sortRankingItems(
     }
 }
 
-private fun scoreGradientColor(score: Double?): Color {
-    if (score == null) return RankingGray
+private fun scoreGradientColor(score: Double?, accentRed: Color, neutralGray: Color): Color {
+    if (score == null) return neutralGray
     val clamped = score.coerceIn(1.0, 5.0).toFloat()
     return if (clamped <= 3f) {
         val t = (clamped - 1f) / 2f
-        lerp(RankingRed, RankingYellow, t)
+        lerp(accentRed, RankingYellow, t)
     } else {
         val t = (clamped - 3f) / 2f
         lerp(RankingYellow, RankingGreen, t)

@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import kotlinx.coroutines.delay
@@ -257,7 +258,7 @@ internal fun StatsDateRangePickerDialog(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         CalendarActionTextButton(
-                            text = "Cancel",
+                            text = localizeRuntime("Отмена", "Cancel"),
                             onClick = ::dismissWithAnimation,
                         )
                         CalendarActionTextButton(
@@ -426,7 +427,7 @@ private fun CalendarWeekHeader() {
             .padding(horizontal = CalendarGridHorizontalPadding),
         horizontalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        listOf("Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб").forEach { label ->
+        weekdayShortLabels().forEach { label ->
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -706,19 +707,31 @@ private fun monthOptions(): List<Pair<String, String>> {
     return (1..12).map { month -> month.toString() to monthLabel(month) }
 }
 
+private fun weekdayShortLabels(): List<String> {
+    return listOf(
+        localizeRuntime("Вс", "Sun"),
+        localizeRuntime("Пн", "Mon"),
+        localizeRuntime("Вт", "Tue"),
+        localizeRuntime("Ср", "Wed"),
+        localizeRuntime("Чт", "Thu"),
+        localizeRuntime("Пт", "Fri"),
+        localizeRuntime("Сб", "Sat"),
+    )
+}
+
 private fun monthLabel(month: Int): String = when (month) {
-    1 -> "Янв"
-    2 -> "Фев"
-    3 -> "Мар"
-    4 -> "Апр"
-    5 -> "Май"
-    6 -> "Июн"
-    7 -> "Июл"
-    8 -> "Авг"
-    9 -> "Сен"
-    10 -> "Окт"
-    11 -> "Ноя"
-    12 -> "Дек"
+    1 -> localizeRuntime("Янв", "Jan")
+    2 -> localizeRuntime("Фев", "Feb")
+    3 -> localizeRuntime("Мар", "Mar")
+    4 -> localizeRuntime("Апр", "Apr")
+    5 -> localizeRuntime("Май", "May")
+    6 -> localizeRuntime("Июн", "Jun")
+    7 -> localizeRuntime("Июл", "Jul")
+    8 -> localizeRuntime("Авг", "Aug")
+    9 -> localizeRuntime("Сен", "Sep")
+    10 -> localizeRuntime("Окт", "Oct")
+    11 -> localizeRuntime("Ноя", "Nov")
+    12 -> localizeRuntime("Дек", "Dec")
     else -> month.toString()
 }
 

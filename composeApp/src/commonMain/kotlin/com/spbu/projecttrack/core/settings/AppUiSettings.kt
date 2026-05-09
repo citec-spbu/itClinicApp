@@ -6,9 +6,12 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import com.spbu.projecttrack.core.theme.SystemBarAppearance
 
 enum class AppLanguage(val storageValue: String) {
     Russian("ru"),
@@ -43,6 +46,7 @@ data class AppUiSettingsController(
 
 @Immutable
 data class AppStrings(
+    val appDisplayName: String,
     val loginWithGithub: String,
     val continueWithoutAuth: String,
     val infoTitle: String,
@@ -110,7 +114,10 @@ data class SettingsPalette(
     val accentBorder: Color,
     val disabledButton: Color,
     val buttonText: Color,
-    val watermarkAlpha: Float,
+    /** Full-screen / dialog backdrop SPbU logo (light: opaque, dark: 50%). */
+    val spbuBackdropLogoAlpha: Float,
+    /** Faint watermark SPbU logo on dialogs and stats (dark: 50% per theme request). */
+    val spbuWatermarkLogoAlpha: Float,
 )
 
 private val LightPalette = SettingsPalette(
@@ -125,7 +132,8 @@ private val LightPalette = SettingsPalette(
     accentBorder = Color(0xFFCF3F2F),
     disabledButton = Color(0xFF76767C),
     buttonText = Color(0xFFFFFFFF),
-    watermarkAlpha = 0.06f,
+    spbuBackdropLogoAlpha = 1f,
+    spbuWatermarkLogoAlpha = 0.06f,
 )
 
 private val DarkPalette = SettingsPalette(
@@ -140,7 +148,8 @@ private val DarkPalette = SettingsPalette(
     accentBorder = Color(0xFFCF6A5B),
     disabledButton = Color(0xFF6E6C72),
     buttonText = Color(0xFFFFFFFF),
-    watermarkAlpha = 0.045f,
+    spbuBackdropLogoAlpha = 0.03f,
+    spbuWatermarkLogoAlpha = 0.03f,
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -155,16 +164,92 @@ private val LightColorScheme = lightColorScheme(
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFFE36E60),
     onPrimary = Color.White,
-    background = Color(0xFF131314),
+    background = Color(0xFF333333),
     onBackground = Color(0xFFF5F3F1),
     surface = Color(0xFF1A1B1E),
     onSurface = Color(0xFFF5F3F1),
+    surfaceVariant = Color(0xFF25262B),
+    onSurfaceVariant = Color(0xFFC8C3BF),
+    outline = Color(0xFF5C5C60),
 )
 
 val LocalAppStrings = staticCompositionLocalOf { russianStrings() }
 val LocalSettingsPalette = staticCompositionLocalOf { LightPalette }
 val LocalAppUiSettingsController = staticCompositionLocalOf<AppUiSettingsController> {
     error("AppUiSettingsController is not provided")
+}
+
+object AppRuntimeLocalization {
+    private var currentLanguage: AppLanguage = AppLanguage.Russian
+
+    fun currentLanguage(): AppLanguage = currentLanguage
+
+    fun setLanguage(language: AppLanguage) {
+        currentLanguage = language
+    }
+}
+
+fun localize(language: AppLanguage, russian: String, english: String): String {
+    return when (language) {
+        AppLanguage.Russian -> russian
+        AppLanguage.English -> english
+    }
+}
+
+fun localizeRuntime(russian: String, english: String): String {
+    return localize(AppRuntimeLocalization.currentLanguage(), russian, english)
+}
+
+fun pluralizeRussian(
+    count: Int,
+    one: String,
+    few: String,
+    many: String,
+): String {
+    val mod100 = count % 100
+    val mod10 = count % 10
+    return when {
+        mod100 in 11..14 -> many
+        mod10 == 1 -> one
+        mod10 in 2..4 -> few
+        else -> many
+    }
+}
+
+fun localizePluralRuntime(
+    count: Int,
+    russianOne: String,
+    russianFew: String,
+    russianMany: String,
+    englishOne: String,
+    englishMany: String,
+): String {
+    return when (AppRuntimeLocalization.currentLanguage()) {
+        AppLanguage.Russian -> pluralizeRussian(count, russianOne, russianFew, russianMany)
+        AppLanguage.English -> if (count == 1) englishOne else englishMany
+    }
+}
+
+@Composable
+@ReadOnlyComposable
+fun localizedString(russian: String, english: String): String {
+    return localize(LocalAppUiSettingsController.current.language, russian, english)
+}
+
+@Composable
+@ReadOnlyComposable
+fun localizedPluralString(
+    count: Int,
+    russianOne: String,
+    russianFew: String,
+    russianMany: String,
+    englishOne: String,
+    englishMany: String,
+): String {
+    return when (LocalAppUiSettingsController.current.language) {
+        AppLanguage.Russian -> pluralizeRussian(count, russianOne, russianFew, russianMany)
+        AppLanguage.English -> if (count == 1) englishOne else englishMany
+    }
 }
 
 fun appStrings(language: AppLanguage): AppStrings {
@@ -181,10 +266,16 @@ fun ITClinicTheme(
     settingsController: AppUiSettingsController,
     content: @Composable () -> Unit,
 ) {
+    SideEffect {
+        AppRuntimeLocalization.setLanguage(language)
+    }
+
     val isDark = when (themeMode) {
+        // Temporary product decision: ship light theme only for now.
+        // Keep theme modes and dark palette code in place for future versions.
         AppThemeMode.Light -> false
-        AppThemeMode.Dark -> true
-        AppThemeMode.System -> isSystemInDarkTheme()
+        AppThemeMode.Dark -> false
+        AppThemeMode.System -> false
     }
 
     androidx.compose.runtime.CompositionLocalProvider(
@@ -194,13 +285,16 @@ fun ITClinicTheme(
     ) {
         MaterialTheme(
             colorScheme = if (isDark) DarkColorScheme else LightColorScheme,
-            content = content,
-        )
+        ) {
+            SystemBarAppearance(isDark)
+            content()
+        }
     }
 }
 
 private fun russianStrings() = AppStrings(
-    loginWithGithub = "Login With GitHub",
+    appDisplayName = "Citec",
+    loginWithGithub = "Войти через GitHub",
     continueWithoutAuth = "Продолжить без авторизации",
     infoTitle = "Информация",
     profileTitle = "Профиль",
@@ -269,7 +363,8 @@ private fun russianStrings() = AppStrings(
 )
 
 private fun englishStrings() = AppStrings(
-    loginWithGithub = "Login With GitHub",
+    appDisplayName = "Citec",
+    loginWithGithub = "Sign in with GitHub",
     continueWithoutAuth = "Continue without authorization",
     infoTitle = "Information",
     profileTitle = "Profile",
@@ -333,6 +428,6 @@ private fun englishStrings() = AppStrings(
 
         Data is retained only for as long as it is needed to operate the app, support project workflows and comply with internal university or development team requirements.
 
-        You can update your profile data in the app. If you want to уточнить stored data or request removal of outdated information, contact the CITEC team through the feedback section.
-    """.trimIndent().replace("уточнить", "clarify your stored data"),
+        You can update your profile data in the app. If you want to clarify what data is stored or request removal of outdated information, contact the CITEC team through the feedback section.
+    """.trimIndent(),
 )

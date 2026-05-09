@@ -7,7 +7,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +27,7 @@ import com.spbu.projecttrack.core.settings.AppUiSettingsController
 import com.spbu.projecttrack.core.settings.ITClinicTheme
 import com.spbu.projecttrack.core.settings.appStrings
 import com.spbu.projecttrack.core.storage.createAppPreferences
+import com.spbu.projecttrack.core.ui.AppSnackbarHost
 import com.spbu.projecttrack.debug.SplashDebugPreviewOverlay
 import com.spbu.projecttrack.debug.shouldShowSplashDebugPreview
 import com.spbu.projecttrack.main.presentation.MainScreen
@@ -286,10 +286,6 @@ actual fun App(onLaunchReady: () -> Unit) {
                                 ProjectStatsScreen(
                                     viewModel = statsViewModel,
                                     onBackClick = ::popScreen,
-                                    onOverallRatingClick = {
-                                        mainSelectedTab = 1
-                                        screenStack.clear()
-                                    },
                                     onMemberStatsClick = { member ->
                                         openScreen(
                                             Screen.UserStats(
@@ -316,10 +312,6 @@ actual fun App(onLaunchReady: () -> Unit) {
                                     onProjectClick = { projectId ->
                                         openScreen(Screen.ProjectStats(projectId))
                                     },
-                                    onOverallRatingClick = {
-                                        mainSelectedTab = 1
-                                        screenStack.clear()
-                                    }
                                 )
                             }
 
@@ -329,7 +321,10 @@ actual fun App(onLaunchReady: () -> Unit) {
                 }
             }
 
-            SnackbarHost(hostState = snackbarHostState)
+            AppSnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter),
+            )
 
             SplashDebugPreviewOverlay(
                 isVisible = isSplashPreviewVisible,
