@@ -58,7 +58,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -102,8 +101,15 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import com.spbu.projecttrack.core.settings.localizeRuntime
+import com.spbu.projecttrack.core.settings.localizedString
+import com.spbu.projecttrack.core.storage.createAppPreferences
 import com.spbu.projecttrack.core.theme.AppColors
+import com.spbu.projecttrack.core.theme.appPalette
+import com.spbu.projecttrack.core.theme.subtleBorder
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.core.ui.AppSnackbarHost
+import com.spbu.projecttrack.rating.data.StatsScreenSettingsPersistence
 import com.spbu.projecttrack.rating.data.model.ProjectStatsChartPointUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsChartType
 import com.spbu.projecttrack.rating.data.model.ProjectStatsCodeChurnSectionUi
@@ -127,12 +133,12 @@ import com.spbu.projecttrack.rating.export.ProjectStatsSection
 import com.spbu.projecttrack.rating.export.ProjectStatsSummaryCard
 import com.spbu.projecttrack.rating.export.ProjectStatsTableRow
 import com.spbu.projecttrack.rating.export.buildRapidPullRequestDetailExportContent
+import com.spbu.projecttrack.rating.common.StatsExportCopy
 import com.spbu.projecttrack.rating.export.rememberProjectStatsExporter
 import com.spbu.projecttrack.rating.presentation.details.StatsDetailScreen
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSection
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsScreen
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsTarget
-import com.spbu.projecttrack.rating.presentation.settings.defaultStatsScreenSectionIds
 import com.spbu.projecttrack.rating.presentation.settings.statsScreenSectionsFromIds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -179,23 +185,36 @@ internal val CompactStatsCardPadding = PaddingValues(horizontal = 8.dp, vertical
 fun ProjectStatsScreen(
     viewModel: ProjectStatsViewModel,
     onBackClick: () -> Unit,
-    onOverallRatingClick: () -> Unit,
     onMemberStatsClick: (ProjectStatsMemberUi) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = appPalette()
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val exporter = rememberProjectStatsExporter()
+    val appPreferences = remember { createAppPreferences() }
     var showSettingsScreen by remember { mutableStateOf(false) }
     var activeDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
     var renderedDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
-    var activeSectionIds by rememberSaveable { mutableStateOf(defaultStatsScreenSectionIds()) }
+    var activeSectionIds by rememberSaveable {
+        mutableStateOf(
+            StatsScreenSettingsPersistence.decode(
+                appPreferences.getProjectStatsScreenSettingsJson(),
+            )
+        )
+    }
     val activeSections = remember(activeSectionIds) { statsScreenSectionsFromIds(activeSectionIds) }
     val detailTransitionState = remember { MutableTransitionState(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.load()
+    }
+
+    LaunchedEffect(activeSectionIds) {
+        appPreferences.saveProjectStatsScreenSettingsJson(
+            StatsScreenSettingsPersistence.encode(activeSectionIds),
+        )
     }
 
     LaunchedEffect(activeDetailSection) {
@@ -222,20 +241,19 @@ fun ProjectStatsScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = Color.White,
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        containerColor = palette.background,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White)
+                .background(palette.background)
         ) {
             Image(
                 painter = painterResource(Res.drawable.spbu_logo),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize().align(Alignment.Center),
                 contentScale = ContentScale.Fit,
-                alpha = 1.0f,
+                alpha = appPalette().spbuBackdropLogoAlpha,
             )
 
             when (val state = uiState) {
@@ -244,7 +262,7 @@ fun ProjectStatsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = AppColors.Color3)
+                        CircularProgressIndicator(color = appPalette().accent)
                     }
                 }
 
@@ -265,7 +283,6 @@ fun ProjectStatsScreen(
                         onRepositorySelected = viewModel::selectRepository,
                         onDateRangeSelected = viewModel::selectDateRange,
                         onRapidThresholdChanged = viewModel::updateRapidThreshold,
-                        onOverallRatingClick = onOverallRatingClick,
                         onMemberStatsClick = onMemberStatsClick,
                         onDetailsClick = { section ->
                             activeDetailSection = section
@@ -278,8 +295,8 @@ fun ProjectStatsScreen(
                                 val payload = model.toExportPayload()
                                 val result = exporter.exportPdf(payload)
                                 val message = result.getOrNull()?.let { export ->
-                                    "PDF сохранен: ${export.fileName}"
-                                } ?: "Не удалось экспортировать PDF"
+                                    StatsExportCopy.pdfSaved(export.fileName)
+                                } ?: StatsExportCopy.exportPdfFailed()
                                 snackbarHostState.showSnackbar(message)
                             }
                         },
@@ -288,8 +305,8 @@ fun ProjectStatsScreen(
                                 val payload = model.toExportPayload()
                                 val result = exporter.exportExcelCsv(payload)
                                 val message = result.getOrNull()?.let { export ->
-                                    "CSV сохранен: ${export.fileName}"
-                                } ?: "Не удалось экспортировать Excel"
+                                    StatsExportCopy.csvSaved(export.fileName)
+                                } ?: StatsExportCopy.exportExcelFailed()
                                 snackbarHostState.showSnackbar(message)
                             }
                         }
@@ -354,8 +371,8 @@ fun ProjectStatsScreen(
                                 )
                                 val result = exporter.exportPdf(payload)
                                 val message = result.getOrNull()?.let { export ->
-                                    "PDF сохранен: ${export.fileName}"
-                                } ?: "Не удалось экспортировать PDF"
+                                    StatsExportCopy.pdfSaved(export.fileName)
+                                } ?: StatsExportCopy.exportPdfFailed()
                                 snackbarHostState.showSnackbar(message)
                             }
                         },
@@ -367,14 +384,19 @@ fun ProjectStatsScreen(
                                 )
                                 val result = exporter.exportExcelCsv(payload)
                                 val message = result.getOrNull()?.let { export ->
-                                    "CSV сохранен: ${export.fileName}"
-                                } ?: "Не удалось экспортировать Excel"
+                                    StatsExportCopy.csvSaved(export.fileName)
+                                } ?: StatsExportCopy.exportExcelFailed()
                                 snackbarHostState.showSnackbar(message)
                             }
                         },
                     )
                 }
             }
+
+            AppSnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }
@@ -386,6 +408,9 @@ internal fun ErrorState(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val unavailableTitle = localizedString("Статистика недоступна", "Statistics unavailable")
+    val backLabel = localizedString("Назад", "Back")
+    val retryLabel = localizedString("Повторить", "Retry")
     Box(
         modifier = modifier.fillMaxSize()
     ) {
@@ -397,25 +422,25 @@ internal fun ErrorState(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Статистика недоступна",
+                text = unavailableTitle,
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 24.sp,
-                color = AppColors.Color3
+                color = appPalette().accent
             )
             Text(
                 text = message,
                 fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 14.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
                 textAlign = TextAlign.Center
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ActionPillButton(
-                    text = "Назад",
+                    text = backLabel,
                     onClick = onBackClick
                 )
                 ActionPillButton(
-                    text = "Повторить",
+                    text = retryLabel,
                     onClick = onRetry
                 )
             }
@@ -431,7 +456,6 @@ private fun ProjectStatsContent(
     onRepositorySelected: (String) -> Unit,
     onDateRangeSelected: (String, String) -> Unit,
     onRapidThresholdChanged: (Int, Int, Int) -> Unit,
-    onOverallRatingClick: () -> Unit,
     onMemberStatsClick: (ProjectStatsMemberUi) -> Unit,
     onDetailsClick: (StatsScreenSection) -> Unit,
     onSettingsClick: () -> Unit,
@@ -440,7 +464,8 @@ private fun ProjectStatsContent(
     modifier: Modifier = Modifier
 ) {
     var showDateRangePicker by remember { mutableStateOf(false) }
-
+    val customerTitle = localizedString("Заказчик", "Client")
+    val statsTitle = localizedString("Статистика", "Statistics")
     Box(
         modifier = modifier.fillMaxSize()
     ) {
@@ -454,7 +479,7 @@ private fun ProjectStatsContent(
                 start = ScreenHorizontalPadding,
                 end = ScreenHorizontalPadding,
                 top = StatsTopBarTotalHeight + 8.dp,
-                bottom = if (model.showOverallRatingButton) 148.dp else 40.dp
+                bottom = 40.dp
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -477,13 +502,13 @@ private fun ProjectStatsContent(
             item {
                 AnimatedSection {
                     StatsValueCard(
-                        title = "Заказчик",
+                        title = customerTitle,
                         content = {
                             Text(
                                 text = model.customer,
                                 fontFamily = AppFonts.OpenSansRegular,
                                 fontSize = 13.sp,
-                                color = AppColors.Color2
+                                color = appPalette().primaryText
                             )
                         }
                     )
@@ -581,7 +606,7 @@ private fun ProjectStatsContent(
         }
 
         StatsTopBar(
-            title = "Статистика",
+            title = statsTitle,
             onBackClick = onBackClick,
             modifier = Modifier.align(Alignment.TopCenter)
         )
@@ -598,33 +623,6 @@ private fun ProjectStatsContent(
             )
         }
 
-        AnimatedVisibility(
-            visible = model.showOverallRatingButton,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 26.dp),
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 })
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(200.dp)
-                    .clickable(onClick = onOverallRatingClick)
-                    .border(1.dp, AppColors.BorderColor, OverallRatingShape)
-                    .background(brush = AccentGradient, shape = OverallRatingShape)
-            ) {
-                Text(
-                    text = "Общий рейтинг",
-                    fontFamily = AppFonts.OpenSansBold,
-                    fontSize = 16.sp,
-                    color = Color.White,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
-                        .align(Alignment.Center)
-                )
-            }
-        }
     }
 }
 
@@ -648,7 +646,7 @@ internal fun BoxScope.StatsBackgroundLogo(
             .align(Alignment.Center)
             .offset(y = (-12).dp),
         contentScale = ContentScale.FillWidth,
-        alpha = 0.08f,
+        alpha = maxOf(appPalette().spbuWatermarkLogoAlpha, 0.08f),
     )
 }
 
@@ -671,7 +669,7 @@ internal fun StatsTopBar(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = Color.White,
+        color = appPalette().buttonText,
         shadowElevation = 4.dp,
     ) {
         Box(
@@ -683,7 +681,7 @@ internal fun StatsTopBar(
         ) {
             Image(
                 painter = painterResource(Res.drawable.arrow_back),
-                contentDescription = "Назад",
+                contentDescription = localizedString("Назад", "Back"),
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .size(24.dp)
@@ -703,7 +701,7 @@ internal fun StatsTopBar(
                 fontSize = titleFontSize,
                 lineHeight = titleLineHeight,
                 letterSpacing = if (titleFontSize >= 40.sp) 0.4.sp else 0.16.sp,
-                color = AppColors.Color3,
+                color = appPalette().accent,
                 textAlign = TextAlign.Center,
                 maxLines = titleMaxLines,
                 overflow = TextOverflow.Ellipsis,
@@ -736,9 +734,12 @@ private fun TeamMembersCard(
     onMemberStatsClick: (ProjectStatsMemberUi) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val teamMembersTitle = localizedString("Участники команды", "Team members")
+    val memberStatsLabel = localizedString("Статистика", "Statistics")
+    val youShort = localizedString("Вы", "You")
     StatsCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatsCardTitle(text = "Участники команды")
+            StatsCardTitle(text = teamMembersTitle)
 
             members.forEachIndexed { index, member ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -755,18 +756,18 @@ private fun TeamMembersCard(
                                         append(" ")
                                         withStyle(
                                             style = androidx.compose.ui.text.SpanStyle(
-                                                color = AppColors.Color3,
+                                                color = appPalette().accent,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         ) {
-                                            append("(Вы)")
+                                            append("($youShort)")
                                         }
                                     }
                                 },
                                 fontFamily = AppFonts.OpenSansRegular,
                                 fontSize = 12.sp,
                                 lineHeight = 20.sp,
-                                color = AppColors.Color2,
+                                color = appPalette().primaryText,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -775,15 +776,15 @@ private fun TeamMembersCard(
                                 fontFamily = AppFonts.OpenSansLight,
                                 fontSize = 10.sp,
                                 lineHeight = 15.sp,
-                                color = AppColors.Color1
+                                color = appPalette().subtleBorder
                             )
                         }
 
                         Text(
-                            text = "Статистика",
+                            text = memberStatsLabel,
                             fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 12.sp,
-                            color = Color.Black,
+                            color = appPalette().primaryText,
                             modifier = Modifier.clickable {
                                 onMemberStatsClick(member)
                             }
@@ -803,12 +804,16 @@ private fun TeamMembersCard(
 internal fun EmptyDetailedInfoCard(
     modifier: Modifier = Modifier
 ) {
+    val emptyMessage = localizedString(
+        "Нет подробной информации по репозиториям",
+        "No detailed repository information",
+    )
     StatsCard(modifier = modifier) {
         Text(
-            text = "Нет подробной информации по репозиториям",
+            text = emptyMessage,
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 14.sp,
-            color = AppColors.Color2
+            color = appPalette().primaryText
         )
     }
 }
@@ -823,13 +828,15 @@ internal fun RepositorySelectorCard(
     modifier: Modifier = Modifier
 ) {
     val selectedRepository = repositories.firstOrNull { it.id == selectedId } ?: repositories.first()
+    val repoPickerTitle = localizedString("Выбор репозитория", "Choose repository")
+    val periodPickerTitle = localizedString("Выбор периода", "Choose period")
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         DropdownSelector(
-            title = "Выбор репозитория",
+            title = repoPickerTitle,
             value = selectedRepository.title,
             options = repositories.map { it.id to it.title },
             selectedKey = selectedId,
@@ -837,7 +844,7 @@ internal fun RepositorySelectorCard(
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatsCardTitle(text = "Выбор периода")
+            StatsCardTitle(text = periodPickerTitle)
             DateRangeSelector(
                 startLabel = visibleRange.startLabel,
                 endLabel = visibleRange.endLabel,
@@ -921,7 +928,7 @@ private fun MetricSection(
 
         ScoreCard(
             score = section.score,
-            title = metricScoreTitle(section.title)
+            title = StatsExportCopy.metricScoreTitleForSection(section.title)
         )
     }
 }
@@ -932,6 +939,14 @@ private fun IssueSection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val openIssuesCaption = localizedString("открытых Issue", "open issues")
+    val closedIssuesCaption = localizedString("закрытых Issue", "closed issues")
+    val rankCaption = localizedString("место в рейтинге", "rank")
+    val issueCountTableTitle = localizedString(
+        "Количество Issue(открытые/закрытые)",
+        "Issue count (open/closed)",
+    )
+    val issueScoreTitle = localizedString("оценка Issue", "Issue score")
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -944,9 +959,9 @@ private fun IssueSection(
         if (section.openIssues + section.closedIssues > 0) {
             DoubleMetricRow(
                 leftValue = section.openIssues.toString(),
-                leftCaption = "открытых Issue",
+                leftCaption = openIssuesCaption,
                 rightValue = section.closedIssues.toString(),
-                rightCaption = "закрытых Issue"
+                rightCaption = closedIssuesCaption
             )
         }
 
@@ -963,18 +978,18 @@ private fun IssueSection(
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = section.rank?.toString() ?: "—",
-                caption = "место в рейтинге"
+                caption = rankCaption
             )
         }
 
         TableCard(
-            title = "Количество Issue(открытые/закрытые)",
+            title = issueCountTableTitle,
             rows = section.tableRows
         )
 
         ScoreCard(
             score = section.score,
-            title = "оценка Issue"
+            title = issueScoreTitle
         )
     }
 }
@@ -985,6 +1000,16 @@ private fun CodeChurnSection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val changedFilesCaption = localizedString("изменено файлов", "files changed")
+    val rankCaption = localizedString("место в рейтинге", "rank")
+    val changedFilesTableTitle = localizedString(
+        "Количество измененных файлов",
+        "Changed files count",
+    )
+    val churnScoreTitle = localizedString(
+        "оценка изменчивости кода",
+        "Code churn score",
+    )
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -998,19 +1023,19 @@ private fun CodeChurnSection(
 
         DoubleMetricRow(
             leftValue = section.changedFilesCount.toString(),
-            leftCaption = "изменено файлов",
+            leftCaption = changedFilesCaption,
             rightValue = section.rank?.toString() ?: "—",
-            rightCaption = "место в рейтинге"
+            rightCaption = rankCaption
         )
 
         TableCard(
-            title = "Количество измененных файлов",
+            title = changedFilesTableTitle,
             rows = section.tableRows
         )
 
         ScoreCard(
             score = section.score,
-            title = "оценка изменчивости кода"
+            title = churnScoreTitle
         )
     }
 }
@@ -1021,6 +1046,12 @@ private fun OwnershipSection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val youShort = localizedString("Вы", "You")
+    val rankCaption = localizedString("место в рейтинге", "rank")
+    val ownershipScoreTitle = localizedString(
+        "оценка владения кодом",
+        "Code ownership score",
+    )
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1048,17 +1079,17 @@ private fun OwnershipSection(
                                 Text(
                                     text = buildString {
                                         append(slice.label)
-                                        if (slice.highlight) append(" (Вы)")
+                                        if (slice.highlight) append(" ($youShort)")
                                     },
                                     fontFamily = AppFonts.OpenSansRegular,
                                     fontSize = 13.sp,
-                                    color = AppColors.Color2
+                                    color = appPalette().primaryText
                                 )
                                 Text(
                                     text = slice.secondaryLabel,
                                     fontFamily = AppFonts.OpenSansBold,
                                     fontSize = 12.sp,
-                                    color = AppColors.Color2
+                                    color = appPalette().primaryText
                                 )
                             }
                         }
@@ -1069,12 +1100,12 @@ private fun OwnershipSection(
 
         SingleMetricCard(
             value = section.rank?.toString() ?: "—",
-            caption = "место в рейтинге"
+            caption = rankCaption
         )
 
         ScoreCard(
             score = section.score,
-            title = "оценка владения кодом"
+            title = ownershipScoreTitle
         )
     }
 }
@@ -1085,6 +1116,10 @@ internal fun DominantWeekDaySection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val dominantWeekScoreTitle = localizedString(
+        "оценка доминирующего дня недели",
+        "Dominant weekday score",
+    )
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1108,7 +1143,7 @@ internal fun DominantWeekDaySection(
                         fontSize = 32.sp,
                         lineHeight = 20.sp,
                         letterSpacing = 0.32.sp,
-                        color = AppColors.Color3,
+                        color = appPalette().accent,
                     )
                     Text(
                         text = section.subtitle,
@@ -1116,7 +1151,7 @@ internal fun DominantWeekDaySection(
                         fontSize = 14.sp,
                         lineHeight = 16.sp,
                         letterSpacing = 0.14.sp,
-                        color = AppColors.Color2,
+                        color = appPalette().primaryText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1126,7 +1161,7 @@ internal fun DominantWeekDaySection(
 
         ScoreCard(
             score = section.score,
-            title = "оценка доминирующего дня недели"
+            title = dominantWeekScoreTitle
         )
     }
 }
@@ -1135,8 +1170,12 @@ internal fun DominantWeekDaySection(
 internal fun WeekDayDistributionCard(
     slices: List<ProjectStatsDonutSliceUi>,
     modifier: Modifier = Modifier,
-    emptyText: String = "Действий ещё не было",
+    emptyText: String? = null,
 ) {
+    val resolvedEmpty = emptyText ?: localizedString(
+        "Действий ещё не было",
+        "No activity yet",
+    )
     val hasActivity = slices.any { it.value > 0f }
 
     StatsCard(modifier = modifier) {
@@ -1148,10 +1187,10 @@ internal fun WeekDayDistributionCard(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = emptyText,
+                    text = resolvedEmpty,
                     fontFamily = AppFonts.OpenSansRegular,
                     fontSize = 14.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             }
         } else {
@@ -1194,7 +1233,7 @@ internal fun WeekdayLegendText(
             withStyle(
                 SpanStyle(
                     fontWeight = if (emphasizeLabel) FontWeight.Bold else FontWeight.SemiBold,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             ) {
                 append(label)
@@ -1202,7 +1241,7 @@ internal fun WeekdayLegendText(
             withStyle(
                 SpanStyle(
                     fontWeight = FontWeight.Normal,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             ) {
                 append(" - ")
@@ -1210,7 +1249,7 @@ internal fun WeekdayLegendText(
             withStyle(
                 SpanStyle(
                     fontWeight = FontWeight.Bold,
-                    color = AppColors.Color3,
+                    color = appPalette().accent,
                 )
             ) {
                 append(valuePart)
@@ -1219,7 +1258,7 @@ internal fun WeekdayLegendText(
                 withStyle(
                     SpanStyle(
                         fontWeight = FontWeight.Normal,
-                        color = AppColors.Color2,
+                        color = appPalette().primaryText,
                     )
                 ) {
                     append(" ")
@@ -1231,7 +1270,7 @@ internal fun WeekdayLegendText(
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.14.sp,
-        color = AppColors.Color2,
+        color = appPalette().primaryText,
         modifier = modifier,
     )
 }
@@ -1242,6 +1281,7 @@ internal fun SectionHeader(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val detailsLabel = localizedString("Подробнее", "Details")
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1249,7 +1289,7 @@ internal fun SectionHeader(
     ) {
         StatsCardTitle(text = title)
         ActionPillButton(
-            text = "Подробнее",
+            text = detailsLabel,
             onClick = onDetailsClick
         )
     }
@@ -1302,7 +1342,7 @@ internal fun ActionPillButton(
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
                 letterSpacing = 0.16.sp,
-                color = Color.White,
+                color = appPalette().buttonText,
             )
         }
     }
@@ -1393,7 +1433,7 @@ internal fun SingleMetricCard(
                     fontFamily = AppFonts.OpenSansBold,
                     fontSize = valueFontSize,
                     lineHeight = valueLineHeight,
-                    color = AppColors.Color3,
+                    color = appPalette().accent,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1404,7 +1444,7 @@ internal fun SingleMetricCard(
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 14.sp,
                     lineHeight = 16.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1434,7 +1474,7 @@ internal fun IssueProgressCard(
                     modifier = Modifier
                         .fillMaxWidth(progress.coerceIn(0f, 1f))
                         .height(30.dp)
-                        .background(AppColors.Color3, RoundedCornerShape(6.dp))
+                        .background(appPalette().accent, RoundedCornerShape(6.dp))
                 )
             }
             Text(
@@ -1442,7 +1482,7 @@ internal fun IssueProgressCard(
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 13.sp,
                 lineHeight = 16.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1480,7 +1520,7 @@ internal fun ScoreCard(
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 14.sp,
                     lineHeight = 16.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1525,11 +1565,11 @@ internal fun EqualVerticalMetricLayout(
         }
     }
 }
-
+@Composable
 internal fun projectScoreColor(score: Double?): Color {
-    if (score == null) return AppColors.Color2
+    if (score == null) return appPalette().primaryText
 
-    val low = AppColors.Color3
+    val low = appPalette().accent
     val mid = Color(0xFF9F9220)
     val high = Color(0xFF209F31)
     val clamped = score.coerceIn(1.0, 5.0).toFloat()
@@ -1548,11 +1588,6 @@ internal fun formatScoreValue(score: Double): String {
     } else {
         rounded.toString().replace('.', ',')
     }
-}
-
-internal fun metricScoreTitle(title: String): String = when (title) {
-    "Быстрые Pull Requests" -> "оценка быстрых PR"
-    else -> "оценка ${title.lowercase()}"
 }
 
 @Composable
@@ -1706,7 +1741,7 @@ private fun BarChart(
                             fontSize = 11.sp,
                             lineHeight = 12.sp,
                             letterSpacing = 0.11.sp,
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                             textAlign = TextAlign.Center,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -1780,6 +1815,7 @@ private fun LineChart(
                     axisLabelGap = axisLabelGap,
                     highlightBaseline = true
                 )
+                val chartLineColor = appPalette().primaryText
                 Canvas(modifier = Modifier.matchParentSize()) {
                     val path = Path()
                     pointPositions.forEachIndexed { index, point ->
@@ -1793,7 +1829,7 @@ private fun LineChart(
                     }
                     drawPath(
                         path = path,
-                        color = AppColors.Color2,
+                        color = chartLineColor,
                         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
@@ -1866,7 +1902,7 @@ private fun GridBackground(
                     fontSize = 12.sp,
                     lineHeight = 12.sp,
                     letterSpacing = 0.12.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                     textAlign = TextAlign.Right,
                     modifier = Modifier.width(axisLabelWidth)
                 )
@@ -1877,7 +1913,7 @@ private fun GridBackground(
                         .height(if (highlightBaseline && label == 0) 2.dp else 1.dp)
                         .background(
                             if (highlightBaseline && label == 0) {
-                                AppColors.Color2.copy(alpha = 0.4f)
+                                appPalette().primaryText.copy(alpha = 0.4f)
                             } else {
                                 ChartGridColor
                             }
@@ -1904,16 +1940,24 @@ private fun formatChartTooltip(
     tooltipTitle: String,
     includeLabel: Boolean = false,
 ): String {
-    val valueText = if (tooltipTitle.contains("коммит", ignoreCase = true)) {
-        val count = point.value.roundToInt()
-        "$count ${pluralizeRussian(count, "коммит", "коммита", "коммитов")}"
-    } else if (tooltipTitle.contains("Pull Request", ignoreCase = true) &&
-        !tooltipTitle.contains("быст", ignoreCase = true)
-    ) {
-        val count = point.value.roundToInt()
-        "$count ${if (count == 1) "открытый PR" else "открытых PR"}"
-    } else {
-        if (!includeLabel) tooltipTitle else point.hint.ifBlank { tooltipTitle }
+    val tl = tooltipTitle.lowercase()
+    val count = point.value.roundToInt()
+    val valueText = when {
+        tl.contains("коммит") || (tl.contains("commit") && !tl.contains("pull")) -> {
+            val ru = "$count ${pluralizeRussian(count, "коммит", "коммита", "коммитов")}"
+            val en = "$count ${if (count == 1) "commit" else "commits"}"
+            localizeRuntime(ru, en)
+        }
+        (tl.contains("pull request") || tl.contains("pull requests") || tl.contains("pr")) &&
+            !tl.contains("быст") && !tl.contains("rapid") -> {
+            localizeRuntime(
+                "$count ${if (count == 1) "открытый PR" else "открытых PR"}",
+                "$count ${if (count == 1) "open PR" else "open PRs"}",
+            )
+        }
+        else -> {
+            if (!includeLabel) tooltipTitle else point.hint.ifBlank { tooltipTitle }
+        }
     }
 
     if (!includeLabel) return valueText
@@ -2004,7 +2048,7 @@ private fun TooltipBubble(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(4.dp),
-        color = Color.White,
+        color = appPalette().buttonText,
         shadowElevation = 3.dp
     ) {
         Row(
@@ -2019,7 +2063,7 @@ private fun TooltipBubble(
                 fontSize = 10.sp,
                 lineHeight = 14.sp,
                 letterSpacing = 0.1.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
                 modifier = Modifier.weight(1f, fill = false)
             )
             AnimatedTooltipCloseButton(onClick = onClose)
@@ -2105,7 +2149,7 @@ private fun AnimatedTooltipCloseButton(
                         scaleY = s
                         alpha = (1f - p) * 0.45f
                     }
-                    .background(AppColors.Color3, CircleShape)
+                    .background(appPalette().accent, CircleShape)
             )
         }
         Box(
@@ -2130,7 +2174,7 @@ private fun AnimatedTooltipCloseButton(
         ) {
             Image(
                 painter = painterResource(Res.drawable.stats_tooltip_close),
-                contentDescription = "Закрыть",
+                contentDescription = localizedString("Закрыть", "Close"),
                 modifier = Modifier.size(12.dp),
             )
         }
@@ -2225,7 +2269,7 @@ private fun AnimatedChartPointButton(
                         scaleY = burstScale
                         alpha = (1f - progress) * 0.42f
                     }
-                    .border(1.5.dp, AppColors.Color3.copy(alpha = 0.7f), CircleShape)
+                    .border(1.5.dp, appPalette().accent.copy(alpha = 0.7f), CircleShape)
             )
         }
         if (selected) {
@@ -2236,7 +2280,7 @@ private fun AnimatedChartPointButton(
                         scaleX = pulseScale
                         scaleY = pulseScale
                     }
-                    .background(AppColors.Color3.copy(alpha = pulseAlpha), CircleShape)
+                    .background(appPalette().accent.copy(alpha = pulseAlpha), CircleShape)
             )
         }
         Box(
@@ -2247,7 +2291,7 @@ private fun AnimatedChartPointButton(
                     scaleX = combinedScale
                     scaleY = combinedScale
                 }
-                .background(AppColors.Color3.copy(alpha = haloAlpha), CircleShape)
+                .background(appPalette().accent.copy(alpha = haloAlpha), CircleShape)
         )
         Box(
             modifier = Modifier
@@ -2270,14 +2314,14 @@ private fun AnimatedChartPointButton(
                         scaleX = combinedScale
                         scaleY = combinedScale
                     }
-                    .background(if (selected) AppColors.Color3 else AppColors.Color2, CircleShape)
-                    .border(2.dp, Color.White, CircleShape),
+                    .background(if (selected) appPalette().accent else appPalette().primaryText, CircleShape)
+                    .border(2.dp, appPalette().surface, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier
                         .size(innerSize)
-                        .background(Color.White, CircleShape)
+                        .background(appPalette().surface, CircleShape)
                 )
             }
         }
@@ -2327,7 +2371,7 @@ private fun AnimatedBarSlot(
     }
 
     val barColor by animateColorAsState(
-        targetValue = if (selected) AppColors.Color3 else Color(0xFFBDBDBD),
+        targetValue = if (selected) appPalette().accent else Color(0xFFBDBDBD),
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 580f),
         label = "bar_color",
     )
@@ -2353,7 +2397,7 @@ private fun AnimatedBarSlot(
                     .graphicsLayer {
                         alpha = (1f - burstProgress.value) * 0.50f
                     }
-                    .border(1.5.dp, AppColors.Color3.copy(alpha = 0.55f), BarShape),
+                    .border(1.5.dp, appPalette().accent.copy(alpha = 0.55f), BarShape),
             )
         }
         // The bar itself — scales from its bottom center
@@ -2462,14 +2506,14 @@ private fun TableCard(
                             text = row.name,
                             fontFamily = AppFonts.OpenSansRegular,
                             fontSize = 13.sp,
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = row.value,
                             fontFamily = AppFonts.OpenSansSemiBold,
                             fontSize = 13.sp,
-                            color = if (row.highlight) AppColors.Color3 else AppColors.Color2
+                            color = if (row.highlight) appPalette().accent else appPalette().primaryText
                         )
                     }
                     if (index < rows.lastIndex) {
@@ -2486,14 +2530,17 @@ internal fun FileStatsCard(
     rows: List<com.spbu.projecttrack.rating.data.model.ProjectStatsFileRowUi>,
     modifier: Modifier = Modifier
 ) {
+    val fileStatsTitle = localizedString("Статистика по файлам", "File statistics")
+    val fileColumn = localizedString("Файл", "File")
+    val countColumn = localizedString("Кол-во", "Count")
     StatsCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatsCardTitle(text = "Статистика по файлам")
+            StatsCardTitle(text = fileStatsTitle)
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(6.dp),
-                color = Color.White,
+                color = appPalette().buttonText,
                 border = androidx.compose.foundation.BorderStroke(1.dp, TableDividerColor)
             ) {
                 Column {
@@ -2505,12 +2552,12 @@ internal fun FileStatsCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Файл",
+                            text = fileColumn,
                             fontFamily = AppFonts.OpenSansBold,
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
                             letterSpacing = 0.14.sp,
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(horizontal = 12.dp),
@@ -2523,12 +2570,12 @@ internal fun FileStatsCard(
                                 .background(TableDividerColor)
                         )
                         Text(
-                            text = "Кол-во",
+                            text = countColumn,
                             fontFamily = AppFonts.OpenSansBold,
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
                             letterSpacing = 0.14.sp,
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                             modifier = Modifier
                                 .width(FileStatsValueColumnWidth)
                                 .padding(horizontal = 8.dp),
@@ -2550,7 +2597,7 @@ internal fun FileStatsCard(
                                     fontSize = 13.sp,
                                     lineHeight = 20.sp,
                                     letterSpacing = 0.13.sp,
-                                    color = AppColors.Color2,
+                                    color = appPalette().primaryText,
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
@@ -2568,7 +2615,7 @@ internal fun FileStatsCard(
                                     fontSize = 14.sp,
                                     lineHeight = 20.sp,
                                     letterSpacing = 0.14.sp,
-                                    color = AppColors.Color2,
+                                    color = appPalette().primaryText,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier
                                         .width(FileStatsValueColumnWidth)
@@ -2614,17 +2661,17 @@ private fun DonutSectionCard(
                             Text(
                                 text = buildString {
                                     append(slice.label)
-                                    if (slice.highlight) append("(Вы)")
+                                    if (slice.highlight) append(localizedString("(Вы)", "(You)"))
                                 },
                                 fontFamily = AppFonts.OpenSansRegular,
                                 fontSize = 13.sp,
-                                color = AppColors.Color2
+                                color = appPalette().primaryText
                             )
                             Text(
                                 text = slice.secondaryLabel,
                                 fontFamily = AppFonts.OpenSansBold,
                                 fontSize = 12.sp,
-                                color = AppColors.Color2
+                                color = appPalette().primaryText
                             )
                         }
                     }
@@ -2715,7 +2762,7 @@ internal fun DonutChart(
                             fontSize = 13.sp,
                             lineHeight = 15.sp,
                             letterSpacing = 0.sp,
-                            color = Color.White,
+                            color = appPalette().buttonText,
                             textAlign = TextAlign.Center,
                         )
                     }
@@ -2733,6 +2780,9 @@ internal fun FooterActions(
     onExportExcelClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val screenSettings = localizedString("Настройки экрана", "Screen settings")
+    val exportPdf = localizedString("Экспорт в PDF", "Export to PDF")
+    val exportExcel = localizedString("Экспорт в Excel", "Export to Excel")
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -2740,7 +2790,7 @@ internal fun FooterActions(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         FooterActionRow(
-            text = "Настройки экрана",
+            text = screenSettings,
             icon = {
                 Image(
                     painter = painterResource(Res.drawable.stats_footer_settings),
@@ -2751,7 +2801,7 @@ internal fun FooterActions(
             onClick = onSettingsClick
         )
         FooterActionRow(
-            text = "Экспорт в PDF",
+            text = exportPdf,
             icon = {
                 Image(
                     painter = painterResource(Res.drawable.stats_footer_pdf),
@@ -2764,7 +2814,7 @@ internal fun FooterActions(
             onClick = onExportPdfClick
         )
         FooterActionRow(
-            text = "Экспорт в Excel",
+            text = exportExcel,
             icon = {
                 Image(
                     painter = painterResource(Res.drawable.stats_footer_excel),
@@ -2818,7 +2868,7 @@ private fun FooterActionRow(
             text = text,
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 14.sp,
-            color = AppColors.Color2
+            color = appPalette().primaryText
         )
     }
 }
@@ -2848,7 +2898,7 @@ private fun DateBadge(
             .height(22.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(5.dp),
-        color = AppColors.Color1,
+        color = appPalette().subtleBorder,
     ) {
         Row(
             modifier = Modifier
@@ -2863,7 +2913,7 @@ private fun DateBadge(
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 letterSpacing = 0.14.sp,
-                color = Color.White,
+                color = appPalette().buttonText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -2874,7 +2924,7 @@ private fun DateBadge(
             ) {
                 Image(
                     painter = painterResource(Res.drawable.stats_calendar),
-                    contentDescription = "Календарь",
+                    contentDescription = localizedString("Календарь", "Calendar"),
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
                 )
@@ -2894,7 +2944,7 @@ private fun StatsCardTitle(
         fontSize = 16.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.16.sp,
-        color = Color.Black,
+        color = appPalette().primaryText,
         modifier = modifier,
     )
 }
@@ -2933,7 +2983,7 @@ internal fun DropdownSelector(
                     .onSizeChanged { anchorSize = it }
                     .clickable { expanded = !expanded },
                 shape = CompactControlShape,
-                color = AppColors.Color1
+                color = appPalette().subtleBorder
             ) {
                 Row(
                     modifier = Modifier
@@ -2949,7 +2999,7 @@ internal fun DropdownSelector(
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
                         letterSpacing = 0.14.sp,
-                        color = Color.White,
+                        color = appPalette().buttonText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -2985,32 +3035,36 @@ private fun RapidThresholdSelector(
     onThresholdChanged: (Int, Int, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val periodHeading = localizedString("Период:", "Period:")
+    val dayShort = localizedString("д", "d")
+    val hourShort = localizedString("ч", "h")
+    val minShort = localizedString("мин", "min")
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        StatsCardTitle(text = "Период:")
+        StatsCardTitle(text = periodHeading)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             InlineValueSelector(
-                label = "д",
+                label = dayShort,
                 value = threshold.days,
                 values = (0..30).toList(),
                 onSelected = { onThresholdChanged(it, threshold.hours, threshold.minutes) },
                 modifier = Modifier.weight(1f)
             )
             InlineValueSelector(
-                label = "ч",
+                label = hourShort,
                 value = threshold.hours,
                 values = (0..23).toList(),
                 onSelected = { onThresholdChanged(threshold.days, it, threshold.minutes) },
                 modifier = Modifier.weight(1f)
             )
             InlineValueSelector(
-                label = "мин",
+                label = minShort,
                 value = threshold.minutes,
                 values = (0..59).toList(),
                 onSelected = { onThresholdChanged(threshold.days, threshold.hours, it) },
@@ -3045,10 +3099,11 @@ private fun FilterChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = appPalette()
     Surface(
         modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
-        color = if (selected) AppColors.Color3 else Color.White,
+        color = if (selected) palette.accent else palette.surface,
         tonalElevation = if (selected) 2.dp else 0.dp,
         border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD8D8DA))
     ) {
@@ -3057,7 +3112,7 @@ private fun FilterChip(
             fontFamily = AppFonts.OpenSansRegular,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             fontSize = 12.sp,
-            color = if (selected) Color.White else AppColors.Color2,
+            color = if (selected) palette.buttonText else palette.primaryText,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         )
     }
@@ -3073,7 +3128,7 @@ internal fun StatsCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = CardShape,
-        color = Color.White,
+        color = appPalette().buttonText,
         shadowElevation = 8.dp
     ) {
         Column(
@@ -3124,18 +3179,30 @@ private fun ProjectStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
         customerName = customer,
         repositoryUrl = selectedRepository?.title,
         periodLabel = "${visibleRange.startLabel} - ${visibleRange.endLabel}",
-        generatedAtLabel = "Сейчас",
+        generatedAtLabel = StatsExportCopy.now(),
         summaryCards = listOf(
-            ProjectStatsSummaryCard("Коммиты", commits.primaryValue, commits.primaryCaption),
-            ProjectStatsSummaryCard("Issue", (issues.openIssues + issues.closedIssues).toString(), "всего"),
-            ProjectStatsSummaryCard("Pull Requests", pullRequests.primaryValue, pullRequests.primaryCaption),
-            ProjectStatsSummaryCard("Быстрые PR", rapidPullRequests.primaryValue, rapidPullRequests.primaryCaption)
+            ProjectStatsSummaryCard(StatsExportCopy.commits(), commits.primaryValue, commits.primaryCaption),
+            ProjectStatsSummaryCard(
+                StatsExportCopy.issues(),
+                (issues.openIssues + issues.closedIssues).toString(),
+                StatsExportCopy.total(),
+            ),
+            ProjectStatsSummaryCard(
+                StatsExportCopy.pullRequests(),
+                pullRequests.primaryValue,
+                pullRequests.primaryCaption,
+            ),
+            ProjectStatsSummaryCard(
+                StatsExportCopy.rapidPrShort(),
+                rapidPullRequests.primaryValue,
+                rapidPullRequests.primaryCaption,
+            ),
         ),
         members = members.map { member ->
             ProjectStatsMemberRow(
                 name = member.name,
                 role = member.role,
-                marker = if (member.isCurrentUser) "Вы" else null
+                marker = if (member.isCurrentUser) StatsExportCopy.youMarker() else null
             )
         },
         sections = buildList {
@@ -3161,12 +3228,12 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
         customerName = customer,
         repositoryUrl = selectedRepository?.title,
         periodLabel = "${visibleRange.startLabel} - ${visibleRange.endLabel}",
-        generatedAtLabel = "Сейчас",
+        generatedAtLabel = StatsExportCopy.now(),
         members = members.map { member ->
             ProjectStatsMemberRow(
                 name = member.name,
                 role = member.role,
-                marker = if (member.isCurrentUser) "Вы" else null
+                marker = if (member.isCurrentUser) StatsExportCopy.youMarker() else null
             )
         },
     )
@@ -3179,13 +3246,13 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
             val totalDeletions = allCommits.sumOf { it.deletions }
             base.copy(
                 summaryCards = listOf(
-                    ProjectStatsSummaryCard("Коммиты", allCommits.size.toString(), "всего"),
-                    ProjectStatsSummaryCard("Добавлено", "+$totalAdditions", "строк"),
-                    ProjectStatsSummaryCard("Удалено", "-$totalDeletions", "строк"),
+                    ProjectStatsSummaryCard(StatsExportCopy.commits(), allCommits.size.toString(), StatsExportCopy.total()),
+                    ProjectStatsSummaryCard(StatsExportCopy.added(), "+$totalAdditions", StatsExportCopy.lines()),
+                    ProjectStatsSummaryCard(StatsExportCopy.removed(), "-$totalDeletions", StatsExportCopy.lines()),
                 ),
                 sections = listOf(
                     ProjectStatsSection(
-                        title = "Список коммитов",
+                        title = StatsExportCopy.commitListTitle(),
                         rows = allCommits
                             .sortedByDescending { it.committedAtIso }
                             .map { commit ->
@@ -3195,7 +3262,9 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
                                     note = buildString {
                                         append(commit.authorName)
                                         append("  +${commit.additions}/-${commit.deletions}")
-                                        if (commit.files.isNotEmpty()) append("  ${commit.files.size} файлов")
+                                        if (commit.files.isNotEmpty()) {
+                                            append("  ${StatsExportCopy.filesCount(commit.files.size)}")
+                                        }
                                         commit.sha?.take(7)?.let { append("  [$it]") }
                                     }
                                 )
@@ -3213,7 +3282,7 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
             // Создатели: сколько Issues создал каждый
             val creatorCounts = linkedMapOf<String, Int>()
             allIssues.forEach { issue ->
-                val name = issue.creatorName.ifBlank { issue.creatorId ?: "Неизвестно" }
+                val name = issue.creatorName.ifBlank { issue.creatorId ?: StatsExportCopy.unknown() }
                 creatorCounts[name] = (creatorCounts[name] ?: 0) + 1
             }
 
@@ -3237,7 +3306,7 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
 
             val sections = buildList {
                 add(ProjectStatsSection(
-                    title = "Список Issues",
+                    title = StatsExportCopy.issueListTitle(),
                     rows = allIssues
                         .sortedByDescending { it.createdAtIso }
                         .map { issue ->
@@ -3246,13 +3315,15 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
                                 value = issue.state?.uppercase() ?: "—",
                                 note = buildString {
                                     append(issue.creatorName)
-                                    append("  Создано: ${issue.createdAtLabel}")
-                                    issue.closedAtLabel?.let { append("  Закрыто: $it") }
+                                    append("  ${StatsExportCopy.createdField()} ${issue.createdAtLabel}")
+                                    issue.closedAtLabel?.let {
+                                        append("  ${StatsExportCopy.closedField()} $it")
+                                    }
                                     if (issue.assigneeNames.isNotEmpty()) {
-                                        append("  Исполнители: ${issue.assigneeNames.joinToString()}")
+                                        append("  ${StatsExportCopy.assigneesField()} ${issue.assigneeNames.joinToString()}")
                                     }
                                     if (issue.labels.isNotEmpty()) {
-                                        append("  Метки: ${issue.labels.joinToString()}")
+                                        append("  ${StatsExportCopy.labelsField()} ${issue.labels.joinToString()}")
                                     }
                                     issue.number?.let { append("  #$it") }
                                 }
@@ -3261,31 +3332,37 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
                 ))
                 if (creatorCounts.isNotEmpty()) {
                     add(ProjectStatsSection(
-                        title = "Создатели Issues",
+                        title = StatsExportCopy.issueCreatorsTitle(),
                         rows = creatorCounts.entries
                             .sortedByDescending { it.value }
                             .map { (name, count) ->
-                                ProjectStatsTableRow(label = name, value = "создано $count Issue")
+                                ProjectStatsTableRow(
+                                    label = name,
+                                    value = StatsExportCopy.createdIssuesCount(count),
+                                )
                             }
                     ))
                 }
                 if (assigneeClosedCounts.isNotEmpty()) {
                     add(ProjectStatsSection(
-                        title = "Исполнители Issues",
+                        title = StatsExportCopy.issueAssigneesTitle(),
                         rows = assigneeClosedCounts.entries
                             .sortedByDescending { it.value }
                             .map { (name, closedCount) ->
-                                ProjectStatsTableRow(label = name, value = "закрыто $closedCount Issue")
+                                ProjectStatsTableRow(
+                                    label = name,
+                                    value = StatsExportCopy.closedIssuesCount(closedCount),
+                                )
                             }
                     ))
                 }
                 if (labelCounts.isNotEmpty()) {
                     add(ProjectStatsSection(
-                        title = "Метки",
+                        title = StatsExportCopy.labelsTitle(),
                         rows = labelCounts.entries
                             .sortedByDescending { it.value }
                             .map { (label, count) ->
-                                ProjectStatsTableRow(label = label, value = "$count issue")
+                                ProjectStatsTableRow(label = label, value = StatsExportCopy.issueCountLabel(count))
                             }
                     ))
                 }
@@ -3293,9 +3370,13 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
 
             base.copy(
                 summaryCards = listOf(
-                    ProjectStatsSummaryCard("Issue", allIssues.size.toString(), "всего"),
-                    ProjectStatsSummaryCard("Открытых", openCount.toString(), ""),
-                    ProjectStatsSummaryCard("Закрытых", closedCount.toString(), ""),
+                    ProjectStatsSummaryCard(
+                        StatsExportCopy.issues(),
+                        allIssues.size.toString(),
+                        StatsExportCopy.total(),
+                    ),
+                    ProjectStatsSummaryCard(StatsExportCopy.openIssuesShort(), openCount.toString(), ""),
+                    ProjectStatsSummaryCard(StatsExportCopy.closedIssuesShort(), closedCount.toString(), ""),
                 ),
                 sections = sections,
             )
@@ -3308,13 +3389,17 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
             val closedCount = allPRs.size - openCount
             base.copy(
                 summaryCards = listOf(
-                    ProjectStatsSummaryCard("Pull Requests", allPRs.size.toString(), "всего"),
-                    ProjectStatsSummaryCard("Открытых", openCount.toString(), ""),
-                    ProjectStatsSummaryCard("Закрытых", closedCount.toString(), ""),
+                    ProjectStatsSummaryCard(
+                        StatsExportCopy.pullRequests(),
+                        allPRs.size.toString(),
+                        StatsExportCopy.total(),
+                    ),
+                    ProjectStatsSummaryCard(StatsExportCopy.openIssuesShort(), openCount.toString(), ""),
+                    ProjectStatsSummaryCard(StatsExportCopy.closedIssuesShort(), closedCount.toString(), ""),
                 ),
                 sections = listOf(
                     ProjectStatsSection(
-                        title = "Список Pull Requests",
+                        title = StatsExportCopy.prListTitle(),
                         rows = allPRs
                             .sortedByDescending { it.createdAtIso }
                             .map { pr ->
@@ -3323,8 +3408,10 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
                                     value = pr.state?.uppercase() ?: "—",
                                     note = buildString {
                                         append(pr.authorName)
-                                        append("  Создано: ${pr.createdAtLabel}")
-                                        pr.closedAtLabel?.let { append("  Закрыто: $it") }
+                                        append("  ${StatsExportCopy.createdField()} ${pr.createdAtLabel}")
+                                        pr.closedAtLabel?.let {
+                                            append("  ${StatsExportCopy.closedField()} $it")
+                                        }
                                         val add = pr.additions; val del = pr.deletions
                                         if (add != null || del != null) append("  +${add ?: 0}/-${del ?: 0}")
                                         pr.number?.let { append("  #$it") }
@@ -3381,29 +3468,44 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
                     .takeIf { it >= 0 }
                     ?.plus(1)
             }
-            val rankingLabel = if (participantId == null) "Место в рейтинге" else "Место в команде"
+            val rankingLabel = if (participantId == null) {
+                StatsExportCopy.rankingInRating()
+            } else {
+                StatsExportCopy.rankingInTeam()
+            }
 
             base.copy(
                 summaryCards = listOf(
-                    ProjectStatsSummaryCard("Всего строк", totalLines.toString(), "владение кодом"),
+                    ProjectStatsSummaryCard(
+                        StatsExportCopy.totalLines(),
+                        totalLines.toString(),
+                        StatsExportCopy.ownershipCaption(),
+                    ),
                     ProjectStatsSummaryCard(rankingLabel, rank?.toString() ?: "—"),
-                    ProjectStatsSummaryCard("Оценка владения кодом", score?.let(::formatScoreValue) ?: "—"),
+                    ProjectStatsSummaryCard(
+                        StatsExportCopy.ownershipScoreTitle(),
+                        score?.let(::formatScoreValue) ?: "—",
+                    ),
                 ),
                 sections = buildList {
                     add(
                         ProjectStatsSection(
-                            title = "Владение кодом",
-                            subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
+                            title = StatsExportCopy.ownershipSectionTitle(),
+                            subtitle = StatsExportCopy.scoreSubtitle(score?.let(::formatScoreValue) ?: "—"),
                             rows = listOf(
-                                ProjectStatsTableRow("Всего строк", totalLines.toString()),
+                                ProjectStatsTableRow(StatsExportCopy.totalLines(), totalLines.toString()),
                                 ProjectStatsTableRow(rankingLabel, rank?.toString() ?: "—"),
                             ),
                             chart = ownershipRows.takeIf { it.isNotEmpty() }?.let { rows ->
                                 ProjectStatsChart.Donut(
-                                    title = "Распределение владения кодом",
+                                    title = StatsExportCopy.ownershipDistributionTitle(),
                                     segments = rows.map { row ->
                                         ProjectStatsChartSegment(
-                                            label = if (row.isCurrentUser) "${row.name} (Вы)" else row.name,
+                                            label = if (row.isCurrentUser) {
+                                                "${row.name} (${StatsExportCopy.youMarker()})"
+                                            } else {
+                                                row.name
+                                            },
                                             value = row.lines.toDouble(),
                                             colorHint = percentLabel(row.lines, totalLines),
                                         )
@@ -3415,12 +3517,20 @@ private fun ProjectStatsUiModel.toSectionExportPayload(
                     if (ownershipRows.isNotEmpty()) {
                         add(
                             ProjectStatsSection(
-                                title = "Таблица участников",
+                                title = StatsExportCopy.participantsTableTitle(),
                                 rows = ownershipRows.map { row ->
                                     ProjectStatsTableRow(
-                                        label = if (row.isCurrentUser) "${row.name} (Вы)" else row.name,
-                                        value = "${row.changes} изменений",
-                                        note = "+${row.additions}/-${row.deletions}  ${row.lines} строк",
+                                        label = if (row.isCurrentUser) {
+                                            "${row.name} (${StatsExportCopy.youMarker()})"
+                                        } else {
+                                            row.name
+                                        },
+                                        value = StatsExportCopy.changesCount(row.changes),
+                                        note = StatsExportCopy.linesNote(
+                                            row.additions,
+                                            row.deletions,
+                                            row.lines,
+                                        ),
                                     )
                                 }
                             )
@@ -3447,7 +3557,7 @@ private fun buildOwnershipExportRows(details: StatsDetailDataUi): List<Ownership
             participants[authorId] = StatsDetailParticipantUi(
                 id = authorId,
                 name = commit.authorName,
-                subtitle = "Участник",
+                subtitle = StatsExportCopy.participant(),
                 isCurrentUser = authorId == details.defaultParticipantId,
             )
         }
@@ -3494,7 +3604,7 @@ internal fun ProjectStatsMetricSectionUi.toExportSection(): ProjectStatsSection 
     }
     return ProjectStatsSection(
         title = title,
-        subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
+        subtitle = StatsExportCopy.scoreSubtitle(score?.let(::formatScoreValue) ?: "—"),
         rows = buildList {
             add(ProjectStatsTableRow(primaryCaption, primaryValue))
             add(ProjectStatsTableRow(rankCaption, rank?.toString() ?: "—"))
@@ -3509,12 +3619,12 @@ internal fun ProjectStatsMetricSectionUi.toExportSection(): ProjectStatsSection 
 internal fun ProjectStatsIssueSectionUi.toExportSection(): ProjectStatsSection {
     return ProjectStatsSection(
         title = title,
-        subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
+        subtitle = StatsExportCopy.scoreSubtitle(score?.let(::formatScoreValue) ?: "—"),
         rows = buildList {
-            add(ProjectStatsTableRow("Открытых", openIssues.toString()))
-            add(ProjectStatsTableRow("Закрытых", closedIssues.toString()))
-            add(ProjectStatsTableRow("Прогресс", "${(progress * 100).toInt()}%"))
-            add(ProjectStatsTableRow("Рейтинг", rank?.toString() ?: "—"))
+            add(ProjectStatsTableRow(StatsExportCopy.openIssuesRow(), openIssues.toString()))
+            add(ProjectStatsTableRow(StatsExportCopy.closedIssuesRow(), closedIssues.toString()))
+            add(ProjectStatsTableRow(StatsExportCopy.progressRow(), "${(progress * 100).toInt()}%"))
+            add(ProjectStatsTableRow(StatsExportCopy.ratingRow(), rank?.toString() ?: "—"))
             tableRows.forEach { row ->
                 add(ProjectStatsTableRow(row.name, row.value))
             }
@@ -3525,25 +3635,25 @@ internal fun ProjectStatsIssueSectionUi.toExportSection(): ProjectStatsSection {
 internal fun ProjectStatsCodeChurnSectionUi.toExportSection(): ProjectStatsSection {
     return ProjectStatsSection(
         title = title,
-        subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
+        subtitle = StatsExportCopy.scoreSubtitle(score?.let(::formatScoreValue) ?: "—"),
         rows = buildList {
-            add(ProjectStatsTableRow("Изменено файлов", changedFilesCount.toString()))
-            add(ProjectStatsTableRow("Рейтинг", rank?.toString() ?: "—"))
+            add(ProjectStatsTableRow(StatsExportCopy.changedFilesRow(), changedFilesCount.toString()))
+            add(ProjectStatsTableRow(StatsExportCopy.ratingRow(), rank?.toString() ?: "—"))
             if (fileRows.isNotEmpty()) {
-                add(ProjectStatsTableRow("— Измененные файлы —", ""))
+                add(ProjectStatsTableRow(StatsExportCopy.changedFilesHeader(), ""))
                 fileRows.forEach { row ->
                     add(ProjectStatsTableRow(row.fileName, row.value))
                 }
             }
             if (tableRows.isNotEmpty()) {
-                add(ProjectStatsTableRow("— Кол-во изменений по участникам —", ""))
+                add(ProjectStatsTableRow(StatsExportCopy.changesByParticipantHeader(), ""))
                 tableRows.forEach { row ->
                     add(ProjectStatsTableRow(row.name, row.value))
                 }
             }
         },
         chart = if (slices.isNotEmpty()) ProjectStatsChart.Donut(
-            title = "Распределение изменений файлов",
+            title = StatsExportCopy.fileDistributionTitle(),
             segments = slices.map { slice ->
                 ProjectStatsChartSegment(
                     label = slice.label,
@@ -3554,7 +3664,7 @@ internal fun ProjectStatsCodeChurnSectionUi.toExportSection(): ProjectStatsSecti
         ) else null,
         notes = buildList {
             mostChangedFileName?.takeIf { it.isNotBlank() }?.let {
-                add("Самый часто изменяемый файл: $it")
+                add(StatsExportCopy.mostChangedFile(it))
             }
         }
     )
@@ -3563,8 +3673,8 @@ internal fun ProjectStatsCodeChurnSectionUi.toExportSection(): ProjectStatsSecti
 internal fun ProjectStatsOwnershipSectionUi.toExportSection(): ProjectStatsSection {
     return ProjectStatsSection(
         title = title,
-        subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
-        rows = listOf(ProjectStatsTableRow("Рейтинг", rank?.toString() ?: "—")),
+        subtitle = StatsExportCopy.scoreSubtitle(score?.let(::formatScoreValue) ?: "—"),
+        rows = listOf(ProjectStatsTableRow(StatsExportCopy.ratingRow(), rank?.toString() ?: "—")),
         chart = ProjectStatsChart.Donut(
             title = title,
             segments = slices.map { slice ->
@@ -3580,15 +3690,17 @@ internal fun ProjectStatsOwnershipSectionUi.toExportSection(): ProjectStatsSecti
 
 internal fun ProjectStatsWeekDaySectionUi.toExportSection(): ProjectStatsSection {
     val hasActivity = slices.any { it.value > 0f }
-    val dominantLabel = slices.maxByOrNull { it.value }?.label?.takeIf { hasActivity } ?: "НЕТ ДАННЫХ"
-    val leastActiveLabel = slices.minByOrNull { it.value }?.label?.takeIf { hasActivity } ?: "НЕТ ДАННЫХ"
+    val dominantLabel = slices.maxByOrNull { it.value }?.label?.takeIf { hasActivity }
+        ?: StatsExportCopy.noDataUpper()
+    val leastActiveLabel = slices.minByOrNull { it.value }?.label?.takeIf { hasActivity }
+        ?: StatsExportCopy.noDataUpper()
 
     return ProjectStatsSection(
         title = title,
-        subtitle = "Score: ${score?.let(::formatScoreValue) ?: "—"}",
+        subtitle = StatsExportCopy.scoreSubtitle(score?.let(::formatScoreValue) ?: "—"),
         rows = listOf(
-            ProjectStatsTableRow("Самый активный день недели", dominantLabel),
-            ProjectStatsTableRow("Самый неактивный день недели", leastActiveLabel),
+            ProjectStatsTableRow(StatsExportCopy.mostActiveWeekday(), dominantLabel),
+            ProjectStatsTableRow(StatsExportCopy.leastActiveWeekday(), leastActiveLabel),
         ),
         chart = ProjectStatsChart.Donut(
             title = title,

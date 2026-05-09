@@ -42,7 +42,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -69,8 +68,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.settings.localizedString
+import com.spbu.projecttrack.core.storage.createAppPreferences
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.core.theme.appPalette
+import com.spbu.projecttrack.core.theme.subtleBorder
+import com.spbu.projecttrack.core.ui.AppSnackbarHost
+import com.spbu.projecttrack.rating.data.StatsScreenSettingsPersistence
 import com.spbu.projecttrack.rating.data.model.ProjectStatsIssueSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsMetricSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsOwnershipSectionUi
@@ -80,7 +85,6 @@ import com.spbu.projecttrack.rating.presentation.details.StatsDetailScreen
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSection
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsScreen
 import com.spbu.projecttrack.rating.presentation.settings.StatsScreenSettingsTarget
-import com.spbu.projecttrack.rating.presentation.settings.defaultStatsScreenSectionIds
 import com.spbu.projecttrack.rating.presentation.settings.statsScreenSectionsFromIds
 import com.spbu.projecttrack.rating.export.ProjectStatsExportPayload
 import com.spbu.projecttrack.rating.export.ProjectStatsSection
@@ -106,7 +110,7 @@ import com.spbu.projecttrack.rating.presentation.projectstats.StatsBackgroundLog
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsDateRangePickerDialog
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBar
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBarTotalHeight
-import com.spbu.projecttrack.rating.presentation.projectstats.metricScoreTitle
+import com.spbu.projecttrack.rating.common.StatsExportCopy
 import com.spbu.projecttrack.rating.presentation.projectstats.toExportSection
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -127,22 +131,35 @@ fun UserStatsScreen(
     viewModel: UserStatsViewModel,
     onBackClick: () -> Unit,
     onProjectClick: (String) -> Unit,
-    onOverallRatingClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val exporter = rememberProjectStatsExporter()
+    val appPreferences = remember { createAppPreferences() }
     var showSettingsScreen by remember { mutableStateOf(false) }
     var activeDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
     var renderedDetailSection by remember { mutableStateOf<StatsScreenSection?>(null) }
-    var activeSectionIds by rememberSaveable { mutableStateOf(defaultStatsScreenSectionIds()) }
+    var activeSectionIds by rememberSaveable {
+        mutableStateOf(
+            StatsScreenSettingsPersistence.decode(
+                appPreferences.getUserStatsScreenSettingsJson(),
+            )
+        )
+    }
     val activeSections = remember(activeSectionIds) { statsScreenSectionsFromIds(activeSectionIds) }
     val detailTransitionState = remember { MutableTransitionState(false) }
+    val palette = appPalette()
 
     LaunchedEffect(viewModel) {
         viewModel.load()
+    }
+
+    LaunchedEffect(activeSectionIds) {
+        appPreferences.saveUserStatsScreenSettingsJson(
+            StatsScreenSettingsPersistence.encode(activeSectionIds),
+        )
     }
 
     LaunchedEffect(activeDetailSection) {
@@ -169,13 +186,12 @@ fun UserStatsScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = Color.White,
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        containerColor = palette.background,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White)
+                .background(palette.background)
         ) {
             Image(
                 painter = painterResource(Res.drawable.spbu_logo),
@@ -184,7 +200,7 @@ fun UserStatsScreen(
                     .fillMaxSize()
                     .align(Alignment.Center),
                 contentScale = ContentScale.Fit,
-                alpha = 0.05f,
+                alpha = palette.spbuWatermarkLogoAlpha,
             )
 
             when (val state = uiState) {
@@ -193,7 +209,7 @@ fun UserStatsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = AppColors.Color3)
+                        CircularProgressIndicator(color = palette.accent)
                     }
                 }
 
@@ -214,7 +230,6 @@ fun UserStatsScreen(
                         onRepositorySelected = viewModel::selectRepository,
                         onDateRangeSelected = viewModel::selectDateRange,
                         onRapidThresholdChanged = viewModel::updateRapidThreshold,
-                        onOverallRatingClick = onOverallRatingClick,
                         onDetailsClick = { section ->
                             activeDetailSection = section
                         },
@@ -226,8 +241,8 @@ fun UserStatsScreen(
                                 val payload = state.data.toExportPayload()
                                 val result = exporter.exportPdf(payload)
                                 val message = result.getOrNull()?.let { export ->
-                                    "PDF сохранен: ${export.fileName}"
-                                } ?: "Не удалось экспортировать PDF"
+                                    StatsExportCopy.pdfSaved(export.fileName)
+                                } ?: StatsExportCopy.exportPdfFailed()
                                 snackbarHostState.showSnackbar(message)
                             }
                         },
@@ -236,8 +251,8 @@ fun UserStatsScreen(
                                 val payload = state.data.toExportPayload()
                                 val result = exporter.exportExcelCsv(payload)
                                 val message = result.getOrNull()?.let { export ->
-                                    "CSV сохранен: ${export.fileName}"
-                                } ?: "Не удалось экспортировать Excel"
+                                    StatsExportCopy.csvSaved(export.fileName)
+                                } ?: StatsExportCopy.exportExcelFailed()
                                 snackbarHostState.showSnackbar(message)
                             }
                         }
@@ -302,8 +317,8 @@ fun UserStatsScreen(
                                 )
                                 val result = exporter.exportPdf(payload)
                                 val message = result.getOrNull()?.let { export ->
-                                    "PDF сохранен: ${export.fileName}"
-                                } ?: "Не удалось экспортировать PDF"
+                                    StatsExportCopy.pdfSaved(export.fileName)
+                                } ?: StatsExportCopy.exportPdfFailed()
                                 snackbarHostState.showSnackbar(message)
                             }
                         },
@@ -315,14 +330,19 @@ fun UserStatsScreen(
                                 )
                                 val result = exporter.exportExcelCsv(payload)
                                 val message = result.getOrNull()?.let { export ->
-                                    "CSV сохранен: ${export.fileName}"
-                                } ?: "Не удалось экспортировать Excel"
+                                    StatsExportCopy.csvSaved(export.fileName)
+                                } ?: StatsExportCopy.exportExcelFailed()
                                 snackbarHostState.showSnackbar(message)
                             }
                         },
                     )
                 }
             }
+
+            AppSnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }
@@ -336,7 +356,6 @@ private fun UserStatsContent(
     onRepositorySelected: (String) -> Unit,
     onDateRangeSelected: (String, String) -> Unit,
     onRapidThresholdChanged: (Int, Int, Int) -> Unit,
-    onOverallRatingClick: () -> Unit,
     onDetailsClick: (StatsScreenSection) -> Unit,
     onSettingsClick: () -> Unit,
     onExportPdfClick: () -> Unit,
@@ -344,6 +363,7 @@ private fun UserStatsContent(
     modifier: Modifier = Modifier,
 ) {
     var showDateRangePicker by remember { mutableStateOf(false) }
+    val palette = appPalette()
 
     Box(
         modifier = modifier.fillMaxSize()
@@ -358,7 +378,7 @@ private fun UserStatsContent(
                 start = UserStatsHorizontalPadding,
                 end = UserStatsHorizontalPadding,
                 top = StatsTopBarTotalHeight + 8.dp,
-                bottom = if (model.showOverallRatingButton) 108.dp else 40.dp,
+                bottom = 40.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -395,7 +415,7 @@ private fun UserStatsContent(
                 AnimatedSection {
                     SingleMetricCard(
                         value = model.teamRank?.toString() ?: "—",
-                        caption = "место в команде"
+                        caption = localizedString("место в команде", "team rank")
                     )
                 }
             }
@@ -465,7 +485,7 @@ private fun UserStatsContent(
         }
 
         StatsTopBar(
-            title = "Статистика",
+            title = localizedString("Статистика", "Statistics"),
             onBackClick = onBackClick,
             modifier = Modifier.align(Alignment.TopCenter)
         )
@@ -482,33 +502,6 @@ private fun UserStatsContent(
             )
         }
 
-        AnimatedVisibility(
-            visible = model.showOverallRatingButton,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 26.dp),
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 })
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(200.dp)
-                    .clickable(onClick = onOverallRatingClick)
-                    .border(1.dp, AppColors.BorderColor, UserStatsButtonShape)
-                    .background(brush = UserStatsAccentGradient, shape = UserStatsButtonShape)
-            ) {
-                Text(
-                    text = "Общий рейтинг",
-                    fontFamily = AppFonts.OpenSansBold,
-                    fontSize = 16.sp,
-                    color = Color.White,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
-                        .align(Alignment.Center)
-                )
-            }
-        }
     }
 }
 
@@ -518,6 +511,8 @@ private fun PersonalStatsSummary(
     role: String,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -528,7 +523,7 @@ private fun PersonalStatsSummary(
             fontSize = 20.sp,
             lineHeight = 20.sp,
             letterSpacing = 0.2.sp,
-            color = Color.Black,
+            color = palette.primaryText,
             modifier = Modifier.padding(start = 3.dp)
         )
 
@@ -541,7 +536,7 @@ private fun PersonalStatsSummary(
                 text = role,
                 fontFamily = AppFonts.OpenSansLight,
                 fontSize = 16.sp,
-                color = AppColors.Color2
+                color = palette.primaryText
             )
         }
     }
@@ -553,11 +548,13 @@ private fun ProjectLinkCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        color = Color.White,
+        color = palette.surface,
         shape = UserStatsCardShape,
         shadowElevation = 4.dp
     ) {
@@ -573,7 +570,7 @@ private fun ProjectLinkCard(
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
-                color = AppColors.Color2,
+                color = palette.primaryText,
                 modifier = Modifier.weight(1f)
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -581,7 +578,7 @@ private fun ProjectLinkCard(
                 text = "→",
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 24.sp,
-                color = AppColors.Color2
+                color = palette.primaryText
             )
         }
     }
@@ -623,7 +620,7 @@ private fun PersonalMetricSection(
         }
         ScoreCard(
             score = section.score,
-            title = metricScoreTitle(section.title)
+            title = StatsExportCopy.metricScoreTitleForSection(section.title)
         )
     }
 }
@@ -634,6 +631,10 @@ private fun PersonalIssueSection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val openIssuesCaption = localizedString("открытых Issue", "open issues")
+    val closedIssuesCaption = localizedString("закрытых Issue", "closed issues")
+    val rankCaption = localizedString("место в рейтинге", "rank")
+    val issueScoreTitle = localizedString("оценка Issue", "Issue score")
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -645,9 +646,9 @@ private fun PersonalIssueSection(
 
         DoubleMetricRow(
             leftValue = section.openIssues.toString(),
-            leftCaption = "открытых Issue",
+            leftCaption = openIssuesCaption,
             rightValue = section.closedIssues.toString(),
-            rightCaption = "закрытых Issue"
+            rightCaption = closedIssuesCaption
         )
 
         Row(
@@ -662,13 +663,13 @@ private fun PersonalIssueSection(
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = section.rank?.toString() ?: "—",
-                caption = "место в рейтинге"
+                caption = rankCaption
             )
         }
 
         ScoreCard(
             score = section.score,
-            title = "оценка Issue"
+            title = issueScoreTitle
         )
     }
 }
@@ -680,6 +681,8 @@ private fun PersonalRapidPullSection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val rankCaption = localizedString("место в рейтинге", "rank")
+    val rapidScoreTitle = localizedString("оценка быстрых PR", "Rapid PR score")
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -701,13 +704,13 @@ private fun PersonalRapidPullSection(
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = section.rank?.toString() ?: "—",
-                caption = "место в рейтинге"
+                caption = rankCaption
             )
         }
 
         ScoreCard(
             score = section.score,
-            title = "оценка быстрых PR"
+            title = rapidScoreTitle
         )
     }
 }
@@ -718,6 +721,12 @@ private fun PersonalCodeChurnSection(
     onDetailsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val changedFilesCaption = localizedString("изменено файлов", "files changed")
+    val rankCaption = localizedString("место в рейтинге", "rank")
+    val churnScoreTitle = localizedString(
+        "оценка изменчивости кода",
+        "Code churn score",
+    )
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -729,13 +738,13 @@ private fun PersonalCodeChurnSection(
         FileStatsCard(rows = section.fileRows.take(5))
         DoubleMetricRow(
             leftValue = section.changedFilesCount.toString(),
-            leftCaption = "изменено файлов",
+            leftCaption = changedFilesCaption,
             rightValue = section.rank?.toString() ?: "—",
-            rightCaption = "место в рейтинге"
+            rightCaption = rankCaption
         )
         ScoreCard(
             score = section.score,
-            title = "оценка изменчивости кода"
+            title = churnScoreTitle
         )
     }
 }
@@ -748,6 +757,13 @@ private fun PersonalOwnershipSection(
 ) {
     val userLines = section.slices.firstOrNull { it.highlight }?.value?.toInt() ?: 0
     val totalLines = section.slices.sumOf { it.value.toDouble() }.toInt()
+    val yourLinesCaption = localizedString("ваших строк", "your lines")
+    val linesInProjectCaption = localizedString("строк в проекте", "lines in project")
+    val rankCaption = localizedString("место в рейтинге", "rank")
+    val ownershipScoreTitle = localizedString(
+        "оценка владения кодом",
+        "Code ownership score",
+    )
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -759,17 +775,17 @@ private fun PersonalOwnershipSection(
         )
         DoubleMetricRow(
             leftValue = userLines.toString(),
-            leftCaption = "ваших строк",
+            leftCaption = yourLinesCaption,
             rightValue = totalLines.toString(),
-            rightCaption = "строк в проекте"
+            rightCaption = linesInProjectCaption
         )
         SingleMetricCard(
             value = section.rank?.toString() ?: "—",
-            caption = "место в рейтинге"
+            caption = rankCaption
         )
         ScoreCard(
             score = section.score,
-            title = "оценка владения кодом"
+            title = ownershipScoreTitle
         )
     }
 }
@@ -795,12 +811,20 @@ private fun UserStatsUiModel.toExportPayload(): ProjectStatsExportPayload {
         customerName = projectTitle,
         repositoryUrl = selectedRepository?.title,
         periodLabel = "${visibleRange.startLabel} - ${visibleRange.endLabel}",
-        generatedAtLabel = "Сейчас",
+        generatedAtLabel = StatsExportCopy.now(),
         summaryCards = listOf(
-            ProjectStatsSummaryCard("Коммиты", commits.primaryValue, commits.primaryCaption),
-            ProjectStatsSummaryCard("Issue", (issues.openIssues + issues.closedIssues).toString(), "всего"),
+            ProjectStatsSummaryCard(StatsExportCopy.commits(), commits.primaryValue, commits.primaryCaption),
+            ProjectStatsSummaryCard(
+                "Issue",
+                (issues.openIssues + issues.closedIssues).toString(),
+                StatsExportCopy.total(),
+            ),
             ProjectStatsSummaryCard("Pull Requests", pullRequests.primaryValue, pullRequests.primaryCaption),
-            ProjectStatsSummaryCard("Быстрые PR", rapidPullRequests.primaryValue, rapidPullRequests.primaryCaption)
+            ProjectStatsSummaryCard(
+                StatsExportCopy.rapidPrShort(),
+                rapidPullRequests.primaryValue,
+                rapidPullRequests.primaryCaption,
+            ),
         ),
         sections = buildList {
             add(commits.toExportSection())
@@ -826,7 +850,7 @@ private fun UserStatsUiModel.toSectionExportPayload(
         customerName = projectTitle,
         repositoryUrl = selectedRepository?.title,
         periodLabel = "${visibleRange.startLabel} - ${visibleRange.endLabel}",
-        generatedAtLabel = "Сейчас",
+        generatedAtLabel = StatsExportCopy.now(),
     )
 
     return when (section) {
@@ -837,13 +861,13 @@ private fun UserStatsUiModel.toSectionExportPayload(
             val totalDeletions = allCommits.sumOf { it.deletions }
             base.copy(
                 summaryCards = listOf(
-                    ProjectStatsSummaryCard("Коммиты", allCommits.size.toString(), "всего"),
-                    ProjectStatsSummaryCard("Добавлено", "+$totalAdditions", "строк"),
-                    ProjectStatsSummaryCard("Удалено", "-$totalDeletions", "строк"),
+                    ProjectStatsSummaryCard(StatsExportCopy.commits(), allCommits.size.toString(), StatsExportCopy.total()),
+                    ProjectStatsSummaryCard(StatsExportCopy.added(), "+$totalAdditions", StatsExportCopy.lines()),
+                    ProjectStatsSummaryCard(StatsExportCopy.removed(), "-$totalDeletions", StatsExportCopy.lines()),
                 ),
                 sections = listOf(
                     ProjectStatsSection(
-                        title = "Список коммитов",
+                        title = StatsExportCopy.commitListTitle(),
                         rows = allCommits
                             .sortedByDescending { it.committedAtIso }
                             .map { commit ->
@@ -854,7 +878,7 @@ private fun UserStatsUiModel.toSectionExportPayload(
                                         append(commit.authorName)
                                         append("  +${commit.additions}/-${commit.deletions}")
                                         if (commit.files.isNotEmpty()) {
-                                            append("  ${commit.files.size} файлов")
+                                            append("  ${StatsExportCopy.filesCount(commit.files.size)}")
                                         }
                                         commit.sha?.take(7)?.let { append("  [$it]") }
                                     }
@@ -871,13 +895,13 @@ private fun UserStatsUiModel.toSectionExportPayload(
             val closedCount = allIssues.size - openCount
             base.copy(
                 summaryCards = listOf(
-                    ProjectStatsSummaryCard("Issue", allIssues.size.toString(), "всего"),
-                    ProjectStatsSummaryCard("Открытых", openCount.toString(), ""),
-                    ProjectStatsSummaryCard("Закрытых", closedCount.toString(), ""),
+                    ProjectStatsSummaryCard("Issue", allIssues.size.toString(), StatsExportCopy.total()),
+                    ProjectStatsSummaryCard(StatsExportCopy.openIssuesShort(), openCount.toString(), ""),
+                    ProjectStatsSummaryCard(StatsExportCopy.closedIssuesShort(), closedCount.toString(), ""),
                 ),
                 sections = listOf(
                     ProjectStatsSection(
-                        title = "Список Issues",
+                        title = StatsExportCopy.issueListTitle(),
                         rows = allIssues
                             .sortedByDescending { it.createdAtIso }
                             .map { issue ->
@@ -886,8 +910,10 @@ private fun UserStatsUiModel.toSectionExportPayload(
                                     value = issue.state?.uppercase() ?: "—",
                                     note = buildString {
                                         append(issue.creatorName)
-                                        append("  Создано: ${issue.createdAtLabel}")
-                                        issue.closedAtLabel?.let { append("  Закрыто: $it") }
+                                        append("  ${StatsExportCopy.createdField()} ${issue.createdAtLabel}")
+                                        issue.closedAtLabel?.let {
+                                            append("  ${StatsExportCopy.closedField()} $it")
+                                        }
                                         issue.number?.let { append("  #$it") }
                                     }
                                 )
@@ -904,13 +930,13 @@ private fun UserStatsUiModel.toSectionExportPayload(
             val closedCount = allPRs.size - openCount
             base.copy(
                 summaryCards = listOf(
-                    ProjectStatsSummaryCard("Pull Requests", allPRs.size.toString(), "всего"),
-                    ProjectStatsSummaryCard("Открытых", openCount.toString(), ""),
-                    ProjectStatsSummaryCard("Закрытых", closedCount.toString(), ""),
+                    ProjectStatsSummaryCard("Pull Requests", allPRs.size.toString(), StatsExportCopy.total()),
+                    ProjectStatsSummaryCard(StatsExportCopy.openIssuesShort(), openCount.toString(), ""),
+                    ProjectStatsSummaryCard(StatsExportCopy.closedIssuesShort(), closedCount.toString(), ""),
                 ),
                 sections = listOf(
                     ProjectStatsSection(
-                        title = "Список Pull Requests",
+                        title = StatsExportCopy.prListTitle(),
                         rows = allPRs
                             .sortedByDescending { it.createdAtIso }
                             .map { pr ->
@@ -919,8 +945,10 @@ private fun UserStatsUiModel.toSectionExportPayload(
                                     value = pr.state?.uppercase() ?: "—",
                                     note = buildString {
                                         append(pr.authorName)
-                                        append("  Создано: ${pr.createdAtLabel}")
-                                        pr.closedAtLabel?.let { append("  Закрыто: $it") }
+                                        append("  ${StatsExportCopy.createdField()} ${pr.createdAtLabel}")
+                                        pr.closedAtLabel?.let {
+                                            append("  ${StatsExportCopy.closedField()} $it")
+                                        }
                                         val add = pr.additions; val del = pr.deletions
                                         if (add != null || del != null) {
                                             append("  +${add ?: 0}/-${del ?: 0}")

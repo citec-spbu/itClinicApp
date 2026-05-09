@@ -49,8 +49,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.settings.localizedString
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.core.theme.appPalette
 import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.presentation.models.ProjectFilters
@@ -84,6 +87,8 @@ fun FiltersAlert(
     onFiltersChange: (ProjectFilters) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val enrollmentTitle = localizedString("Срок записи на проект", "Enrollment period")
+    val projectDurationTitle = localizedString("Срок реализации", "Project duration")
     var showTagsMenu by remember { mutableStateOf(false) }
     var showEnrollmentCalendar by remember { mutableStateOf(false) }
     var showProjectCalendar by remember { mutableStateOf(false) }
@@ -112,7 +117,7 @@ fun FiltersAlert(
                 contentDescription = null,
                 modifier = Modifier
                     .matchParentSize()
-                    .alpha(1.0f),
+                    .alpha(appPalette().spbuBackdropLogoAlpha),
                 alignment = Alignment.Center,
                 contentScale = ContentScale.FillWidth
             )
@@ -135,7 +140,7 @@ fun FiltersAlert(
             )
 
             FilterDateSection(
-                title = "Срок записи на проект",
+                title = enrollmentTitle,
                 startDate = filters.enrollmentStartDate,
                 endDate = filters.enrollmentEndDate,
                 onClear = {
@@ -150,7 +155,7 @@ fun FiltersAlert(
             )
 
             FilterDateSection(
-                title = "Срок реализации",
+                title = projectDurationTitle,
                 startDate = filters.projectStartDate,
                 endDate = filters.projectEndDate,
                 onClear = {
@@ -215,9 +220,12 @@ fun FiltersAlert(
 private fun FiltersAlertHeader(
     onClose: () -> Unit
 ) {
+    val filtersTitle = localizedString("Фильтры", "Filters")
+    val closeLabel = localizedString("Закрыть", "Close")
+
     Box(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = "Фильтры",
+            text = filtersTitle,
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 24.sp,
             color = AppColors.Color2,
@@ -234,7 +242,7 @@ private fun FiltersAlertHeader(
 
         Image(
             painter = painterResource(Res.drawable.close_icon),
-            contentDescription = "Закрыть",
+            contentDescription = closeLabel,
             modifier = Modifier
                 .size(24.dp)
                 .scale(scale)
@@ -256,6 +264,7 @@ private fun TagsFilterSection(
     onExpandedChange: (Boolean) -> Unit,
     onTagsChange: (Set<String>) -> Unit
 ) {
+    val tagsTitle = localizedString("Теги", "Tags")
     val tagNameById = remember(tags) { tags.associate { it.id.toString() to it.name } }
     val selectedNames = remember(selectedTags, tagNameById) {
         selectedTags.mapNotNull(tagNameById::get)
@@ -263,7 +272,7 @@ private fun TagsFilterSection(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterSectionHeader(
-            title = "Теги",
+            title = tagsTitle,
             showClear = selectedTags.isNotEmpty(),
             onClear = { onTagsChange(emptySet()) }
         )
@@ -360,6 +369,7 @@ private fun TagSelectionField(
     expanded: Boolean,
     onClick: () -> Unit
 ) {
+    val selectTagsLabel = localizedString("Выберите теги", "Choose tags")
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -393,7 +403,7 @@ private fun TagSelectionField(
     ) {
         Text(
             text = when {
-                selectedNames.isEmpty() -> "Выберите теги"
+                selectedNames.isEmpty() -> selectTagsLabel
                 selectedNames.size == 1 -> selectedNames.first()
                 else -> selectedNames.joinToString(", ")
             },
@@ -446,6 +456,7 @@ private fun FilterSectionHeader(
     showClear: Boolean,
     onClear: () -> Unit
 ) {
+    val clearLabel = localizedString("Очистить", "Clear")
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -461,7 +472,7 @@ private fun FilterSectionHeader(
         if (showClear) {
             FilterActionChip(
                 modifier = Modifier.align(Alignment.CenterVertically),
-                text = "Очистить",
+                text = clearLabel,
                 shape = FiltersActionChipShape,
                 textSize = 10.sp,
                 horizontalPadding = 6.dp,
@@ -478,6 +489,7 @@ private fun DateRangeField(
     endDate: String?,
     onClick: () -> Unit
 ) {
+    val calendarLabel = localizedString("Календарь", "Calendar")
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -522,7 +534,7 @@ private fun DateRangeField(
 
         Image(
             painter = painterResource(Res.drawable.calendar_icon),
-            contentDescription = "Календарь",
+            contentDescription = calendarLabel,
             modifier = Modifier.size(20.dp)
         )
     }
@@ -534,7 +546,7 @@ private fun ClearAllButton(
 ) {
     FilterActionChip(
         modifier = Modifier.height(30.dp),
-        text = "Очистить все",
+        text = localizedString("Очистить все", "Clear all"),
         shape = FiltersClearAllShape,
         textSize = 15.sp,
         horizontalPadding = 15.dp,
@@ -612,10 +624,13 @@ private fun formatFilterDateRangeDisplay(
     val formattedStart = formatIsoDateForDisplay(startDate)
     val formattedEnd = formatIsoDateForDisplay(endDate)
     return when {
-        formattedStart != null && formattedEnd != null -> "с $formattedStart по $formattedEnd"
-        formattedStart != null -> "с $formattedStart"
-        formattedEnd != null -> "до $formattedEnd"
-        else -> "с 00.00.0000 по 31.12.3000"
+        formattedStart != null && formattedEnd != null -> localizeRuntime(
+            "с $formattedStart по $formattedEnd",
+            "from $formattedStart to $formattedEnd",
+        )
+        formattedStart != null -> localizeRuntime("с $formattedStart", "from $formattedStart")
+        formattedEnd != null -> localizeRuntime("до $formattedEnd", "until $formattedEnd")
+        else -> localizeRuntime("с 00.00.0000 по 31.12.3000", "from 00.00.0000 to 31.12.3000")
     }
 }
 

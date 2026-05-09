@@ -38,8 +38,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spbu.projecttrack.core.logging.AppLog
+import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.core.theme.appPalette
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.close_icon
@@ -55,6 +57,15 @@ fun SuggestProjectAlert(
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     val logTag = "SuggestProjectAlert"
+    val customersTitle = localizedString("Заказчикам", "For customers")
+    val closeLabel = localizedString("Закрыть", "Close")
+    val descriptionText = localizedString(
+        "Если у Вас есть запрос на сотрудничество и создание проекта, заполните онлайн-заявку. Наш представитель свяжется с вами в ближайшее время",
+        "If you have a collaboration request and want to start a project, fill out the online form. Our representative will contact you soon.",
+    )
+    val namePlaceholder = localizedString("Имя", "Name")
+    val emailPlaceholder = localizedString("Почта", "Email")
+    val sendLabel = localizedString("Отправить", "Send")
 
     LaunchedEffect(isVisible) {
         if (isVisible) {
@@ -86,7 +97,7 @@ fun SuggestProjectAlert(
                 contentDescription = null,
                 modifier = Modifier
                     .matchParentSize()
-                    .alpha(1.0f),
+                    .alpha(appPalette().spbuBackdropLogoAlpha),
                 alignment = Alignment.Center,
                 contentScale = ContentScale.FillWidth
             )
@@ -98,7 +109,7 @@ fun SuggestProjectAlert(
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Заказчикам",
+                    text = customersTitle,
                     fontFamily = AppFonts.OpenSansBold,
                     fontSize = 24.sp,
                     color = AppColors.Color2,
@@ -115,7 +126,7 @@ fun SuggestProjectAlert(
 
                 Image(
                     painter = painterResource(Res.drawable.close_icon),
-                    contentDescription = "Закрыть",
+                    contentDescription = closeLabel,
                     modifier = Modifier
                         .size(24.dp)
                         .scale(closeScale)
@@ -131,7 +142,7 @@ fun SuggestProjectAlert(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "Если у Вас есть запрос на сотрудничество и создание проекта, заполните онлайн-заявку. Наш представитель свяжется с вами в ближайшее время",
+                text = descriptionText,
                 fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 12.sp,
                 lineHeight = 13.sp,
@@ -144,7 +155,7 @@ fun SuggestProjectAlert(
             CenteredTextField(
                 value = name,
                 onValueChange = { name = it },
-                placeholder = "Имя"
+                placeholder = namePlaceholder
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -152,7 +163,7 @@ fun SuggestProjectAlert(
             CenteredTextField(
                 value = email,
                 onValueChange = { email = it },
-                placeholder = "Почта"
+                placeholder = emailPlaceholder
             )
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -196,7 +207,7 @@ fun SuggestProjectAlert(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Отправить",
+                    text = sendLabel,
                     fontFamily = AppFonts.OpenSansSemiBold,
                     fontSize = 12.sp,
                     color = AppColors.White

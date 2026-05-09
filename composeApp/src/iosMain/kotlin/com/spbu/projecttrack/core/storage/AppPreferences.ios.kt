@@ -82,6 +82,22 @@ class AppPreferencesImpl : AppPreferences {
     override fun saveRankingFilterTemplatesJson(json: String) {
         userDefaults.setObject(json, KEY_RANKING_FILTER_TEMPLATES)
     }
+
+    override fun getProjectStatsScreenSettingsJson(): String? {
+        return userDefaults.stringForKey(KEY_PROJECT_STATS_SCREEN_SETTINGS)
+    }
+
+    override fun saveProjectStatsScreenSettingsJson(json: String) {
+        userDefaults.setObject(json, KEY_PROJECT_STATS_SCREEN_SETTINGS)
+    }
+
+    override fun getUserStatsScreenSettingsJson(): String? {
+        return userDefaults.stringForKey(KEY_USER_STATS_SCREEN_SETTINGS)
+    }
+
+    override fun saveUserStatsScreenSettingsJson(json: String) {
+        userDefaults.setObject(json, KEY_USER_STATS_SCREEN_SETTINGS)
+    }
     
     companion object {
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
@@ -92,6 +108,8 @@ class AppPreferencesImpl : AppPreferences {
         private const val KEY_APP_THEME_MODE = "app_theme_mode"
         private const val KEY_PROJECT_STATUS_NOTIFICATIONS = "project_status_notifications"
         private const val KEY_RANKING_FILTER_TEMPLATES = "ranking_filter_templates_json"
+        private const val KEY_PROJECT_STATS_SCREEN_SETTINGS = "project_stats_screen_settings_json"
+        private const val KEY_USER_STATS_SCREEN_SETTINGS = "user_stats_screen_settings_json"
     }
 }
 

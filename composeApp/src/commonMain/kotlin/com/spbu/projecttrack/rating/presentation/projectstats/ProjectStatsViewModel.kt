@@ -2,6 +2,7 @@ package com.spbu.projecttrack.rating.presentation.projectstats
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spbu.projecttrack.core.network.toShortMessage
 import com.spbu.projecttrack.rating.data.model.ProjectStatsUiModel
 import com.spbu.projecttrack.rating.data.repository.ProjectStatsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -120,7 +121,10 @@ class ProjectStatsViewModel(
             }.onFailure { error ->
                 if (!preservePreviousSuccessOnFailure || _uiState.value !is ProjectStatsUiState.Success) {
                     _uiState.value = ProjectStatsUiState.Error(
-                        error.message ?: "Не удалось загрузить статистику проекта"
+                        error.toShortMessage(
+                            "Ошибка загрузки",
+                            "Loading error",
+                        ),
                     )
                 }
             }

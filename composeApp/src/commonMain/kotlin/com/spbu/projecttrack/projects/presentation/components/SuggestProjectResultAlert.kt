@@ -29,8 +29,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.core.theme.appPalette
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.spbu_logo
@@ -43,6 +45,7 @@ fun SuggestProjectResultAlert(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val okLabel = localizedString("Ок", "OK")
     ProjectOverlayDialog(
         isVisible = isVisible,
         onDismiss = onDismiss,
@@ -58,7 +61,7 @@ fun SuggestProjectResultAlert(
                 contentDescription = null,
                 modifier = Modifier
                     .matchParentSize()
-                    .alpha(1.0f),
+                    .alpha(appPalette().spbuBackdropLogoAlpha),
                 alignment = Alignment.Center,
                 contentScale = ContentScale.FillWidth
             )
@@ -122,7 +125,7 @@ fun SuggestProjectResultAlert(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Ок",
+                    text = okLabel,
                     fontFamily = AppFonts.OpenSansSemiBold,
                     fontSize = 12.sp,
                     color = AppColors.White

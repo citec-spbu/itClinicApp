@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,19 +31,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spbu.projecttrack.core.platform.appVersionName
 import com.spbu.projecttrack.core.settings.LocalAppStrings
+import com.spbu.projecttrack.core.theme.appPalette
+import com.spbu.projecttrack.core.theme.dimText
+import com.spbu.projecttrack.core.theme.subtleBorder
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.*
 import projecttrack.composeapp.generated.resources.Res
 
-// Кастомные цвета из дизайна
-private val AppTitleColor = Color(0xFF9F2D20)
-private val ButtonBackgroundColor = Color(0xFFA8ADB4)
-private val ButtonBorderColor = Color(0xFFD0D5DC)
-private val ButtonTextColor = Color(0xFF000000)
-private val ContinueTextColor = Color(0xFFBDBDBD)
-private val WhiteBackground = Color(0xFFFFFFFF)
-private val ContinueTextPressedColor = Color(0xFF8D8D8D)
 private val GitHubButtonWidth = 261.dp
 private val GitHubButtonHeight = 55.dp
 private val GitHubButtonShape = RoundedCornerShape(25.dp)
@@ -55,6 +51,7 @@ fun OnboardingScreen(
     modifier: Modifier = Modifier
 ) {
     val strings = LocalAppStrings.current
+    val palette = appPalette()
     // Загрузка шрифтов
     val philosopherBold = FontFamily(Font(Res.font.philosopher_bold, FontWeight.Bold))
     val openSansBold = FontFamily(Font(Res.font.opensans_bold, FontWeight.Bold))
@@ -62,7 +59,7 @@ fun OnboardingScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(WhiteBackground), // Белый фон на весь экран включая статус-бар
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
         // Добавляем отступ для статус-бара на контент
@@ -73,13 +70,13 @@ fun OnboardingScreen(
             contentAlignment = Alignment.Center
         ) {
 
-        // Герб СПбГУ с прозрачностью 50%
+        // Герб СПбГУ: в тёмной теме — 50% непрозрачности (см. SettingsPalette.spbuBackdropLogoAlpha).
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
-            contentDescription = "SPbU Logo",
+            contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
-                .alpha(1.0f),
+                .alpha(palette.spbuBackdropLogoAlpha),
             contentScale = ContentScale.Fit
         )
 
@@ -94,10 +91,10 @@ fun OnboardingScreen(
             Spacer(modifier = Modifier.height(80.dp))
 
             Text(
-                text = getLocalizedAppName(),
+                text = strings.appDisplayName,
                 fontFamily = philosopherBold,
                 fontSize = 40.sp,
-                color = AppTitleColor,
+                color = palette.title,
                 textAlign = TextAlign.Center
             )
 
@@ -125,7 +122,7 @@ fun OnboardingScreen(
                     text = version,
                     fontFamily = openSansBold,
                     fontSize = 11.sp,
-                    color = ContinueTextColor,
+                    color = palette.dimText,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
@@ -141,8 +138,13 @@ private fun GitHubLoginButton(
     textFontFamily: FontFamily,
     onClick: () -> Unit,
 ) {
+    val palette = appPalette()
+    val surface = MaterialTheme.colorScheme.surface
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val buttonBackgroundColor = Color(0xFFA8ADB4)
+    val buttonBorderColor = Color(0xFFD0D5DC)
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.972f else 1f,
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 780f),
@@ -154,12 +156,12 @@ private fun GitHubLoginButton(
         label = "onboarding_github_button_shadow_alpha",
     )
     val backgroundColor by animateColorAsState(
-        targetValue = if (isPressed) Color(0xFFB0B5BC) else ButtonBackgroundColor,
+        targetValue = if (isPressed) Color(0xFFB0B5BC) else buttonBackgroundColor,
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f),
         label = "onboarding_github_button_background",
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isPressed) Color(0xFFE2E5EA) else ButtonBorderColor,
+        targetValue = if (isPressed) Color(0xFFE2E5EA) else buttonBorderColor,
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f),
         label = "onboarding_github_button_border",
     )
@@ -200,7 +202,7 @@ private fun GitHubLoginButton(
         ) {
             Image(
                 painter = painterResource(Res.drawable.github_logo),
-                contentDescription = "GitHub Logo",
+                contentDescription = null,
                 modifier = Modifier.size(36.dp),
             )
 
@@ -210,7 +212,7 @@ private fun GitHubLoginButton(
                 text = text,
                 fontFamily = textFontFamily,
                 fontSize = 20.sp,
-                color = ButtonTextColor,
+                color = palette.primaryText,
                 maxLines = 1,
             )
         }
@@ -223,6 +225,7 @@ private fun ContinueWithoutAuthButton(
     textFontFamily: FontFamily,
     onClick: () -> Unit,
 ) {
+    val palette = appPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -236,7 +239,7 @@ private fun ContinueWithoutAuthButton(
         label = "onboarding_continue_button_alpha",
     )
     val color by animateColorAsState(
-        targetValue = if (isPressed) ContinueTextPressedColor else ContinueTextColor,
+        targetValue = if (isPressed) palette.secondaryText else palette.dimText,
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 680f),
         label = "onboarding_continue_button_color",
     )
@@ -264,12 +267,3 @@ private fun ContinueWithoutAuthButton(
     }
 }
 
-// Функции локализации
-@Composable
-expect fun getLocalizedAppName(): String
-
-@Composable
-expect fun getLocalizedAuthText(): String
-
-@Composable
-expect fun getLocalizedContinueText(): String

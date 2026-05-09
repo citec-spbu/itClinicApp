@@ -21,6 +21,14 @@ interface AppPreferences {
     /** JSON: templates list + selectedTemplateId (ranking filters screen). */
     fun getRankingFilterTemplatesJson(): String?
     fun saveRankingFilterTemplatesJson(json: String)
+
+    /** JSON: active section ids for project statistics screen settings. */
+    fun getProjectStatsScreenSettingsJson(): String?
+    fun saveProjectStatsScreenSettingsJson(json: String)
+
+    /** JSON: active section ids for personal statistics screen settings. */
+    fun getUserStatsScreenSettingsJson(): String?
+    fun saveUserStatsScreenSettingsJson(json: String)
 }
 
 // Factory function для создания платформо-специфичной реализации

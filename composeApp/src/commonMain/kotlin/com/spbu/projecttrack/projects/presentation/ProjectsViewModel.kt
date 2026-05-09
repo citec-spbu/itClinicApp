@@ -2,6 +2,7 @@ package com.spbu.projecttrack.projects.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spbu.projecttrack.core.network.toShortMessage
 import com.spbu.projecttrack.projects.data.model.Project
 import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.data.repository.ProjectsRepository
@@ -50,7 +51,10 @@ class ProjectsViewModel(
                 }
                 .onFailure { error ->
                     _uiState.value = ProjectsUiState.Error(
-                        message = error.message ?: "Unknown error occurred"
+                        message = error.toShortMessage(
+                            "Ошибка загрузки",
+                            "Loading error",
+                        )
                     )
                 }
         }
@@ -93,4 +97,3 @@ class ProjectsViewModel(
         loadProjects()
     }
 }
-

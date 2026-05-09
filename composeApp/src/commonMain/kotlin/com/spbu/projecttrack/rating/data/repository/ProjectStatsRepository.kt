@@ -1,5 +1,7 @@
 package com.spbu.projecttrack.rating.data.repository
 
+import com.spbu.projecttrack.core.settings.localizePluralRuntime
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.time.PlatformTime
 import com.spbu.projecttrack.projects.data.api.ProjectsApi
 import com.spbu.projecttrack.projects.data.model.Member
@@ -249,16 +251,16 @@ class ProjectStatsRepository(
     ): ProjectStatsMetricSectionUi {
         val rank = buildRank(snapshot.commitsScore, peerSnapshots.map { it.commitsScore })
         return ProjectStatsMetricSectionUi(
-            title = "Коммиты",
+            title = localizeRuntime("Коммиты", "Commits"),
             score = snapshot.commitsScore,
             primaryValue = snapshot.commitCount.toString(),
-            primaryCaption = pluralize(snapshot.commitCount, "коммит", "коммита", "коммитов"),
+            primaryCaption = commitsLabel(snapshot.commitCount),
             rank = rank,
-            rankCaption = "место в рейтинге",
-            chartTitle = "График коммитов",
+            rankCaption = localizeRuntime("место в рейтинге", "rank"),
+            chartTitle = localizeRuntime("График коммитов", "Commits chart"),
             chartType = ProjectStatsChartType.Bars,
             chartPoints = snapshot.commitChart,
-            tableTitle = "Количество коммитов",
+            tableTitle = localizeRuntime("Количество коммитов", "Commit count"),
             tableRows = snapshot.commitContributors.map {
                 ProjectStatsMetricRowUi(
                     name = it.name,
@@ -266,7 +268,7 @@ class ProjectStatsRepository(
                     highlight = it.isCurrentUser,
                 )
             },
-            tooltipTitle = "${snapshot.commitCount} коммитов",
+            tooltipTitle = "${snapshot.commitCount} ${commitsLabel(snapshot.commitCount)}",
         )
     }
 
@@ -288,11 +290,14 @@ class ProjectStatsRepository(
             closedIssues = snapshot.closedIssueCount,
             progress = progress.coerceIn(0f, 1f),
             remainingText = if (snapshot.issueCount == 0) {
-                "Подробной информации по Issue нет"
+                localizeRuntime("Подробной информации по Issue нет", "Detailed issue data is unavailable")
             } else if (snapshot.openIssueCount > 0) {
-                "Закройте еще ${snapshot.openIssueCount} Issue"
+                localizeRuntime(
+                    "Закройте еще ${snapshot.openIssueCount} Issue",
+                    "Close ${snapshot.openIssueCount} more issues",
+                )
             } else {
-                "Все Issue закрыты"
+                localizeRuntime("Все Issue закрыты", "All issues are closed")
             },
             rank = rank,
             tableRows = snapshot.issueContributors.map {
@@ -314,17 +319,20 @@ class ProjectStatsRepository(
             title = "Pull Requests",
             score = snapshot.pullRequestScore,
             primaryValue = snapshot.pullRequestCount.toString(),
-            primaryCaption = "всего Pull Request",
+            primaryCaption = localizeRuntime("всего Pull Request", "total PRs"),
             supplementaryValue = formatAveragePullRequestLifetime(
                 pullRequests = snapshot.pullRequests,
             ),
-            supplementaryCaption = "среднее время жизни Pull Request",
+            supplementaryCaption = localizeRuntime(
+                "среднее время жизни Pull Request",
+                "average PR lifetime",
+            ),
             rank = rank,
-            rankCaption = "место в рейтинге",
-            chartTitle = "График Pull Requests",
+            rankCaption = localizeRuntime("место в рейтинге", "rank"),
+            chartTitle = localizeRuntime("График Pull Requests", "Pull requests chart"),
             chartType = ProjectStatsChartType.Line,
             chartPoints = snapshot.pullRequestChart,
-            tableTitle = "Количество Pull Request",
+            tableTitle = localizeRuntime("Количество Pull Request", "Pull request count"),
             tableRows = snapshot.pullRequestContributors.map {
                 ProjectStatsMetricRowUi(
                     name = it.name,
@@ -342,16 +350,16 @@ class ProjectStatsRepository(
     ): ProjectStatsMetricSectionUi {
         val rank = buildRank(currentSnapshot.rapidPullScore, peerSnapshots.map { it.rapidPullScore })
         return ProjectStatsMetricSectionUi(
-            title = "Быстрые Pull Requests",
+            title = localizeRuntime("Быстрые Pull Requests", "Rapid Pull Requests"),
             score = currentSnapshot.rapidPullScore,
             primaryValue = currentSnapshot.rapidPullRequestCount.toString(),
-            primaryCaption = "быстрых PR",
+            primaryCaption = localizeRuntime("быстрых PR", "rapid PRs"),
             rank = rank,
-            rankCaption = "место в рейтинге",
-            chartTitle = "График быстрых PR",
+            rankCaption = localizeRuntime("место в рейтинге", "rank"),
+            chartTitle = localizeRuntime("График быстрых PR", "Rapid PR chart"),
             chartType = ProjectStatsChartType.Bars,
             chartPoints = currentSnapshot.rapidPullRequestChart,
-            tableTitle = "Количество быстрых Pull Request",
+            tableTitle = localizeRuntime("Количество быстрых Pull Request", "Rapid pull request count"),
             tableRows = currentSnapshot.pullRequestContributors.map {
                 ProjectStatsMetricRowUi(
                     name = it.name,
@@ -359,7 +367,7 @@ class ProjectStatsRepository(
                     highlight = it.isCurrentUser,
                 )
             },
-            tooltipTitle = "${currentSnapshot.rapidPullRequestCount} быстрых PR",
+            tooltipTitle = "${currentSnapshot.rapidPullRequestCount} ${localizeRuntime("быстрых PR", "rapid PRs")}",
         )
     }
 
@@ -371,7 +379,7 @@ class ProjectStatsRepository(
         val fileStats = snapshot.fileStats
         val churnSlices = buildFileChurnSlices(fileStats)
         return ProjectStatsCodeChurnSectionUi(
-            title = "Изменчивость кода",
+            title = localizeRuntime("Изменчивость кода", "Code churn"),
             score = snapshot.codeChurnScore,
             changedFilesCount = fileStats.size,
             rank = rank,
@@ -399,7 +407,7 @@ class ProjectStatsRepository(
     ): ProjectStatsOwnershipSectionUi {
         val rank = buildRank(snapshot.codeOwnershipScore, peerSnapshots.map { it.codeOwnershipScore })
         return ProjectStatsOwnershipSectionUi(
-            title = "Владение кодом",
+            title = localizeRuntime("Владение кодом", "Code ownership"),
             score = snapshot.codeOwnershipScore,
             rank = rank,
             slices = snapshot.codeOwnershipContributors.mapIndexed { index, item ->
@@ -421,14 +429,16 @@ class ProjectStatsRepository(
     ): ProjectStatsWeekDaySectionUi {
         val rank = buildRank(snapshot.weekDayScore, peerSnapshots.map { it.weekDayScore })
         return ProjectStatsWeekDaySectionUi(
-            title = "Доминирующий день недели",
+            title = localizeRuntime("Доминирующий день недели", "Dominant weekday"),
             score = snapshot.weekDayScore,
-            headline = snapshot.dominantWeekdayLabel?.uppercase() ?: "НЕТ ДАННЫХ",
-            subtitle = snapshot.dominantWeekdayLabel?.let { "самый активный день недели" } ?: "нет данных",
+            headline = snapshot.dominantWeekdayLabel?.uppercase() ?: localizeRuntime("НЕТ ДАННЫХ", "NO DATA"),
+            subtitle = snapshot.dominantWeekdayLabel?.let {
+                localizeRuntime("самый активный день недели", "most active day of the week")
+            } ?: localizeRuntime("нет данных", "no data"),
             slices = snapshot.weekdays.mapIndexed { index, day ->
                 ProjectStatsDonutSliceUi(
                     label = day.label,
-                    secondaryLabel = "${day.value} ${pluralize(day.value, "действие", "действия", "действий")}",
+                    secondaryLabel = "${day.value} ${actionsLabel(day.value)}",
                     percentLabel = percentLabel(day.value, snapshot.weekdayTotal),
                     value = day.value.toFloat(),
                     colorHex = weekdayPalette[index % weekdayPalette.size],
@@ -502,7 +512,7 @@ class ProjectStatsRepository(
         val commitChart = buildChartPoints(
             dates = commits.mapNotNull { parseInstant(it.commit?.author?.date) },
             hintFormatter = { count ->
-                "$count ${pluralize(count, "коммит", "коммита", "коммитов")}"
+                "$count ${commitsLabel(count)}"
             },
         )
         val pullRequestChart = buildChartPoints(
@@ -511,7 +521,7 @@ class ProjectStatsRepository(
         )
         val rapidPullRequestChart = buildChartPoints(
             dates = rapidPullRequests.mapNotNull { pullRequestCompletedAtIso(it)?.let(::parseInstant) },
-            hintFormatter = { count -> "$count быстрых PR" },
+            hintFormatter = { count -> "$count ${localizeRuntime("быстрых PR", "rapid PRs")}" },
         )
 
         val contributorNameResolver = { login: String ->
@@ -714,7 +724,7 @@ class ProjectStatsRepository(
             participants[participantId] = StatsDetailParticipantUi(
                 id = participantId,
                 name = name,
-                subtitle = "Участник",
+                subtitle = participantLabel(),
             )
         }
 
@@ -743,7 +753,7 @@ class ProjectStatsRepository(
         userNameLookup: Map<String, String>,
     ): String {
         val normalized = normalizeLogin(login)
-        return normalized?.let { userNameLookup[it] } ?: login?.trim().orEmpty().ifBlank { "Участник" }
+        return normalized?.let { userNameLookup[it] } ?: login?.trim().orEmpty().ifBlank { participantLabel() }
     }
 
     private fun buildContributors(
@@ -987,7 +997,7 @@ class ProjectStatsRepository(
                     login = login,
                     name = displayNameResolver(login),
                     value = value,
-                    displayValue = "$value строк",
+                    displayValue = "$value ${linesLabel(value)}",
                     isCurrentUser = currentUserLogin?.equals(login, ignoreCase = true) == true,
                 )
             }
@@ -1020,13 +1030,13 @@ class ProjectStatsRepository(
         pullRequests: List<ProjectPullRequestSnapshot>,
     ): List<ProjectWeekdayStat> {
         val labels = listOf(
-            "Понедельник",
-            "Вторник",
-            "Среда",
-            "Четверг",
-            "Пятница",
-            "Суббота",
-            "Воскресенье",
+            weekdayName("monday"),
+            weekdayName("tuesday"),
+            weekdayName("wednesday"),
+            weekdayName("thursday"),
+            weekdayName("friday"),
+            weekdayName("saturday"),
+            weekdayName("sunday"),
         )
         val counts = linkedMapOf<String, Int>().apply {
             labels.forEach { put(it, 0) }
@@ -1120,7 +1130,7 @@ class ProjectStatsRepository(
                 }?.id,
                 login = metricUser.githubLogin(),
                 name = metricUser.name.trim(),
-                role = metricUser.roles.joinToString(", ").trim().ifBlank { "Участник" },
+                role = metricUser.roles.joinToString(", ").trim().ifBlank { participantLabel() },
                 isCurrentUser = isCurrentUser(
                     displayName = metricUser.name,
                     currentUserName = currentUserName,
@@ -1176,7 +1186,10 @@ class ProjectStatsRepository(
     }
 
     private fun openedPullRequestsLabel(count: Int): String {
-        return if (count == 1) "открытый PR" else "открытых PR"
+        return localizeRuntime(
+            if (count == 1) "открытый PR" else "открытых PR",
+            if (count == 1) "open PR" else "open PRs",
+        )
     }
 
     private fun buildRepositories(resources: List<MetricProjectResource>): List<ProjectStatsRepositoryUi> {
@@ -1186,7 +1199,7 @@ class ProjectStatsRepository(
             ProjectStatsRepositoryUi(
                 id = resource.id,
                 title = repositoryUrl?.trim()?.takeIf { it.isNotBlank() }
-                    ?: resource.name.ifBlank { "Репозиторий" },
+                    ?: resource.name.ifBlank { repositoryLabel() },
                 subtitle = resource.platform?.trim()?.takeIf { it.isNotBlank() }
                     ?: resource.project?.trim()?.takeIf { it.isNotBlank() }
                     ?: "GitHub",
@@ -1491,13 +1504,13 @@ class ProjectStatsRepository(
     private fun weekdayLabel(date: String?): String? {
         val instant = parseInstant(date) ?: return null
         return when (instant.toLocalDateTime(TimeZone.UTC).dayOfWeek.name.lowercase()) {
-            "monday" -> "Понедельник"
-            "tuesday" -> "Вторник"
-            "wednesday" -> "Среда"
-            "thursday" -> "Четверг"
-            "friday" -> "Пятница"
-            "saturday" -> "Суббота"
-            "sunday" -> "Воскресенье"
+            "monday" -> weekdayName("monday")
+            "tuesday" -> weekdayName("tuesday")
+            "wednesday" -> weekdayName("wednesday")
+            "thursday" -> weekdayName("thursday")
+            "friday" -> weekdayName("friday")
+            "saturday" -> weekdayName("saturday")
+            "sunday" -> weekdayName("sunday")
             else -> null
         }
     }
@@ -1907,23 +1920,54 @@ class ProjectStatsRepository(
     ): List<ProjectStatsDonutSliceUi> {
         if (fileStats.isEmpty()) return emptyList()
         val buckets = listOf(
-            "1 изменение" to fileStats.count { it.changes == 1 },
-            "2-3 изменения" to fileStats.count { it.changes in 2..3 },
-            "4-5 изменений" to fileStats.count { it.changes in 4..5 },
-            "6-7 изменений" to fileStats.count { it.changes in 6..7 },
-            "8-10 изменений" to fileStats.count { it.changes in 8..10 },
-            ">10 изменений" to fileStats.count { it.changes > 10 },
+            localizeRuntime("1 изменение", "1 change") to fileStats.count { it.changes == 1 },
+            localizeRuntime("2-3 изменения", "2-3 changes") to fileStats.count { it.changes in 2..3 },
+            localizeRuntime("4-5 изменений", "4-5 changes") to fileStats.count { it.changes in 4..5 },
+            localizeRuntime("6-7 изменений", "6-7 changes") to fileStats.count { it.changes in 6..7 },
+            localizeRuntime("8-10 изменений", "8-10 changes") to fileStats.count { it.changes in 8..10 },
+            localizeRuntime(">10 изменений", ">10 changes") to fileStats.count { it.changes > 10 },
         ).filter { it.second > 0 }
         val total = buckets.sumOf { it.second }.takeIf { it > 0 } ?: 1
         return buckets.mapIndexed { index, (label, value) ->
             ProjectStatsDonutSliceUi(
                 label = label,
-                secondaryLabel = "$value файлов",
+                secondaryLabel = "$value ${filesLabel(value)}",
                 percentLabel = round2(value * 100.0 / total).toString() + "%",
                 value = value.toFloat(),
                 colorHex = weekdayPalette[index % weekdayPalette.size],
                 highlight = value == buckets.maxOf { it.second },
             )
+        }
+    }
+
+    private fun commitsLabel(count: Int): String =
+        localizePluralRuntime(count, "коммит", "коммита", "коммитов", "commit", "commits")
+
+    private fun actionsLabel(count: Int): String =
+        localizePluralRuntime(count, "действие", "действия", "действий", "action", "actions")
+
+    private fun filesLabel(count: Int): String =
+        localizePluralRuntime(count, "файл", "файла", "файлов", "file", "files")
+
+    private fun linesLabel(count: Int): String =
+        localizePluralRuntime(count, "строка", "строки", "строк", "line", "lines")
+
+    private fun participantLabel(): String = localizeRuntime("Участник", "Participant")
+
+    private fun repositoryLabel(): String = localizeRuntime("Репозиторий", "Repository")
+
+    private fun weekdayName(day: String): String = weekdayNameOrNull(day) ?: day.replaceFirstChar(Char::uppercaseChar)
+
+    private fun weekdayNameOrNull(day: String): String? {
+        return when (day) {
+            "monday" -> localizeRuntime("Понедельник", "Monday")
+            "tuesday" -> localizeRuntime("Вторник", "Tuesday")
+            "wednesday" -> localizeRuntime("Среда", "Wednesday")
+            "thursday" -> localizeRuntime("Четверг", "Thursday")
+            "friday" -> localizeRuntime("Пятница", "Friday")
+            "saturday" -> localizeRuntime("Суббота", "Saturday")
+            "sunday" -> localizeRuntime("Воскресенье", "Sunday")
+            else -> null
         }
     }
 }

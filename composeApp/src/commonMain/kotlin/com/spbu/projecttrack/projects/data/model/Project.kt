@@ -96,11 +96,20 @@ data class Team(
 data class Member(
     val id: Int,
     val name: String,
-    val role: String ? = null,
+    @SerialName("roles")
+    val roles: List<String> = emptyList(),
+    @SerialName("role")
+    private val legacyRole: String? = null,
     val isAdministrator: Boolean? = null,
     val user: Int? = null,
     val team: Int? = null
-)
+) {
+    val role: String?
+        get() = roles.joinToString(", ")
+            .trim()
+            .takeIf { it.isNotBlank() }
+            ?: legacyRole?.trim()?.takeIf { it.isNotBlank() }
+}
 
 @Serializable
 data class User(

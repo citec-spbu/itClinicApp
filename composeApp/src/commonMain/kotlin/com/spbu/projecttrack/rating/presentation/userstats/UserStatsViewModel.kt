@@ -2,6 +2,7 @@ package com.spbu.projecttrack.rating.presentation.userstats
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spbu.projecttrack.core.network.toShortMessage
 import com.spbu.projecttrack.rating.data.model.UserStatsUiModel
 import com.spbu.projecttrack.rating.data.repository.UserStatsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -109,7 +110,10 @@ class UserStatsViewModel(
                 _uiState.value = UserStatsUiState.Success(model)
             }.onFailure { error ->
                 _uiState.value = UserStatsUiState.Error(
-                    error.message ?: "Не удалось загрузить личную статистику"
+                    error.toShortMessage(
+                        "Ошибка загрузки",
+                        "Loading error",
+                    )
                 )
             }
         }

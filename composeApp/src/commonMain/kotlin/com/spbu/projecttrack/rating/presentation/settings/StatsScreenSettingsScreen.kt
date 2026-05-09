@@ -61,7 +61,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.spbu.projecttrack.core.settings.localizedString
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.core.theme.appPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -73,24 +76,36 @@ import projecttrack.composeapp.generated.resources.settings_trash
 import projecttrack.composeapp.generated.resources.spbu_logo
 import kotlin.math.roundToInt
 
-enum class StatsScreenSettingsTarget(
-    val descriptionSuffix: String,
-) {
-    Project("проектной статистики"),
-    User("личной статистики"),
+enum class StatsScreenSettingsTarget {
+    Project,
+    User;
+
+    fun descriptionSuffix(): String = when (this) {
+        Project -> localizeRuntime("проектной статистики", "project statistics")
+        User -> localizeRuntime("личной статистики", "personal statistics")
+    }
 }
 
 enum class StatsScreenSection(
     val id: String,
-    val title: String,
 ) {
-    Commits("commits", "Коммиты"),
-    Issues("issues", "Issue"),
-    PullRequests("pull_requests", "Pull Request"),
-    RapidPullRequests("rapid_pull_requests", "Быстрые Pull Request"),
-    CodeChurn("code_churn", "Изменчивость кода"),
-    CodeOwnership("code_ownership", "Владение кодом"),
-    DominantWeekDay("dominant_week_day", "Доминирующий день недели");
+    Commits("commits"),
+    Issues("issues"),
+    PullRequests("pull_requests"),
+    RapidPullRequests("rapid_pull_requests"),
+    CodeChurn("code_churn"),
+    CodeOwnership("code_ownership"),
+    DominantWeekDay("dominant_week_day");
+
+    fun title(): String = when (this) {
+        Commits -> localizeRuntime("Коммиты", "Commits")
+        Issues -> "Issue"
+        PullRequests -> "Pull Request"
+        RapidPullRequests -> localizeRuntime("Быстрые Pull Request", "Rapid Pull Requests")
+        CodeChurn -> localizeRuntime("Изменчивость кода", "Code churn")
+        CodeOwnership -> localizeRuntime("Владение кодом", "Code ownership")
+        DominantWeekDay -> localizeRuntime("Доминирующий день недели", "Dominant weekday")
+    }
 
     companion object {
         fun fromId(id: String): StatsScreenSection? = entries.firstOrNull { it.id == id }
@@ -113,6 +128,16 @@ fun StatsScreenSettingsScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val backLabel = localizedString("Назад", "Back")
+    val settingsTitle = localizedString("Настройки", "Settings")
+    val removeBlockLabel = localizedString("Убрать блок", "Remove section")
+    val unusedLabel = localizedString("Неиспользуемые", "Unused")
+    val addBlockLabel = localizedString("Добавить блок", "Add section")
+    val dragBlockLabel = localizedString("Перетащить блок", "Drag section")
+    val descriptionText = localizedString(
+        "Выберите вкладки, которые хотите видеть на экране ${target.descriptionSuffix()} и их порядок",
+        "Choose the sections you want to see on the ${target.descriptionSuffix()} screen and their order",
+    )
     val scope = rememberCoroutineScope()
     var localActiveSectionIds by remember { mutableStateOf(activeSectionIds) }
     var draggingSectionId by remember { mutableStateOf<String?>(null) }
@@ -201,7 +226,7 @@ fun StatsScreenSettingsScreen(
                 .width(1800.dp)
                 .align(Alignment.Center)
                 .offset(y = 12.dp)
-                .alpha(1.0f),
+                .alpha(appPalette().spbuBackdropLogoAlpha),
             contentScale = ContentScale.FillWidth,
         )
 
@@ -229,13 +254,13 @@ fun StatsScreenSettingsScreen(
                     ) {
                         Image(
                             painter = painterResource(Res.drawable.arrow_back),
-                            contentDescription = "Назад",
+                            contentDescription = backLabel,
                             modifier = Modifier.size(24.dp),
                             colorFilter = ColorFilter.tint(SettingsSecondaryText),
                         )
                     }
                     Text(
-                        text = "Настройки",
+                        text = settingsTitle,
                         fontFamily = AppFonts.OpenSansBold,
                         fontSize = 40.sp,
                         color = SettingsAccent,
@@ -251,7 +276,7 @@ fun StatsScreenSettingsScreen(
 
             item("description") {
                 Text(
-                    text = "Выберите вкладки, которые хотите видеть на экране ${target.descriptionSuffix} и их порядок",
+                    text = descriptionText,
                     fontFamily = AppFonts.OpenSansRegular,
                     fontSize = 13.sp,
                     lineHeight = 15.sp,
@@ -307,7 +332,7 @@ fun StatsScreenSettingsScreen(
                                     scaleY = scale
                                 },
                             isDragging = isDragging,
-                            title = section.title,
+                            title = section.title(),
                             titleColor = SettingsSecondaryText,
                             trailingContent = {
                                 Row(
@@ -330,7 +355,7 @@ fun StatsScreenSettingsScreen(
                                     )
                                     SettingsActionIcon(
                                         drawable = Res.drawable.settings_trash,
-                                        contentDescription = "Убрать блок",
+                                        contentDescription = removeBlockLabel,
                                         tint = SettingsSecondaryText,
                                         iconWidth = 16.dp,
                                         iconHeight = 19.dp,
@@ -354,7 +379,7 @@ fun StatsScreenSettingsScreen(
 
                 item("inactive_section_title") {
                     Text(
-                        text = "Неиспользуемые",
+                        text = unusedLabel,
                         fontFamily = AppFonts.OpenSansMedium,
                         fontSize = 16.sp,
                         color = Color.Black,
@@ -388,12 +413,12 @@ fun StatsScreenSettingsScreen(
                                 scaleX = scale
                                 scaleY = scale
                             },
-                        title = section.title,
+                        title = section.title(),
                         titleColor = SettingsDisabledText,
                         trailingContent = {
                             SettingsActionIcon(
                                 drawable = Res.drawable.settings_plus,
-                                contentDescription = "Добавить блок",
+                                contentDescription = addBlockLabel,
                                 tint = SettingsSecondaryText,
                                 iconWidth = 18.dp,
                                 iconHeight = 18.dp,
@@ -541,6 +566,7 @@ private fun SettingsDragHandle(
     onDragEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val dragBlockLabel = localizedString("Перетащить блок", "Drag section")
     Box(
         modifier = modifier
             .size(width = 18.dp, height = 24.dp)
@@ -558,7 +584,7 @@ private fun SettingsDragHandle(
     ) {
         Image(
             painter = painterResource(Res.drawable.settings_remove),
-            contentDescription = "Перетащить блок",
+            contentDescription = dragBlockLabel,
             modifier = Modifier.size(width = 8.dp, height = 15.dp),
             colorFilter = ColorFilter.tint(tint),
         )

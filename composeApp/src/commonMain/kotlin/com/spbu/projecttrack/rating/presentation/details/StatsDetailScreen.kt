@@ -69,8 +69,13 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
+import com.spbu.projecttrack.core.theme.appPalette
+import com.spbu.projecttrack.core.theme.subtleBorder
+import com.spbu.projecttrack.rating.common.StatsDetailCopy
+import com.spbu.projecttrack.rating.common.StatsExportCopy
 import com.spbu.projecttrack.rating.common.formatDurationMinutesLabel
 import com.spbu.projecttrack.rating.data.model.ProjectStatsChartPointUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsChartType
@@ -160,20 +165,31 @@ private const val AllParticipantsId = "__all__"
 
 private enum class IssueStateFilter(
     val key: String,
-    val label: String,
 ) {
-    All("all", "Все"),
-    Open("open", "Открытые"),
-    Closed("closed", "Закрытые");
+    All("all"),
+    Open("open"),
+    Closed("closed");
 
     companion object {
-        val options: List<Pair<String, String>> = entries.map { it.key to it.label }
-
         fun fromKey(key: String?): IssueStateFilter {
             return entries.firstOrNull { it.key == key } ?: All
         }
     }
 }
+
+@Composable
+private fun issueStateFilterLabel(filter: IssueStateFilter): String = when (filter) {
+    IssueStateFilter.All -> localizedString("Все", "All")
+    IssueStateFilter.Open -> localizedString("Открытые", "Open")
+    IssueStateFilter.Closed -> localizedString("Закрытые", "Closed")
+}
+
+@Composable
+private fun issueStateFilterOptions(): List<Pair<String, String>> = listOf(
+    IssueStateFilter.All.key to issueStateFilterLabel(IssueStateFilter.All),
+    IssueStateFilter.Open.key to issueStateFilterLabel(IssueStateFilter.Open),
+    IssueStateFilter.Closed.key to issueStateFilterLabel(IssueStateFilter.Closed),
+)
 
 @Composable
 fun StatsDetailScreen(
@@ -195,6 +211,7 @@ fun StatsDetailScreen(
     onExportExcelClick: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     var showDateRangePicker by remember { mutableStateOf(false) }
     var showAllIssues by rememberSaveable(section.id) { mutableStateOf(false) }
     var showAllPullRequests by rememberSaveable(section.id) { mutableStateOf(false) }
@@ -234,14 +251,17 @@ fun StatsDetailScreen(
         }
     }
     val pullRequestOverlayTitle = when (section) {
-        StatsScreenSection.RapidPullRequests -> "Все быстрые Pull Requests"
-        else -> "Все Pull Requests"
+        StatsScreenSection.RapidPullRequests -> localizedString(
+            "Все быстрые Pull Requests",
+            "All rapid pull requests",
+        )
+        else -> StatsDetailCopy.allPullRequestsDefaultTitle()
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(palette.background)
     ) {
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
@@ -250,7 +270,7 @@ fun StatsDetailScreen(
                 .fillMaxSize()
                 .align(Alignment.Center),
             contentScale = ContentScale.Fit,
-            alpha = 1.0f,
+            alpha = palette.spbuBackdropLogoAlpha,
         )
 
         LazyColumn(
@@ -284,11 +304,12 @@ fun StatsDetailScreen(
             if (allowParticipantFilter && details.participants.isNotEmpty()) {
                 item {
                     DetailDropdownSelector(
-                        title = "Выбор участника",
+                        title = localizedString("Выбор участника", "Choose participant"),
                         value = details.participants.firstOrNull { it.id == selectedParticipantId }?.name
-                            ?: "Вся команда",
+                            ?: localizedString("Вся команда", "Whole team"),
                         options = buildList {
-                            add(AllParticipantsId to "Вся команда")
+                            val wholeTeam = localizedString("Вся команда", "Whole team")
+                            add(AllParticipantsId to wholeTeam)
                             addAll(details.participants.map { it.id to it.name })
                         },
                         onSelected = { selectedParticipantId = it },
@@ -480,7 +501,7 @@ private fun LazyListScope.commitItems(
         .sortedByDescending { it.commitCount }
         .map {
             DetailTableRow(
-                title = appendYouSuffix(it.participant.name, it.participant.id == effectiveParticipantId),
+                title = appendYouSuffix(it.participant.name, it.participant.isCurrentUser),
                 values = listOf(it.commitCount.toString()),
                 highlight = it.participant.id == effectiveParticipantId,
             )
@@ -506,39 +527,43 @@ private fun LazyListScope.commitItems(
     item {
         DoubleMetricRow(
             leftValue = filteredCommits.size.toString(),
-            leftCaption = pluralize(filteredCommits.size, "коммит", "коммита", "коммитов"),
+            leftCaption = StatsDetailCopy.commitsCount(filteredCommits.size),
             rightValue = rank?.toString() ?: "—",
-            rightCaption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
+            rightCaption = if (effectiveParticipantId == null) {
+                StatsExportCopy.rankInRating()
+            } else {
+                StatsExportCopy.rankInTeam()
+            },
         )
     }
     item {
         ChartCard(
-            title = "График коммитов",
+            title = StatsDetailCopy.commitsChartTitle(),
             chartType = ProjectStatsChartType.Bars,
             points = buildChartPoints(filteredCommits.mapNotNull { it.committedAtIso }) {
-                "$it ${pluralize(it, "коммит", "коммита", "коммитов")}"
+                "$it ${StatsDetailCopy.commitsCount(it)}"
             },
-            tooltipTitle = "Коммиты",
+            tooltipTitle = StatsExportCopy.commits(),
         )
     }
     item {
         SingleMetricCard(
             value = formatCompactNumber(averagePerDay),
-            caption = "средн. количество коммитов в день",
+            caption = StatsDetailCopy.avgCommitsPerDayCaption(),
         )
     }
     item {
         DoubleMetricRow(
             leftValue = "+$additions",
-            leftCaption = "добавлено строк",
+            leftCaption = StatsDetailCopy.linesAddedCaption(),
             rightValue = "-$deletions",
-            rightCaption = "удалено строк",
+            rightCaption = StatsDetailCopy.linesRemovedCaption(),
         )
     }
     if (linePoints.isNotEmpty()) {
         item {
             DualLineChartCard(
-                title = "График изменения строк",
+                title = StatsDetailCopy.lineChangesChartTitle(),
                 points = linePoints,
             )
         }
@@ -548,33 +573,33 @@ private fun LazyListScope.commitItems(
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = maxPerDay.toString(),
-                caption = "макс. коммитов / день",
+                caption = StatsDetailCopy.maxCommitsPerDayCaption(),
             )
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = minPerDay.toString(),
-                caption = "мин. коммитов / день",
+                caption = StatsDetailCopy.minCommitsPerDayCaption(),
             )
         }
     }
     item {
         DetailFilesCard(
-            title = "Топ-10 изменяемых файлов",
+            title = StatsDetailCopy.top10FilesTitle(),
             rows = topFiles,
         )
     }
     if (contributorRows.isNotEmpty()) {
         item {
             DetailTableCard(
-                title = "Количество коммитов",
-                headers = listOf("Значение"),
+                title = StatsDetailCopy.commitCountTableTitle(),
+                headers = listOf(StatsDetailCopy.valueColumnHeader()),
                 rows = contributorRows,
             )
         }
     }
     item {
         CommitEntityListCard(
-            title = "Список коммитов",
+            title = StatsExportCopy.commitListTitle(),
             commits = filteredCommits
                 .sortedByDescending { parseInstant(it.committedAtIso)?.toEpochMilliseconds() ?: Long.MIN_VALUE }
                 .take(20),
@@ -583,15 +608,15 @@ private fun LazyListScope.commitItems(
     item {
         DoubleMetricRow(
             leftValue = overallRank?.toString() ?: "—",
-            leftCaption = "место в рейтинге",
+            leftCaption = StatsExportCopy.rankInRating(),
             rightValue = teamRank?.toString() ?: "—",
-            rightCaption = "место в команде",
+            rightCaption = StatsExportCopy.rankInTeam(),
         )
     }
     item {
         ScoreCard(
             score = score,
-            title = "оценка коммитов",
+            title = StatsDetailCopy.commitScoreTitle(),
         )
     }
 }
@@ -616,20 +641,21 @@ private fun LazyListScope.issueItems(
         durationMinutes(it.createdAtIso, it.closedAtIso)
     }))
     val issueRemainingText = when {
-        filteredIssues.isEmpty() && effectiveParticipantId == null -> "Подробной информации по Issue нет"
-        filteredIssues.isEmpty() -> "Нет активных Issue"
-        openIssues > 0 -> "Закройте еще $openIssues Issue"
-        else -> "Все Issue закрыты"
+        filteredIssues.isEmpty() && effectiveParticipantId == null -> StatsDetailCopy.issueNoDetails()
+        filteredIssues.isEmpty() -> StatsDetailCopy.issueNoActive()
+        openIssues > 0 -> StatsDetailCopy.issueCloseMore(openIssues)
+        else -> StatsDetailCopy.issuesAllClosed()
     }
-    val creatorRows = buildIssueCreatorRows(filteredIssues, effectiveParticipantId)
-    val assigneeRows = buildIssueAssigneeRows(filteredIssues, effectiveParticipantId)
+    val currentUserParticipantId = details.participants.firstOrNull { it.isCurrentUser }?.id
+    val creatorRows = buildIssueCreatorRows(filteredIssues, effectiveParticipantId, currentUserParticipantId)
+    val assigneeRows = buildIssueAssigneeRows(filteredIssues, effectiveParticipantId, currentUserParticipantId)
     val participantRows = snapshots.values
         .sortedByDescending { it.issueCount }
         .map {
             val issueValue = if (it.issueCount == 0) "0"
                              else "${it.openIssueCount}/${it.closedIssueCount}"
             DetailTableRow(
-                title = appendYouSuffix(it.participant.name, it.participant.id == effectiveParticipantId),
+                title = appendYouSuffix(it.participant.name, it.participant.isCurrentUser),
                 values = listOf(issueValue),
                 highlight = it.participant.id == effectiveParticipantId,
             )
@@ -652,21 +678,21 @@ private fun LazyListScope.issueItems(
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = filteredIssues.size.toString(),
-                caption = "всего Issue",
+                caption = StatsDetailCopy.issuesTotalCaption(),
             )
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = averageLifetime,
-                caption = "ср. время жизни Issue",
+                caption = StatsDetailCopy.issueAvgLifetimeCaption(),
             )
         }
     }
     item {
         DoubleMetricRow(
             leftValue = openIssues.toString(),
-            leftCaption = "открытых Issue",
+            leftCaption = StatsDetailCopy.openIssuesCaption(),
             rightValue = closedIssues.toString(),
-            rightCaption = "закрытых Issue",
+            rightCaption = StatsDetailCopy.closedIssuesCaption(),
         )
     }
     item {
@@ -679,15 +705,15 @@ private fun LazyListScope.issueItems(
             SingleMetricCard(
                 modifier = Modifier.weight(1f),
                 value = overallRank?.toString() ?: "—",
-                caption = "место в рейтинге",
+                caption = StatsExportCopy.rankInRating(),
             )
         }
     }
     if (participantRows.isNotEmpty()) {
         item {
             DetailTableCard(
-                title = "Количество назначенных Issue",
-                subtitle = "(открытые/закрытые)",
+                title = StatsDetailCopy.assignedIssueCountTitle(),
+                subtitle = StatsDetailCopy.openClosedSubtitle(),
                 headers = emptyList(),
                 rows = participantRows,
             )
@@ -695,16 +721,16 @@ private fun LazyListScope.issueItems(
     }
     item {
         DetailIssueSection(
-            title = "Список Issues",
+            title = StatsDetailCopy.issuesListTitle(),
             issues = sortedIssues.take(1),
-            actionLabel = if (sortedIssues.isNotEmpty()) "Смотреть все" else null,
+            actionLabel = if (sortedIssues.isNotEmpty()) StatsDetailCopy.viewAll() else null,
             onActionClick = onShowAllClick,
         )
     }
     if (creatorRows.isNotEmpty()) {
         item {
             DetailPersonSection(
-                title = "Создатели Issues",
+                title = StatsExportCopy.issueCreatorsTitle(),
                 rows = creatorRows,
             )
         }
@@ -712,7 +738,7 @@ private fun LazyListScope.issueItems(
     if (assigneeRows.isNotEmpty()) {
         item {
             DetailPersonSection(
-                title = "Исполнители Issues",
+                title = StatsExportCopy.issueAssigneesTitle(),
                 rows = assigneeRows,
             )
         }
@@ -720,7 +746,7 @@ private fun LazyListScope.issueItems(
     if (labelChips.isNotEmpty()) {
         item {
             DetailLabelSection(
-                title = "Метки",
+                title = StatsExportCopy.labelsTitle(),
                 chips = labelChips,
             )
         }
@@ -729,7 +755,7 @@ private fun LazyListScope.issueItems(
         item {
             SingleMetricCard(
                 value = teamRank?.toString() ?: "—",
-                caption = "место в команде",
+                caption = StatsExportCopy.rankInTeam(),
             )
         }
     }
@@ -745,11 +771,11 @@ private fun LazyListScope.issueItems(
                     color = projectScoreColor(score),
                 )
                 Text(
-                    text = "оценка Issue",
+                    text = StatsDetailCopy.issueScoreTitle(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 14.sp,
                     lineHeight = 16.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             }
         }
@@ -778,7 +804,7 @@ private fun LazyListScope.pullRequestItems(
         .sortedByDescending { it.pullRequestCount }
         .map {
             DetailTableRow(
-                title = appendYouSuffix(it.participant.name, it.participant.id == effectiveParticipantId),
+                title = appendYouSuffix(it.participant.name, it.participant.isCurrentUser),
                 values = listOf(it.pullRequestCount.toString()),
                 highlight = it.participant.id == effectiveParticipantId,
             )
@@ -806,30 +832,32 @@ private fun LazyListScope.pullRequestItems(
 
     item {
         ChartCard(
-            title = "График Pull Requests",
+            title = StatsDetailCopy.pullRequestsChartTitle(),
             chartType = ProjectStatsChartType.Line,
-            points = buildChartPoints(filteredPullRequests.mapNotNull { it.createdAtIso }) { "$it PR" },
-            tooltipTitle = "Pull Requests",
+            points = buildChartPoints(filteredPullRequests.mapNotNull { it.createdAtIso }) {
+                StatsDetailCopy.prChartHintCount(it)
+            },
+            tooltipTitle = StatsDetailCopy.pullRequestsChartTooltip(),
         )
     }
     item {
         DetailMetricStatementCard(
             value = formatDurationMinutesLabel(buildAverageLifetimeMinutes(lifetimeMinutes)),
-            caption = "среднее время жизни Pull Request",
+            caption = StatsDetailCopy.prAvgLifetimeCaption(),
         )
     }
     item {
         DoubleMetricRow(
             leftValue = filteredPullRequests.size.toString(),
-            leftCaption = "всего Pull Request",
+            leftCaption = StatsDetailCopy.totalPullRequestsCaption(),
             rightValue = overallRank?.toString() ?: "—",
-            rightCaption = "место в рейтинге",
+            rightCaption = StatsExportCopy.rankInRating(),
         )
     }
     if (contributorRows.isNotEmpty()) {
         item {
             DetailTableCard(
-                title = "Количество Pull Request",
+                title = StatsDetailCopy.pullRequestCountTitle(),
                 headers = emptyList(),
                 rows = contributorRows,
             )
@@ -838,19 +866,19 @@ private fun LazyListScope.pullRequestItems(
     item {
         DetailMetricStatementCard(
             value = formatDurationMinutesLabel(lifetimeMinutes.minOrNull()),
-            caption = "минимальное время жизни Pull Request",
+            caption = StatsDetailCopy.prMinLifetimeCaption(),
         )
     }
     item {
         DetailMetricStatementCard(
             value = formatDurationMinutesLabel(lifetimeMinutes.maxOrNull()),
-            caption = "максимальное время жизни Pull Request",
+            caption = StatsDetailCopy.prMaxLifetimeCaption(),
         )
     }
     if (distributionSlices.isNotEmpty()) {
         item {
             DetailPullRequestLifetimeSection(
-                title = "Распределение времени жизни PR",
+                title = StatsDetailCopy.prLifetimeDistributionTitle(),
                 slices = distributionSlices,
             )
         }
@@ -858,23 +886,23 @@ private fun LazyListScope.pullRequestItems(
             item {
                 DetailMetricStatementCard(
                     value = formatPullRequestLifetimeHighlightLabel(label),
-                    caption = "самое актуальное время жизни PR",
+                    caption = StatsDetailCopy.prMostRelevantLifetimeCaption(),
                 )
             }
         }
     }
     item {
         DetailPullRequestSection(
-            title = "Список Pull Requests",
+            title = StatsDetailCopy.pullRequestsListTitle(),
             pullRequests = sortedPullRequests.take(1),
-            actionLabel = if (sortedPullRequests.isNotEmpty()) "Смотреть все" else null,
+            actionLabel = if (sortedPullRequests.isNotEmpty()) StatsDetailCopy.viewAll() else null,
             onActionClick = onShowAllClick,
         )
     }
     if (fastPullRequests.isNotEmpty()) {
         item {
             DetailPullRequestCompactSection(
-                title = "Топ-5 самых быстрых PR",
+                title = StatsDetailCopy.top5FastestPr(),
                 pullRequests = fastPullRequests,
             )
         }
@@ -882,7 +910,7 @@ private fun LazyListScope.pullRequestItems(
     if (slowPullRequests.isNotEmpty()) {
         item {
             DetailPullRequestCompactSection(
-                title = "Топ-5 самых медленных PR",
+                title = StatsDetailCopy.top5SlowestPr(),
                 pullRequests = slowPullRequests,
             )
         }
@@ -891,14 +919,14 @@ private fun LazyListScope.pullRequestItems(
         item {
             DetailMetricStatementCard(
                 value = teamRank?.toString() ?: "—",
-                caption = "место в команде",
+                caption = StatsExportCopy.rankInTeam(),
             )
         }
     }
     item {
         ScoreCard(
             score = score,
-            title = "оценка Pull Request",
+            title = StatsDetailCopy.pullRequestScoreTitle(),
         )
     }
 }
@@ -923,7 +951,7 @@ private fun LazyListScope.rapidPullRequestItems(
         .sortedByDescending { it.rapidPullRequestCount }
         .map {
             DetailTableRow(
-                title = appendYouSuffix(it.participant.name, it.participant.id == effectiveParticipantId),
+                title = appendYouSuffix(it.participant.name, it.participant.isCurrentUser),
                 values = listOf(it.rapidPullRequestCount.toString()),
                 highlight = it.participant.id == effectiveParticipantId,
             )
@@ -951,24 +979,30 @@ private fun LazyListScope.rapidPullRequestItems(
     }
     item {
         ChartCard(
-            title = "График быстрых PR",
+            title = StatsDetailCopy.rapidPrChartTitle(),
             chartType = ProjectStatsChartType.Bars,
-            points = buildChartPoints(rapidPullRequests.mapNotNull { it.closedAtIso }) { "$it быстрых PR" },
-            tooltipTitle = "Быстрые PR",
+            points = buildChartPoints(rapidPullRequests.mapNotNull { it.closedAtIso }) {
+                StatsDetailCopy.rapidPrInChart(it)
+            },
+            tooltipTitle = StatsDetailCopy.rapidPrTooltip(),
         )
     }
     item {
         DoubleMetricRow(
             leftValue = rapidPullRequests.size.toString(),
-            leftCaption = "быстрых PR",
+            leftCaption = StatsDetailCopy.rapidPrCaption(),
             rightValue = rank?.toString() ?: "—",
-            rightCaption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
+            rightCaption = if (effectiveParticipantId == null) {
+                StatsExportCopy.rankInRating()
+            } else {
+                StatsExportCopy.rankInTeam()
+            },
         )
     }
     if (contributorRows.isNotEmpty()) {
         item {
             DetailTableCard(
-                title = "Количество быстрых Pull Request",
+                title = StatsDetailCopy.rapidPullRequestCountTitle(),
                 headers = emptyList(),
                 rows = contributorRows,
             )
@@ -976,28 +1010,28 @@ private fun LazyListScope.rapidPullRequestItems(
     }
     item {
         DetailPullRequestSection(
-            title = "Список быстрых Pull Requests",
+            title = StatsDetailCopy.rapidPullRequestsListTitle(),
             pullRequests = sortedRapidPullRequests.take(1),
-            actionLabel = if (sortedRapidPullRequests.isNotEmpty()) "Смотреть все" else null,
+            actionLabel = if (sortedRapidPullRequests.isNotEmpty()) StatsDetailCopy.viewAll() else null,
             onActionClick = onShowAllClick,
         )
     }
     item {
         DetailMetricStatementCard(
             value = percentLabel(rapidPullRequests.size, filteredPullRequests.size),
-            caption = "доля быстрых PR",
+            caption = StatsDetailCopy.rapidPrShareCaption(),
         )
     }
     item {
         DetailMetricStatementCard(
             value = displayPersonName(leader?.participant?.name).ifBlank { "—" },
-            caption = "лидер по быстрым PR",
+            caption = StatsDetailCopy.rapidPrLeaderCaption(),
         )
     }
     item {
         ScoreCard(
             score = score,
-            title = "оценка быстрых PR",
+            title = StatsDetailCopy.rapidPrScoreTitle(),
         )
     }
 }
@@ -1019,7 +1053,7 @@ private fun LazyListScope.codeChurnItems(
         .sortedByDescending { it.fileStats.size }
         .map {
             DetailTableRow(
-                title = appendYouSuffix(it.participant.name, it.participant.id == effectiveParticipantId),
+                title = appendYouSuffix(it.participant.name, it.participant.isCurrentUser),
                 values = listOf(it.fileStats.size.toString()),
                 highlight = it.participant.id == effectiveParticipantId,
             )
@@ -1039,7 +1073,7 @@ private fun LazyListScope.codeChurnItems(
 
     item {
         DetailFilesCard(
-            title = "Статистика по файлам",
+            title = StatsDetailCopy.fileStatsTitle(),
             rows = fileStats.take(5),
             onShowAllClick = if (fileStats.size > 5) onShowAllFilesClick else null,
         )
@@ -1047,16 +1081,20 @@ private fun LazyListScope.codeChurnItems(
     item {
         DoubleMetricRow(
             leftValue = fileStats.size.toString(),
-            leftCaption = "изменено файлов",
+            leftCaption = StatsDetailCopy.filesChangedCaption(),
             rightValue = rank?.toString() ?: "—",
-            rightCaption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
+            rightCaption = if (effectiveParticipantId == null) {
+                StatsExportCopy.rankInRating()
+            } else {
+                StatsExportCopy.rankInTeam()
+            },
         )
     }
     if (participantRows.isNotEmpty()) {
         item {
             DetailTableCard(
-                title = "Количество измененных файлов",
-                headers = listOf("Кол-во"),
+                title = StatsDetailCopy.changedFilesCountTitle(),
+                headers = listOf(StatsDetailCopy.countAbbrevHeader()),
                 rows = participantRows,
                 showHeaders = false,
             )
@@ -1065,11 +1103,11 @@ private fun LazyListScope.codeChurnItems(
     if (churnSlices.isNotEmpty()) {
         item {
             Text(
-                text = "Распределение изменений файлов",
+                text = StatsDetailCopy.fileChangesDistributionText(),
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
-                color = Color.Black,
+                color = appPalette().primaryText,
                 modifier = Modifier.padding(horizontal = 0.dp),
             )
         }
@@ -1082,13 +1120,13 @@ private fun LazyListScope.codeChurnItems(
     }
     item {
         FileNameMetricCard(
-            fileName = fileStats.firstOrNull()?.fileName ?: "Нет данных",
+            fileName = fileStats.firstOrNull()?.fileName ?: StatsDetailCopy.noDataFallbackFile(),
         )
     }
     item {
         ScoreCard(
             score = score,
-            title = "оценка изменчивости кода",
+            title = StatsDetailCopy.churnScoreTitle(),
         )
     }
 }
@@ -1107,7 +1145,7 @@ private fun LazyListScope.ownershipItems(
     val slices = ownershipRows.mapIndexed { index, row ->
         ProjectStatsDonutSliceUi(
             label = row.name,
-            secondaryLabel = "${row.lines} строк",
+            secondaryLabel = StatsDetailCopy.linesCountLabel(row.lines),
             percentLabel = percentLabel(row.lines, totalLines),
             value = row.lines.toFloat(),
             colorHex = ownershipPalette[index % ownershipPalette.size],
@@ -1137,7 +1175,7 @@ private fun LazyListScope.ownershipItems(
     item {
         DetailMetricStatementCard(
             value = totalLines.toString(),
-            caption = "всего строк",
+            caption = StatsDetailCopy.totalLinesCaption(),
         )
     }
     if (ownershipRows.isNotEmpty()) {
@@ -1150,13 +1188,17 @@ private fun LazyListScope.ownershipItems(
     item {
         DetailMetricStatementCard(
             value = rank?.toString() ?: "—",
-            caption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
+            caption = if (effectiveParticipantId == null) {
+                StatsExportCopy.rankInRating()
+            } else {
+                StatsExportCopy.rankInTeam()
+            },
         )
     }
     item {
         ScoreCard(
             score = score,
-            title = "оценка владения кодом",
+            title = StatsDetailCopy.ownershipScoreTitle(),
         )
     }
 }
@@ -1179,7 +1221,7 @@ private fun LazyListScope.dominantWeekDayItems(
     val slices = weekDays.mapIndexed { index, item ->
         ProjectStatsDonutSliceUi(
             label = item.label,
-            secondaryLabel = "${item.count} ${pluralize(item.count, "действие", "действия", "действий")}",
+            secondaryLabel = "${item.count} ${StatsDetailCopy.actionsCount(item.count)}",
             percentLabel = percentLabel(item.count, total),
             value = item.count.toFloat(),
             colorHex = weekdayPalette[index % weekdayPalette.size],
@@ -1200,8 +1242,10 @@ private fun LazyListScope.dominantWeekDayItems(
     val dominant = weekDays.maxByOrNull { it.count }
     val leastActive = weekDays.minByOrNull { it.count }
     val hasActivity = total > 0
-    val dominantLabel = dominant?.label?.takeIf { hasActivity }?.uppercase() ?: "НЕТ ДАННЫХ"
-    val leastActiveLabel = leastActive?.label?.takeIf { hasActivity }?.uppercase() ?: "НЕТ ДАННЫХ"
+    val dominantLabel = dominant?.label?.takeIf { hasActivity }?.uppercase()
+        ?: StatsDetailCopy.noDataUpper()
+    val leastActiveLabel = leastActive?.label?.takeIf { hasActivity }?.uppercase()
+        ?: StatsDetailCopy.noDataUpper()
 
     if (slices.isNotEmpty()) {
         item {
@@ -1209,15 +1253,15 @@ private fun LazyListScope.dominantWeekDayItems(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "Распределение активности по дням",
+                    text = StatsDetailCopy.activityByWeekdayTitle(),
                     fontFamily = AppFonts.OpenSansSemiBold,
                     fontSize = 16.sp,
                     lineHeight = 20.sp,
-                    color = Color.Black,
+                    color = appPalette().primaryText,
                 )
                 WeekDayDistributionCard(
                     slices = slices,
-                    emptyText = "Действий ещё не было",
+                    emptyText = StatsDetailCopy.noActivityYet(),
                 )
             }
         }
@@ -1225,27 +1269,31 @@ private fun LazyListScope.dominantWeekDayItems(
     item {
         DetailHighlightCard(
             modifier = Modifier.fillMaxWidth(),
-            title = "самый активный день недели",
+            title = StatsDetailCopy.mostActiveWeekdayTitle(),
             value = dominantLabel,
         )
     }
     item {
         DetailHighlightCard(
             modifier = Modifier.fillMaxWidth(),
-            title = "самый неактивный день недели",
+            title = StatsDetailCopy.leastActiveWeekdayTitle(),
             value = leastActiveLabel,
         )
     }
     item {
         SingleMetricCard(
             value = rank?.toString() ?: "—",
-            caption = if (effectiveParticipantId == null) "место в рейтинге" else "место в команде",
+            caption = if (effectiveParticipantId == null) {
+                StatsExportCopy.rankInRating()
+            } else {
+                StatsExportCopy.rankInTeam()
+            },
         )
     }
     item {
         ScoreCard(
             score = score,
-            title = "оценка доминирующего дня недели",
+            title = StatsDetailCopy.dominantWeekdayScoreTitle(),
         )
     }
 }
@@ -1256,6 +1304,7 @@ private fun DetailHeader(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1263,8 +1312,8 @@ private fun DetailHeader(
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-            contentDescription = "Назад",
-            tint = Color.Black,
+            contentDescription = StatsDetailCopy.backContentDescription(),
+            tint = palette.primaryText,
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .size(24.dp)
@@ -1275,7 +1324,7 @@ private fun DetailHeader(
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 28.sp,
             lineHeight = 28.sp,
-            color = AppColors.Color3,
+            color = palette.accent,
             textAlign = TextAlign.Center,
             modifier = Modifier.align(Alignment.Center)
         )
@@ -1307,31 +1356,32 @@ private fun DetailThresholdSelector(
     onThresholdChanged: (Int, Int, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                text = "Период для быстроты",
+                text = StatsDetailCopy.rapidThresholdHeading(),
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
-                color = AppColors.Color2,
+                color = palette.primaryText,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DetailValueSelector(
-                    label = "д",
+                    label = StatsDetailCopy.dayShort(),
                     value = threshold.days,
                     values = (0..30).toList(),
                     onSelected = { onThresholdChanged(it, threshold.hours, threshold.minutes) },
                     modifier = Modifier.weight(1f),
                 )
                 DetailValueSelector(
-                    label = "ч",
+                    label = StatsDetailCopy.hourShort(),
                     value = threshold.hours,
                     values = (0..23).toList(),
                     onSelected = { onThresholdChanged(threshold.days, it, threshold.minutes) },
                     modifier = Modifier.weight(1f),
                 )
                 DetailValueSelector(
-                    label = "мин",
+                    label = StatsDetailCopy.minShort(),
                     value = threshold.minutes,
                     values = (0..59).toList(),
                     onSelected = { onThresholdChanged(threshold.days, threshold.hours, it) },
@@ -1373,20 +1423,21 @@ private fun DualLineChartCard(
     points: List<DetailLinePoint>,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 text = title,
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
-                color = AppColors.Color2,
+                color = palette.primaryText,
             )
             if (points.isEmpty()) {
                 Text(
-                    text = "Нет данных",
+                    text = StatsDetailCopy.noData(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 13.sp,
-                    color = AppColors.Color2,
+                    color = palette.primaryText,
                 )
             } else {
                 DualLineChart(points = points)
@@ -1396,9 +1447,9 @@ private fun DualLineChartCard(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                DualLineLegendItem(label = "Добавлено строк", color = DualLineAddColor)
+                DualLineLegendItem(label = StatsDetailCopy.linesAddedLegend(), color = DualLineAddColor)
                 Spacer(modifier = Modifier.width(20.dp))
-                DualLineLegendItem(label = "Удалено строк", color = DualLineDelColor)
+                DualLineLegendItem(label = StatsDetailCopy.linesRemovedLegend(), color = DualLineDelColor)
             }
         }
     }
@@ -1545,7 +1596,7 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                         modifier = Modifier
                             .offset(x = tooltipX, y = tooltipY)
                             .onSizeChanged { tooltipSize = it }
-                            .background(AppColors.Color2.copy(alpha = 0.92f), RoundedCornerShape(8.dp))
+                            .background(appPalette().primaryText.copy(alpha = 0.92f), RoundedCornerShape(8.dp))
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.Top,
@@ -1556,17 +1607,17 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                                 fontFamily = AppFonts.OpenSansBold,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
-                                color = Color.White,
+                                color = appPalette().buttonText,
                             )
                             Text(
-                                text = "+${point.firstValue} добавлено",
+                                text = StatsDetailCopy.tooltipAdded(point.firstValue),
                                 fontFamily = AppFonts.OpenSansMedium,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
                                 color = DualLineAddColor,
                             )
                             Text(
-                                text = "−${point.secondValue} удалено${if (isMerged) " (≈)" else ""}",
+                                text = StatsDetailCopy.tooltipRemoved(point.secondValue, isMerged),
                                 fontFamily = AppFonts.OpenSansMedium,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
@@ -1586,8 +1637,8 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                         ) {
                             Image(
                                 painter = painterResource(Res.drawable.stats_tooltip_close),
-                                contentDescription = "Закрыть",
-                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White),
+                                contentDescription = StatsDetailCopy.closeContentDescription(),
+                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(appPalette().buttonText),
                                 modifier = Modifier.size(12.dp),
                             )
                         }
@@ -1615,7 +1666,7 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                         fontSize = 11.sp,
                         lineHeight = 12.sp,
                         letterSpacing = 0.11.sp,
-                        color = AppColors.Color2,
+                        color = appPalette().primaryText,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
                         softWrap = false,
@@ -1641,6 +1692,7 @@ private fun DualLineChartGrid(
     plotBottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val plotHeight = maxHeight - plotTopPadding - plotBottomPadding
         val rowHeight = 16.dp
@@ -1662,7 +1714,7 @@ private fun DualLineChartGrid(
                     fontSize = 12.sp,
                     lineHeight = 12.sp,
                     letterSpacing = 0.12.sp,
-                    color = AppColors.Color2,
+                    color = palette.primaryText,
                     textAlign = TextAlign.Right,
                     modifier = Modifier.width(axisLabelWidth),
                 )
@@ -1672,7 +1724,7 @@ private fun DualLineChartGrid(
                         .fillMaxWidth()
                         .height(if (label == 0) 2.dp else 1.dp)
                         .background(
-                            if (label == 0) AppColors.Color2.copy(alpha = 0.4f)
+                            if (label == 0) palette.primaryText.copy(alpha = 0.4f)
                             else DualChartGridColor
                         )
                 )
@@ -1696,6 +1748,7 @@ private fun DualLineLegendItem(
     color: Color,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
@@ -1712,7 +1765,7 @@ private fun DualLineLegendItem(
             text = label,
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 12.sp,
-            color = AppColors.Color2,
+            color = palette.primaryText,
         )
     }
 }
@@ -1724,6 +1777,7 @@ private fun DetailFilesCard(
     modifier: Modifier = Modifier,
     onShowAllClick: (() -> Unit)? = null,
 ) {
+    val palette = appPalette()
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
@@ -1735,7 +1789,7 @@ private fun DetailFilesCard(
                     text = title,
                     fontFamily = AppFonts.OpenSansSemiBold,
                     fontSize = 16.sp,
-                    color = AppColors.Color2,
+                    color = palette.primaryText,
                 )
                 if (onShowAllClick != null) {
                     val interactionSource = remember { MutableInteractionSource() }
@@ -1746,10 +1800,10 @@ private fun DetailFilesCard(
                         label = "show_all_alpha"
                     )
                     Text(
-                        text = "Смотреть все",
+                        text = StatsDetailCopy.viewAll(),
                         fontFamily = AppFonts.OpenSansMedium,
                         fontSize = 12.sp,
-                        color = AppColors.Color2.copy(alpha = alpha),
+                        color = palette.primaryText.copy(alpha = alpha),
                         modifier = Modifier
                             .clickable(
                                 interactionSource = interactionSource,
@@ -1761,10 +1815,10 @@ private fun DetailFilesCard(
             }
             if (rows.isEmpty()) {
                 Text(
-                    text = "Нет данных",
+                    text = StatsDetailCopy.noData(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 13.sp,
-                    color = AppColors.Color2,
+                    color = palette.primaryText,
                 )
             } else {
                 rows.forEachIndexed { index, row ->
@@ -1783,7 +1837,7 @@ private fun DetailFilesCard(
                                     text = breakableFileName(row.fileName),
                                     fontFamily = AppFonts.OpenSansMedium,
                                     fontSize = 13.sp,
-                                    color = AppColors.Color2,
+                                    color = palette.primaryText,
                                 )
                                 // "+additions/-deletions" — зелёный/красный
                                 Text(
@@ -1808,15 +1862,15 @@ private fun DetailFilesCard(
                                     text = buildAnnotatedString {
                                         withStyle(SpanStyle(
                                             fontFamily = AppFonts.OpenSansBold,
-                                            color = AppColors.Color3,
+                                            color = palette.accent,
                                         )) {
                                             append("${row.changes}")
                                         }
                                         withStyle(SpanStyle(
                                             fontFamily = AppFonts.OpenSansRegular,
-                                            color = AppColors.Color2,
+                                            color = palette.primaryText,
                                         )) {
-                                            append(" изменений")
+                                            append(" ${StatsDetailCopy.changesWord(row.changes)}")
                                         }
                                     },
                                     fontSize = 13.sp,
@@ -1844,15 +1898,14 @@ private fun DetailFilesCard(
 }
 
 /** Цвет статуса файла по Figma: added=зелёный, removed=красный, modified=оранжевый */
+@Composable
 private fun fileStatusColor(status: String): Color = when (status.lowercase()) {
     "added" -> DualLineAddColor
     "removed" -> DualLineDelColor
     "modified", "changed" -> Color(0xFFE59500)
     "renamed", "copied" -> Color(0xFF2980B9)
-    else -> AppColors.Color2
+    else -> appPalette().primaryText
 }
-
-private const val AllFileStatusFilter = "Все"
 
 private fun buildFileStatusFilters(
     files: List<DetailFileAggregate>,
@@ -1867,10 +1920,20 @@ private fun buildFileStatusFilters(
         .distinct()
         .sorted()
     return buildList {
-        add(AllFileStatusFilter)
+        add(StatsDetailCopy.allFilesInternalFilter())
         addAll(knownStatuses)
         addAll(extraStatuses)
     }
+}
+
+private fun fileStatusFilterLabel(key: String): String = when (key) {
+    StatsDetailCopy.allFilesInternalFilter() -> StatsDetailCopy.fileStatusLabelAll()
+    "added" -> StatsDetailCopy.fileStatusLabelAdded()
+    "removed" -> StatsDetailCopy.fileStatusLabelRemoved()
+    "modified", "changed" -> StatsDetailCopy.fileStatusLabelModified()
+    "renamed" -> StatsDetailCopy.fileStatusLabelRenamed()
+    "copied" -> StatsDetailCopy.fileStatusLabelCopied()
+    else -> key
 }
 
 private fun normalizeFileStatus(status: String?): String? =
@@ -1885,6 +1948,7 @@ private fun DetailTableCard(
     subtitle: String? = null,
     showHeaders: Boolean = true,
 ) {
+    val palette = appPalette()
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1892,23 +1956,23 @@ private fun DetailTableCard(
                     text = title,
                     fontFamily = AppFonts.OpenSansSemiBold,
                     fontSize = 16.sp,
-                    color = AppColors.Color2,
+                    color = palette.primaryText,
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         fontFamily = AppFonts.OpenSansRegular,
                         fontSize = 13.sp,
-                        color = AppColors.Color2,
+                        color = palette.primaryText,
                     )
                 }
             }
             if (rows.isEmpty()) {
                 Text(
-                    text = "Нет данных",
+                    text = StatsDetailCopy.noData(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 13.sp,
-                    color = AppColors.Color2,
+                    color = palette.primaryText,
                 )
             } else {
                 if (showHeaders && subtitle == null && headers.isNotEmpty()) {
@@ -1917,10 +1981,10 @@ private fun DetailTableCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
-                            text = "Название",
+                            text = StatsDetailCopy.tableNameColumn(),
                             fontFamily = AppFonts.OpenSansBold,
                             fontSize = 12.sp,
-                            color = AppColors.Color2,
+                            color = palette.primaryText,
                             modifier = Modifier.weight(1f),
                         )
                         headers.forEach { header ->
@@ -1928,7 +1992,7 @@ private fun DetailTableCard(
                                 text = header,
                                 fontFamily = AppFonts.OpenSansBold,
                                 fontSize = 12.sp,
-                                color = AppColors.Color2,
+                                color = palette.primaryText,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.widthIn(min = 72.dp),
                             )
@@ -1946,7 +2010,7 @@ private fun DetailTableCard(
                                 fontFamily = AppFonts.OpenSansRegular,
                                 fontWeight = if (row.highlight) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 13.sp,
-                                color = if (row.highlight) AppColors.Color3 else AppColors.Color2,
+                                color = if (row.highlight) palette.accent else palette.primaryText,
                                 modifier = Modifier.weight(1f),
                             )
                             row.values.forEach { value ->
@@ -1954,7 +2018,7 @@ private fun DetailTableCard(
                                     text = value,
                                     fontFamily = AppFonts.OpenSansSemiBold,
                                     fontSize = 13.sp,
-                                    color = AppColors.Color2,
+                                    color = palette.primaryText,
                                     textAlign = TextAlign.End,
                                     modifier = Modifier.widthIn(min = 72.dp),
                                 )
@@ -1996,6 +2060,7 @@ private fun CommitEntityListCard(
     commits: List<StatsDetailCommitUi>,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     // Track which commit indices are expanded
     var expandedIndices by remember { mutableStateOf(emptySet<Int>()) }
 
@@ -2005,14 +2070,14 @@ private fun CommitEntityListCard(
                 text = title,
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
-                color = AppColors.Color2,
+                color = palette.primaryText,
             )
             if (commits.isEmpty()) {
                 Text(
-                    text = "Нет данных",
+                    text = StatsDetailCopy.noData(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 13.sp,
-                    color = AppColors.Color2,
+                    color = palette.primaryText,
                 )
             } else {
                 val uriHandler = LocalUriHandler.current
@@ -2057,7 +2122,7 @@ private fun CommitEntityListCard(
                                     text = authorInitials(commit.authorName),
                                     fontFamily = AppFonts.OpenSansBold,
                                     fontSize = 14.sp,
-                                    color = Color.White,
+                                    color = appPalette().buttonText,
                                 )
                                 // Real avatar from GitHub (overlays initials on success)
                                 commit.authorAvatarUrl?.let { url ->
@@ -2087,7 +2152,7 @@ private fun CommitEntityListCard(
                                         text = commit.authorName,
                                         fontFamily = AppFonts.OpenSansSemiBold,
                                         fontSize = 14.sp,
-                                        color = AppColors.Color2,
+                                        color = palette.primaryText,
                                         modifier = Modifier.weight(1f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -2100,12 +2165,16 @@ private fun CommitEntityListCard(
                                             text = commit.committedAtLabel,
                                             fontFamily = AppFonts.OpenSansRegular,
                                             fontSize = 12.sp,
-                                            color = AppColors.Color2,
+                                            color = palette.primaryText,
                                         )
                                         Icon(
                                             imageVector = Icons.Outlined.KeyboardArrowDown,
-                                            contentDescription = if (isExpanded) "Свернуть" else "Развернуть",
-                                            tint = AppColors.Color2,
+                                            contentDescription = if (isExpanded) {
+                                                StatsDetailCopy.collapseContentDescription()
+                                            } else {
+                                                StatsDetailCopy.expandContentDescription()
+                                            },
+                                            tint = palette.primaryText,
                                             modifier = Modifier
                                                 .size(16.dp)
                                                 .graphicsLayer { rotationZ = chevronAngle },
@@ -2117,7 +2186,7 @@ private fun CommitEntityListCard(
                                     text = commit.message,
                                     fontFamily = AppFonts.OpenSansRegular,
                                     fontSize = 12.sp,
-                                    color = AppColors.Color2,
+                                    color = palette.primaryText,
                                     maxLines = if (isExpanded) Int.MAX_VALUE else 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -2134,15 +2203,15 @@ private fun CommitEntityListCard(
                                             withStyle(SpanStyle(color = DualLineAddColor, fontFamily = AppFonts.OpenSansMedium)) {
                                                 append("+${commit.additions}")
                                             }
-                                            withStyle(SpanStyle(color = AppColors.Color2, fontFamily = AppFonts.OpenSansRegular)) {
+                                            withStyle(SpanStyle(color = palette.primaryText, fontFamily = AppFonts.OpenSansRegular)) {
                                                 append(" / ")
                                             }
                                             withStyle(SpanStyle(color = DualLineDelColor, fontFamily = AppFonts.OpenSansMedium)) {
                                                 append("-${commit.deletions}")
                                             }
                                             if (commit.files.isNotEmpty()) {
-                                                withStyle(SpanStyle(color = AppColors.Color2, fontFamily = AppFonts.OpenSansRegular)) {
-                                                    append("  ${commit.files.size} ${pluralize(commit.files.size, "файл", "файла", "файлов")}")
+                                                withStyle(SpanStyle(color = palette.primaryText, fontFamily = AppFonts.OpenSansRegular)) {
+                                                    append("  ${commit.files.size} ${StatsDetailCopy.filesCount(commit.files.size)}")
                                                 }
                                             }
                                         },
@@ -2151,10 +2220,10 @@ private fun CommitEntityListCard(
                                     // Right: clickable link to commit
                                     commit.url?.let { url ->
                                         Text(
-                                            text = "ссылка",
+                                            text = StatsDetailCopy.linkLabel(),
                                             fontFamily = AppFonts.OpenSansRegular,
                                             fontSize = 12.sp,
-                                            color = AppColors.Color3,
+                                            color = palette.accent,
                                             style = androidx.compose.ui.text.TextStyle(
                                                 textDecoration = TextDecoration.Underline,
                                             ),
@@ -2183,10 +2252,10 @@ private fun CommitEntityListCard(
                                         verticalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
                                         Text(
-                                            text = "Изменённые файлы",
+                                            text = StatsDetailCopy.changedFilesHeading(),
                                             fontFamily = AppFonts.OpenSansSemiBold,
                                             fontSize = 12.sp,
-                                            color = AppColors.Color2,
+                                            color = palette.primaryText,
                                         )
                                         commit.files.forEach { file ->
                                             Row(
@@ -2202,7 +2271,7 @@ private fun CommitEntityListCard(
                                                         text = file.fileName.substringAfterLast('/'),
                                                         fontFamily = AppFonts.OpenSansMedium,
                                                         fontSize = 11.sp,
-                                                        color = AppColors.Color2,
+                                                        color = palette.primaryText,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,
                                                     )
@@ -2229,10 +2298,10 @@ private fun CommitEntityListCard(
                                 } else {
                                     // Commit message full text when no files
                                     Text(
-                                        text = "Нет данных о файлах",
+                                        text = StatsDetailCopy.noFileData(),
                                         fontFamily = AppFonts.OpenSansRegular,
                                         fontSize = 12.sp,
-                                        color = AppColors.Color2,
+                                        color = palette.primaryText,
                                     )
                                 }
                             }
@@ -2256,10 +2325,11 @@ private fun AllFilesOverlay(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     val focusManager = LocalFocusManager.current
     var searchText by remember { mutableStateOf("") }
     var sortAscending by remember { mutableStateOf(false) }
-    var selectedStatusFilter by rememberSaveable { mutableStateOf(AllFileStatusFilter) }
+    var selectedStatusFilter by rememberSaveable { mutableStateOf(StatsDetailCopy.allFilesInternalFilter()) }
     val statusFilters = remember(files) { buildFileStatusFilters(files) }
 
     val displayedFiles = remember(files, searchText, sortAscending, selectedStatusFilter) {
@@ -2269,7 +2339,7 @@ private fun AllFilesOverlay(
                 else list.filter { it.fileName.contains(searchText.trim(), ignoreCase = true) }
             }
             .let { list ->
-                if (selectedStatusFilter == AllFileStatusFilter) list
+                if (selectedStatusFilter == StatsDetailCopy.allFilesInternalFilter()) list
                 else list.filter { normalizeFileStatus(it.status) == selectedStatusFilter }
             }
             .let { list -> sortFileAggregates(list, ascending = sortAscending) }
@@ -2278,7 +2348,7 @@ private fun AllFilesOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White),
+            .background(palette.background),
     ) {
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
@@ -2287,7 +2357,7 @@ private fun AllFilesOverlay(
                 .fillMaxSize()
                 .align(Alignment.Center),
             contentScale = ContentScale.Fit,
-            alpha = 1.0f,
+            alpha = palette.spbuBackdropLogoAlpha,
         )
         LazyColumn(
             modifier = Modifier
@@ -2315,7 +2385,7 @@ private fun AllFilesOverlay(
                             DetailIssueSearchBar(
                                 searchText = searchText,
                                 onSearchTextChange = { searchText = it },
-                                placeholder = "Путь к файлу",
+                                placeholder = StatsDetailCopy.filePathSearchPlaceholder(),
                             )
                         }
                         val sortInteraction = remember { MutableInteractionSource() }
@@ -2345,7 +2415,11 @@ private fun AllFilesOverlay(
                         ) {
                             Image(
                                 painter = painterResource(Res.drawable.stats_sort_asc),
-                                contentDescription = if (sortAscending) "По возрастанию" else "По убыванию",
+                                contentDescription = if (sortAscending) {
+                                    StatsDetailCopy.sortAscendingCd()
+                                } else {
+                                    StatsDetailCopy.sortDescendingCd()
+                                },
                                 modifier = Modifier
                                     .size(22.dp)
                                     .graphicsLayer {
@@ -2362,7 +2436,7 @@ private fun AllFilesOverlay(
                     ) {
                         statusFilters.forEach { filter ->
                             FileStatusFilterChip(
-                                text = filter,
+                                text = fileStatusFilterLabel(filter),
                                 selected = selectedStatusFilter == filter,
                                 onClick = { selectedStatusFilter = filter },
                             )
@@ -2375,30 +2449,34 @@ private fun AllFilesOverlay(
                 item {
                     DetailCard {
                         Text(
-                            text = if (searchText.isBlank()) "Нет данных" else "Ничего не найдено",
+                            text = if (searchText.isBlank()) {
+                                StatsDetailCopy.noData()
+                            } else {
+                                StatsDetailCopy.nothingFound()
+                            },
                             fontFamily = AppFonts.OpenSansMedium,
                             fontSize = 13.sp,
-                            color = AppColors.Color2,
+                            color = palette.primaryText,
                         )
                     }
                 }
             } else {
                 item {
                     DetailFilesCard(
-                        title = "Все файлы (${displayedFiles.size})",
+                        title = StatsDetailCopy.allFilesWithCount(displayedFiles.size),
                         rows = displayedFiles,
                     )
                 }
             }
         }
         StatsTopBar(
-            title = "Статистика по файлам",
+            title = StatsDetailCopy.fileStatsTitle(),
             onBackClick = {
                 focusManager.clearFocus()
                 onBackClick()
             },
-            titleFontSize = overlayPullRequestTitleFontSize("Статистика по файлам"),
-            titleLineHeight = overlayPullRequestTitleFontSize("Статистика по файлам"),
+            titleFontSize = overlayPullRequestTitleFontSize(StatsDetailCopy.fileStatsTitle()),
+            titleLineHeight = overlayPullRequestTitleFontSize(StatsDetailCopy.fileStatsTitle()),
             titleMaxLines = 2,
             modifier = Modifier.align(Alignment.TopCenter),
         )
@@ -2411,6 +2489,7 @@ private fun AllIssuesOverlay(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val palette = appPalette()
     val focusManager = LocalFocusManager.current
     var searchText by remember { mutableStateOf("") }
     var stateFilterKey by remember { mutableStateOf(IssueStateFilter.All.key) }
@@ -2421,7 +2500,7 @@ private fun AllIssuesOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White),
+            .background(palette.background),
     ) {
         // Лого СПбГУ по центру — как на экране авторизации
         Image(
@@ -2431,7 +2510,7 @@ private fun AllIssuesOverlay(
                 .fillMaxSize()
                 .align(Alignment.Center),
             contentScale = ContentScale.Fit,
-            alpha = 1.0f,
+            alpha = palette.spbuBackdropLogoAlpha,
         )
 
         // LazyColumn fills the full screen → clipping boundary is the screen edges,
@@ -2462,9 +2541,9 @@ private fun AllIssuesOverlay(
                         onSearchTextChange = { searchText = it },
                     )
                     DetailDropdownSelector(
-                        title = "Состояние",
-                        value = stateFilter.label,
-                        options = IssueStateFilter.options,
+                        title = localizedString("Состояние", "State"),
+                        value = issueStateFilterLabel(stateFilter),
+                        options = issueStateFilterOptions(),
                         onSelected = { stateFilterKey = it ?: IssueStateFilter.All.key },
                         selectedKey = stateFilterKey,
                     )
@@ -2477,13 +2556,13 @@ private fun AllIssuesOverlay(
                         DetailCard {
                             Text(
                                 text = if (searchText.isBlank() && stateFilter == IssueStateFilter.All) {
-                                    "Нет данных"
+                                    localizedString("Нет данных", "No data")
                                 } else {
-                                    "Ничего не найдено"
+                                    localizedString("Ничего не найдено", "Nothing found")
                                 },
                                 fontFamily = AppFonts.OpenSansMedium,
                                 fontSize = 13.sp,
-                                color = AppColors.Color2,
+                                color = appPalette().primaryText,
                             )
                         }
                     }
@@ -2502,7 +2581,7 @@ private fun AllIssuesOverlay(
 
         // Top bar drawn last — sits above everything
         StatsTopBar(
-            title = "Все Issues",
+            title = StatsDetailCopy.allIssuesTitle(),
             onBackClick = {
                 focusManager.clearFocus()
                 onBackClick()
@@ -2518,7 +2597,7 @@ private fun AllIssuesOverlay(
 private fun AllPullRequestsOverlay(
     pullRequests: List<StatsDetailPullRequestUi>,
     onBackClick: () -> Unit,
-    title: String = "Все Pull Requests",
+    title: String = StatsDetailCopy.allPullRequestsDefaultTitle(),
     modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
@@ -2532,7 +2611,7 @@ private fun AllPullRequestsOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White),
+            .background(appPalette().background),
     ) {
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
@@ -2541,7 +2620,7 @@ private fun AllPullRequestsOverlay(
                 .fillMaxSize()
                 .align(Alignment.Center),
             contentScale = ContentScale.Fit,
-            alpha = 1.0f,
+            alpha = appPalette().spbuBackdropLogoAlpha,
         )
 
         LazyColumn(
@@ -2569,9 +2648,9 @@ private fun AllPullRequestsOverlay(
                         onSearchTextChange = { searchText = it },
                     )
                     DetailDropdownSelector(
-                        title = "Состояние",
-                        value = stateFilter.label,
-                        options = IssueStateFilter.options,
+                        title = localizedString("Состояние", "State"),
+                        value = issueStateFilterLabel(stateFilter),
+                        options = issueStateFilterOptions(),
                         onSelected = { stateFilterKey = it ?: IssueStateFilter.All.key },
                         selectedKey = stateFilterKey,
                     )
@@ -2584,13 +2663,13 @@ private fun AllPullRequestsOverlay(
                         DetailCard {
                             Text(
                                 text = if (searchText.isBlank() && stateFilter == IssueStateFilter.All) {
-                                    "Нет данных"
+                                    localizedString("Нет данных", "No data")
                                 } else {
-                                    "Ничего не найдено"
+                                    localizedString("Ничего не найдено", "Nothing found")
                                 },
                                 fontFamily = AppFonts.OpenSansMedium,
                                 fontSize = 13.sp,
-                                color = AppColors.Color2,
+                                color = appPalette().primaryText,
                             )
                         }
                     }
@@ -2625,7 +2704,7 @@ private fun AllPullRequestsOverlay(
 private fun DetailIssueSearchBar(
     searchText: String,
     onSearchTextChange: (String) -> Unit,
-    placeholder: String = "Поиск",
+    placeholder: String = StatsDetailCopy.searchPlaceholder(),
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -2658,7 +2737,7 @@ private fun DetailIssueSearchBar(
             textStyle = TextStyle(
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
                 letterSpacing = 0.16.sp,
             ),
             decorationBox = { innerTextField ->
@@ -2667,7 +2746,7 @@ private fun DetailIssueSearchBar(
                         text = placeholder,
                         fontFamily = AppFonts.OpenSansSemiBold,
                         fontSize = 16.sp,
-                        color = AppColors.Color1,
+                        color = appPalette().subtleBorder,
                         letterSpacing = 0.16.sp,
                     )
                 }
@@ -2698,7 +2777,7 @@ private fun DetailIssueSection(
                 text = title,
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 14.sp,
-                color = Color.Black,
+                color = appPalette().primaryText,
             )
             if (actionLabel != null && onActionClick != null) {
                 AnimatedClickableText(
@@ -2706,17 +2785,17 @@ private fun DetailIssueSection(
                     onClick = onActionClick,
                     fontFamily = AppFonts.OpenSansSemiBold,
                     fontSize = 12.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             }
         }
         if (issues.isEmpty()) {
             DetailCard {
                 Text(
-                    text = "Нет данных",
+                    text = StatsDetailCopy.noData(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 13.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             }
         } else {
@@ -2749,7 +2828,7 @@ private fun DetailPullRequestSection(
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
-                color = Color.Black,
+                color = appPalette().primaryText,
             )
             if (actionLabel != null && onActionClick != null) {
                 AnimatedClickableText(
@@ -2758,7 +2837,7 @@ private fun DetailPullRequestSection(
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 12.sp,
                     lineHeight = 20.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             }
         }
@@ -2766,10 +2845,10 @@ private fun DetailPullRequestSection(
         if (pullRequests.isEmpty()) {
             DetailCard {
                 Text(
-                    text = "Нет данных",
+                    text = StatsDetailCopy.noData(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 13.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             }
         } else {
@@ -2806,7 +2885,7 @@ private fun DetailPullRequestCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = DetailCardShape,
-        color = Color.White,
+        color = appPalette().buttonText,
         shadowElevation = 8.dp,
     ) {
         Column(
@@ -2829,7 +2908,7 @@ private fun DetailPullRequestCard(
                         fontFamily = AppFonts.OpenSansBold,
                         fontSize = 16.sp,
                         lineHeight = 20.sp,
-                        color = Color.Black,
+                        color = appPalette().primaryText,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -2839,13 +2918,13 @@ private fun DetailPullRequestCard(
                             fontFamily = AppFonts.OpenSansMedium,
                             fontSize = 15.sp,
                             lineHeight = 20.sp,
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                         )
                     }
                 }
                 pullRequest.state?.takeIf { it.isNotBlank() }?.let { state ->
                     IssueBadge(
-                        text = state.lowercase(),
+                        text = localizedIssueStateLabel(state),
                         backgroundColor = issueStatusBackgroundColor(state),
                         textColor = Color.White,
                     )
@@ -2855,13 +2934,13 @@ private fun DetailPullRequestCard(
             DetailDivider()
 
             IssueParticipantsSection(
-                title = "Создатель",
+                title = StatsDetailCopy.creatorTitle(),
                 participants = listOf(author),
             )
             IssueParticipantsSection(
-                title = "Назначенные",
+                title = StatsDetailCopy.assigneesTitle(),
                 participants = assignees,
-                emptyText = "Не назначено",
+                emptyText = StatsDetailCopy.notAssigned(),
             )
 
             DetailDivider()
@@ -2871,12 +2950,12 @@ private fun DetailPullRequestCard(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 IssueDateColumn(
-                    title = "Дата создания",
+                    title = StatsDetailCopy.createdAtTitle(),
                     value = pullRequest.createdAtLabel,
                     modifier = Modifier.weight(1f),
                 )
                 IssueDateColumn(
-                    title = "Дата закрытия",
+                    title = StatsDetailCopy.closedAtTitle(),
                     value = pullRequest.closedAtLabel ?: "—",
                     modifier = Modifier.weight(1f),
                 )
@@ -2894,7 +2973,7 @@ private fun DetailPullRequestCard(
                     icon = {
                         Image(
                             painter = painterResource(Res.drawable.stats_issue_comments_logo),
-                            contentDescription = "Комментарии",
+                            contentDescription = StatsDetailCopy.commentsCd(),
                             modifier = Modifier.size(15.dp),
                             contentScale = ContentScale.Fit,
                         )
@@ -2906,7 +2985,7 @@ private fun DetailPullRequestCard(
                     icon = {
                         Image(
                             painter = painterResource(Res.drawable.stats_issue_like_logo),
-                            contentDescription = "Коммиты",
+                            contentDescription = StatsDetailCopy.commitsCd(),
                             modifier = Modifier
                                 .width(15.dp)
                                 .height(17.dp),
@@ -2920,7 +2999,7 @@ private fun DetailPullRequestCard(
                     icon = {
                         Image(
                             painter = painterResource(Res.drawable.stats_issue_dislike_logo),
-                            contentDescription = "Измененные файлы",
+                            contentDescription = StatsDetailCopy.changedFilesCd(),
                             modifier = Modifier
                                 .width(15.dp)
                                 .height(17.dp),
@@ -2932,12 +3011,12 @@ private fun DetailPullRequestCard(
                 Spacer(modifier = Modifier.weight(1f))
                 pullRequest.url?.let { url ->
                     AnimatedClickableText(
-                        text = "ссылка ›",
+                        text = StatsDetailCopy.linkWithArrow(),
                         onClick = { uriHandler.openUri(url) },
                         fontFamily = AppFonts.OpenSansRegular,
                         fontSize = 12.sp,
                         lineHeight = 20.sp,
-                        color = AppColors.Color1,
+                        color = appPalette().subtleBorder,
                     )
                 }
             }
@@ -2974,7 +3053,7 @@ private fun DetailIssueCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = DetailCardShape,
-        color = Color.White,
+        color = appPalette().buttonText,
         shadowElevation = 8.dp,
     ) {
         Column(
@@ -2997,7 +3076,7 @@ private fun DetailIssueCard(
                         fontFamily = AppFonts.OpenSansBold,
                         fontSize = 16.sp,
                         lineHeight = 20.sp,
-                        color = Color.Black,
+                        color = appPalette().primaryText,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -3011,7 +3090,7 @@ private fun DetailIssueCard(
                                 fontFamily = AppFonts.OpenSansMedium,
                                 fontSize = 15.sp,
                                 lineHeight = 20.sp,
-                                color = AppColors.Color2,
+                                color = appPalette().primaryText,
                             )
                         }
                     }
@@ -3032,7 +3111,7 @@ private fun DetailIssueCard(
                 }
                 issue.state?.takeIf { it.isNotBlank() }?.let { state ->
                     IssueBadge(
-                        text = state.lowercase(),
+                        text = localizedIssueStateLabel(state),
                         backgroundColor = issueStatusBackgroundColor(state),
                         textColor = Color.White,
                     )
@@ -3042,13 +3121,13 @@ private fun DetailIssueCard(
             DetailDivider()
 
             IssueParticipantsSection(
-                title = "Создатель",
+                title = StatsDetailCopy.creatorTitle(),
                 participants = listOf(creator),
             )
             IssueParticipantsSection(
-                title = "Назначенные",
+                title = StatsDetailCopy.assigneesTitle(),
                 participants = assignees,
-                emptyText = "Не назначено",
+                emptyText = StatsDetailCopy.notAssigned(),
             )
 
             DetailDivider()
@@ -3058,12 +3137,12 @@ private fun DetailIssueCard(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 IssueDateColumn(
-                    title = "Дата создания",
+                    title = StatsDetailCopy.createdAtTitle(),
                     value = issue.createdAtLabel,
                     modifier = Modifier.weight(1f),
                 )
                 IssueDateColumn(
-                    title = "Дата закрытия",
+                    title = StatsDetailCopy.closedAtTitle(),
                     value = issue.closedAtLabel ?: "—",
                     modifier = Modifier.weight(1f),
                 )
@@ -3079,7 +3158,7 @@ private fun DetailIssueCard(
                     icon = {
                         Image(
                             painter = painterResource(Res.drawable.stats_issue_comments_logo),
-                            contentDescription = "Комментарии",
+                            contentDescription = StatsDetailCopy.commentsCd(),
                             modifier = Modifier.size(15.dp),
                             contentScale = ContentScale.Fit,
                         )
@@ -3091,7 +3170,7 @@ private fun DetailIssueCard(
                     icon = {
                         Image(
                             painter = painterResource(Res.drawable.stats_issue_like_logo),
-                            contentDescription = "Положительные реакции",
+                            contentDescription = StatsDetailCopy.reactionsPositiveCd(),
                             modifier = Modifier
                                 .width(15.dp)
                                 .height(17.dp),
@@ -3105,7 +3184,7 @@ private fun DetailIssueCard(
                     icon = {
                         Image(
                             painter = painterResource(Res.drawable.stats_issue_dislike_logo),
-                            contentDescription = "Отрицательные реакции",
+                            contentDescription = StatsDetailCopy.reactionsNegativeCd(),
                             modifier = Modifier
                                 .width(15.dp)
                                 .height(17.dp),
@@ -3117,12 +3196,12 @@ private fun DetailIssueCard(
                 Spacer(modifier = Modifier.weight(1f))
                 issue.url?.let { url ->
                     AnimatedClickableText(
-                        text = "ссылка ›",
+                        text = StatsDetailCopy.linkWithArrow(),
                         onClick = { uriHandler.openUri(url) },
                         fontFamily = AppFonts.OpenSansRegular,
                         fontSize = 12.sp,
                         lineHeight = 20.sp,
-                        color = AppColors.Color1,
+                        color = appPalette().subtleBorder,
                     )
                 }
             }
@@ -3160,7 +3239,7 @@ private fun IssueParticipantsSection(
     title: String,
     participants: List<DetailIssueParticipantUi>,
     modifier: Modifier = Modifier,
-    emptyText: String = "Нет данных",
+    emptyText: String = StatsDetailCopy.noData(),
 ) {
     val visibleParticipants = participants.filter { it.name.isNotBlank() }
 
@@ -3173,7 +3252,7 @@ private fun IssueParticipantsSection(
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 15.sp,
             lineHeight = 20.sp,
-            color = AppColors.Color2,
+            color = appPalette().primaryText,
         )
         if (visibleParticipants.isEmpty()) {
             Text(
@@ -3181,7 +3260,7 @@ private fun IssueParticipantsSection(
                 fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
-                color = AppColors.Color1,
+                color = appPalette().subtleBorder,
             )
         } else {
             FlowRow(
@@ -3223,7 +3302,7 @@ private fun IssueParticipantItem(
             fontFamily = AppFonts.OpenSansRegular,
             fontSize = 14.sp,
             lineHeight = 18.sp,
-            color = AppColors.Color2,
+            color = appPalette().primaryText,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -3246,14 +3325,14 @@ private fun IssueDateColumn(
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 15.sp,
             lineHeight = 20.sp,
-            color = AppColors.Color2,
+            color = appPalette().primaryText,
         )
         Text(
             text = value,
             fontFamily = AppFonts.OpenSansRegular,
             fontSize = 12.sp,
             lineHeight = 20.sp,
-            color = AppColors.Color2,
+            color = appPalette().primaryText,
         )
     }
 }
@@ -3275,7 +3354,7 @@ private fun IssueFooterMetric(
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 15.sp,
             lineHeight = 20.sp,
-            color = AppColors.Color2,
+            color = appPalette().primaryText,
         )
     }
 }
@@ -3296,7 +3375,7 @@ private fun IssueParticipantAvatar(
             text = authorInitials(name),
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 12.sp,
-            color = Color.White,
+            color = appPalette().buttonText,
         )
         avatarUrl?.let { url ->
             AsyncImage(
@@ -3326,7 +3405,7 @@ private fun DetailPullRequestCompactSection(
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 16.sp,
             lineHeight = 20.sp,
-            color = Color.Black,
+            color = appPalette().primaryText,
         )
         pullRequests.forEach { pullRequest ->
             DetailPullRequestCompactCard(pullRequest = pullRequest)
@@ -3362,7 +3441,7 @@ private fun DetailPullRequestCompactCard(
                 onClick = { pullRequest.url?.let(uriHandler::openUri) },
             ),
         shape = RoundedCornerShape(5.dp),
-        color = Color.White,
+        color = appPalette().buttonText,
         shadowElevation = 4.dp,
     ) {
         Column(
@@ -3375,7 +3454,7 @@ private fun DetailPullRequestCompactCard(
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 15.sp,
                     lineHeight = 20.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             }
             Text(
@@ -3383,16 +3462,20 @@ private fun DetailPullRequestCompactCard(
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
-                color = Color.Black,
+                color = appPalette().primaryText,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "Закрыт за ${formatDurationMinutesLabel(durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso))}",
+                text = StatsDetailCopy.closedInDuration(
+                    formatDurationMinutesLabel(
+                        durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso),
+                    ),
+                ),
                 fontFamily = AppFonts.OpenSansRegular,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -3455,14 +3538,14 @@ private fun DetailEntityListCard(
                 text = title,
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
             )
             if (items.isEmpty()) {
                 Text(
-                    text = "Нет данных",
+                    text = StatsDetailCopy.noData(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 13.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             } else {
                 items.forEachIndexed { index, item ->
@@ -3480,7 +3563,7 @@ private fun DetailEntityListCard(
                                     text = item.title,
                                     fontFamily = AppFonts.OpenSansBold,
                                     fontSize = 14.sp,
-                                    color = AppColors.Color2,
+                                    color = appPalette().primaryText,
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     item.badge?.let { badge ->
@@ -3494,7 +3577,7 @@ private fun DetailEntityListCard(
                                             text = secondary,
                                             fontFamily = AppFonts.OpenSansMedium,
                                             fontSize = 12.sp,
-                                            color = AppColors.Color2,
+                                            color = appPalette().primaryText,
                                         )
                                     }
                                 }
@@ -3504,7 +3587,7 @@ private fun DetailEntityListCard(
                                     text = trailing,
                                     fontFamily = AppFonts.OpenSansBold,
                                     fontSize = 12.sp,
-                                    color = AppColors.Color3,
+                                    color = appPalette().accent,
                                     textAlign = TextAlign.End,
                                     modifier = Modifier.padding(start = 12.dp),
                                 )
@@ -3515,7 +3598,7 @@ private fun DetailEntityListCard(
                                 text = line,
                                 fontFamily = AppFonts.OpenSansRegular,
                                 fontSize = 12.sp,
-                                color = AppColors.Color2,
+                                color = appPalette().primaryText,
                             )
                         }
                         item.link?.let { link ->
@@ -3523,7 +3606,7 @@ private fun DetailEntityListCard(
                                 text = item.linkLabel ?: link,
                                 fontFamily = AppFonts.OpenSansBold,
                                 fontSize = 12.sp,
-                                color = AppColors.Color3,
+                                color = appPalette().accent,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -3550,7 +3633,7 @@ private fun DetailChipSection(
                 text = title,
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
             )
             val rows = chips.chunked(3)
             rows.forEach { row ->
@@ -3578,7 +3661,7 @@ private fun DetailPersonSection(
             text = title,
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 14.sp,
-            color = Color.Black,
+            color = appPalette().primaryText,
         )
         rows.forEach { row ->
             DetailPersonCard(row = row)
@@ -3596,7 +3679,7 @@ private fun DetailPersonCard(
             .fillMaxWidth()
             .height(60.dp),
         shape = RoundedCornerShape(5.dp),
-        color = Color.White,
+        color = appPalette().buttonText,
         shadowElevation = 4.dp,
     ) {
         Row(
@@ -3616,7 +3699,7 @@ private fun DetailPersonCard(
                     text = authorInitials(row.name),
                     fontFamily = AppFonts.OpenSansBold,
                     fontSize = 12.sp,
-                    color = Color.White,
+                    color = appPalette().buttonText,
                 )
                 row.avatarUrl?.let { url ->
                     AsyncImage(
@@ -3633,7 +3716,7 @@ private fun DetailPersonCard(
                 text = row.name,
                 fontFamily = if (row.isCurrentUser) AppFonts.OpenSansBold else AppFonts.OpenSansMedium,
                 fontSize = 13.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -3642,7 +3725,7 @@ private fun DetailPersonCard(
                 text = row.value,
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 12.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
             )
         }
     }
@@ -3663,7 +3746,7 @@ private fun DetailLabelSection(
             text = title,
             fontFamily = AppFonts.OpenSansBold,
             fontSize = 14.sp,
-            color = Color.Black,
+            color = appPalette().primaryText,
         )
         // FlowRow — метки переносятся, как в Figma
         FlowRow(
@@ -3697,16 +3780,16 @@ private fun DetailLabelBadge(
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
-                color = Color.White,
+                color = appPalette().buttonText,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
             )
         }
         Text(
-            text = "- ${chip.count} issue",
+            text = StatsDetailCopy.issueLabelCount(chip.count),
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 14.sp,
             lineHeight = 20.sp,
-            color = AppColors.Color2,
+            color = appPalette().primaryText,
         )
     }
 }
@@ -3739,25 +3822,25 @@ private fun DetailOwnershipDonutCard(
                                     append(" ")
                                     withStyle(
                                         SpanStyle(
-                                            color = AppColors.Color3,
+                                            color = appPalette().accent,
                                             fontFamily = AppFonts.OpenSansBold,
                                         )
                                     ) {
-                                        append("(Вы)")
+                                        append(StatsDetailCopy.youInParens())
                                     }
                                 }
                             },
                             fontFamily = AppFonts.OpenSansRegular,
                             fontSize = 13.sp,
                             lineHeight = 20.sp,
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                         )
                         Text(
-                            text = "${row.lines} строк",
+                            text = StatsDetailCopy.linesCountLabel(row.lines),
                             fontFamily = AppFonts.OpenSansBold,
                             fontSize = 12.sp,
                             lineHeight = 20.sp,
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                         )
                     }
                 }
@@ -3789,31 +3872,31 @@ private fun CodeChurnDonutCard(
                         text = buildAnnotatedString {
                             withStyle(SpanStyle(
                                 fontFamily = AppFonts.OpenSansSemiBold,
-                                color = AppColors.Color2,
+                                color = appPalette().primaryText,
                             )) {
                                 append(slice.label)
                             }
                             withStyle(SpanStyle(
                                 fontFamily = AppFonts.OpenSansRegular,
-                                color = AppColors.Color2,
+                                color = appPalette().primaryText,
                             )) {
                                 append(" - ")
                             }
                             withStyle(SpanStyle(
                                 fontFamily = AppFonts.OpenSansBold,
-                                color = AppColors.Color3,
+                                color = appPalette().accent,
                             )) {
                                 append(slice.secondaryLabel.substringBefore(' '))
                             }
                             withStyle(SpanStyle(
                                 fontFamily = AppFonts.OpenSansRegular,
-                                color = AppColors.Color2,
+                                color = appPalette().primaryText,
                             )) {
                                 append(" " + slice.secondaryLabel.substringAfter(' '))
                             }
                         },
                         fontSize = 13.sp,
-                        color = AppColors.Color2,
+                        color = appPalette().primaryText,
                     )
                 }
             }
@@ -3862,7 +3945,7 @@ private fun DetailMetricStatementCard(
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 14.sp,
                     lineHeight = 16.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -3879,18 +3962,18 @@ private fun DetailOwnershipParticipantsTableCard(
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                text = "Таблица участников",
+                text = StatsDetailCopy.participantsTableTitle(),
                 fontFamily = AppFonts.OpenSansSemiBold,
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
             )
             if (rows.isEmpty()) {
                 Text(
-                    text = "Нет данных",
+                    text = StatsDetailCopy.noData(),
                     fontFamily = AppFonts.OpenSansMedium,
                     fontSize = 13.sp,
-                    color = AppColors.Color2,
+                    color = appPalette().primaryText,
                 )
             } else {
                 DetailDivider()
@@ -3926,7 +4009,7 @@ private fun DetailOwnershipParticipantRow(
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -3942,7 +4025,7 @@ private fun DetailOwnershipParticipantRow(
                     }
                     withStyle(
                         SpanStyle(
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                             fontFamily = AppFonts.OpenSansMedium,
                         )
                     ) {
@@ -3969,7 +4052,7 @@ private fun DetailOwnershipParticipantRow(
                 text = buildAnnotatedString {
                     withStyle(
                         SpanStyle(
-                            color = AppColors.Color3,
+                            color = appPalette().accent,
                             fontFamily = AppFonts.OpenSansBold,
                         )
                     ) {
@@ -3977,11 +4060,11 @@ private fun DetailOwnershipParticipantRow(
                     }
                     withStyle(
                         SpanStyle(
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                             fontFamily = AppFonts.OpenSansMedium,
                         )
                     ) {
-                        append(" ${pluralize(row.changes, "изменение", "изменения", "изменений")}")
+                        append(" ${StatsDetailCopy.changesWord(row.changes)}")
                     }
                 },
                 fontSize = 14.sp,
@@ -3992,7 +4075,7 @@ private fun DetailOwnershipParticipantRow(
                 text = buildAnnotatedString {
                     withStyle(
                         SpanStyle(
-                            color = AppColors.Color3,
+                            color = appPalette().accent,
                             fontFamily = AppFonts.OpenSansBold,
                         )
                     ) {
@@ -4000,11 +4083,11 @@ private fun DetailOwnershipParticipantRow(
                     }
                     withStyle(
                         SpanStyle(
-                            color = AppColors.Color2,
+                            color = appPalette().primaryText,
                             fontFamily = AppFonts.OpenSansMedium,
                         )
                     ) {
-                        append(" ${pluralize(row.lines, "строка", "строки", "строк")}")
+                        append(" ${StatsDetailCopy.linesWord(row.lines)}")
                     }
                 },
                 fontSize = 14.sp,
@@ -4033,15 +4116,15 @@ private fun FileNameMetricCard(
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 24.sp,
                 lineHeight = 28.sp,
-                color = AppColors.Color3,
+                color = appPalette().accent,
                 softWrap = true,
             )
             Text(
-                text = "самый часто изменяемый файл",
+                text = StatsDetailCopy.mostChangedFileSubtitle(),
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
                 lineHeight = 16.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
             )
         }
     }
@@ -4062,7 +4145,7 @@ private fun DetailPullRequestLifetimeSection(
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 16.sp,
             lineHeight = 20.sp,
-            color = Color.Black,
+            color = appPalette().primaryText,
         )
         DetailCard {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -4082,7 +4165,7 @@ private fun DetailPullRequestLifetimeSection(
                                 withStyle(
                                     SpanStyle(
                                         fontFamily = AppFonts.OpenSansSemiBold,
-                                        color = AppColors.Color2,
+                                        color = appPalette().primaryText,
                                     )
                                 ) {
                                     append(slice.label)
@@ -4090,7 +4173,7 @@ private fun DetailPullRequestLifetimeSection(
                                 withStyle(
                                     SpanStyle(
                                         fontFamily = AppFonts.OpenSansRegular,
-                                        color = AppColors.Color2,
+                                        color = appPalette().primaryText,
                                     )
                                 ) {
                                     append(" - ")
@@ -4098,7 +4181,7 @@ private fun DetailPullRequestLifetimeSection(
                                 withStyle(
                                     SpanStyle(
                                         fontFamily = AppFonts.OpenSansBold,
-                                        color = AppColors.Color3,
+                                        color = appPalette().accent,
                                     )
                                 ) {
                                     append(slice.secondaryLabel.substringBefore(' '))
@@ -4106,10 +4189,10 @@ private fun DetailPullRequestLifetimeSection(
                                 withStyle(
                                     SpanStyle(
                                         fontFamily = AppFonts.OpenSansRegular,
-                                        color = AppColors.Color2,
+                                        color = appPalette().primaryText,
                                     )
                                 ) {
-                                    append(" PR")
+                                    append(StatsDetailCopy.donutPrSuffix())
                                 }
                             },
                             fontSize = 14.sp,
@@ -4135,7 +4218,7 @@ private fun DetailHighlightCard(
                 fontFamily = AppFonts.OpenSansBold,
                 fontSize = 32.sp,
                 lineHeight = 32.sp,
-                color = AppColors.Color3,
+                color = appPalette().accent,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -4144,7 +4227,7 @@ private fun DetailHighlightCard(
                 fontFamily = AppFonts.OpenSansMedium,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
-                color = AppColors.Color2,
+                color = appPalette().primaryText,
             )
         }
     }
@@ -4161,7 +4244,7 @@ private fun DetailExportActions(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         DetailActionRow(
-            text = "Экспорт в PDF",
+            text = StatsDetailCopy.exportPdf(),
             icon = {
                 Image(
                     painter = painterResource(Res.drawable.stats_footer_pdf),
@@ -4174,7 +4257,7 @@ private fun DetailExportActions(
             onClick = onExportPdfClick,
         )
         DetailActionRow(
-            text = "Экспорт в Excel",
+            text = StatsDetailCopy.exportExcel(),
             icon = {
                 Image(
                     painter = painterResource(Res.drawable.stats_footer_excel),
@@ -4220,7 +4303,7 @@ private fun DetailActionRow(
             text = text,
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 14.sp,
-            color = AppColors.Color2,
+            color = appPalette().primaryText,
         )
     }
 }
@@ -4240,7 +4323,7 @@ private fun DetailChip(
             text = text,
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 11.sp,
-            color = AppColors.Color2,
+            color = appPalette().primaryText,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
         )
     }
@@ -4256,17 +4339,17 @@ private fun FileStatusFilterChip(
     Surface(
         modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(30.dp),
-        color = if (selected) AppColors.Color3 else Color(0xFFF2F2F4),
+        color = if (selected) appPalette().accent else appPalette().surface,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (selected) AppColors.Color3 else Color(0xFFE4E4E7),
+            if (selected) appPalette().accent else Color(0xFFE4E4E7),
         ),
     ) {
         Text(
             text = text,
             fontFamily = AppFonts.OpenSansMedium,
             fontSize = 11.sp,
-            color = if (selected) Color.White else AppColors.Color2,
+            color = if (selected) appPalette().buttonText else appPalette().primaryText,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
         )
     }
@@ -4281,7 +4364,7 @@ private fun DetailCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = DetailCardShape,
-        color = Color.White,
+        color = appPalette().buttonText,
         shadowElevation = 8.dp,
     ) {
         Column(
@@ -4305,13 +4388,13 @@ private fun DetailDivider(
 
 private fun detailTitle(section: StatsScreenSection): String {
     return when (section) {
-        StatsScreenSection.Commits -> "Коммиты"
-        StatsScreenSection.Issues -> "Issue"
-        StatsScreenSection.PullRequests -> "Pull Request"
-        StatsScreenSection.RapidPullRequests -> "Быстрые PR"
-        StatsScreenSection.CodeChurn -> "Рефакторинг"
-        StatsScreenSection.CodeOwnership -> "Владение"
-        StatsScreenSection.DominantWeekDay -> "Доминирующий день недели"
+        StatsScreenSection.Commits -> StatsDetailCopy.detailSectionTitleCommits()
+        StatsScreenSection.Issues -> StatsDetailCopy.detailSectionTitleIssues()
+        StatsScreenSection.PullRequests -> StatsDetailCopy.detailSectionTitlePullRequests()
+        StatsScreenSection.RapidPullRequests -> StatsDetailCopy.detailSectionTitleRapidPr()
+        StatsScreenSection.CodeChurn -> StatsDetailCopy.detailSectionTitleRefactoring()
+        StatsScreenSection.CodeOwnership -> StatsDetailCopy.detailSectionTitleOwnership()
+        StatsScreenSection.DominantWeekDay -> StatsDetailCopy.detailSectionTitleDominantDay()
     }
 }
 
@@ -4351,13 +4434,21 @@ private fun issueStableKey(issue: StatsDetailIssueUi): String {
         append(issue.createdAtIso ?: "")
     }
 }
-
+@Composable
 private fun issueStatusBackgroundColor(state: String): Color {
     return when (state.trim().lowercase()) {
-        "closed" -> AppColors.Color3
+        "closed" -> appPalette().accent
         "open" -> Color(0xFF209F31)
-        else -> AppColors.Color2
+        else -> appPalette().primaryText
     }
+}
+
+private fun localizedIssueStateLabel(state: String): String = when (state.trim().lowercase()) {
+    "open" -> StatsDetailCopy.issueStateOpen()
+    "closed" -> StatsDetailCopy.issueStateClosed()
+    "merged" -> StatsDetailCopy.issueStateMerged()
+    "draft" -> StatsDetailCopy.issueStateDraft()
+    else -> state.lowercase()
 }
 
 private fun resolveGithubAvatarUrl(
@@ -4499,7 +4590,7 @@ private fun buildParticipantSnapshots(
                 participants[id] = StatsDetailParticipantUi(
                     id = id,
                     name = commit.authorName,
-                    subtitle = "Участник",
+                    subtitle = StatsExportCopy.participant(),
                 )
             }
         }
@@ -4510,7 +4601,7 @@ private fun buildParticipantSnapshots(
                 participants[id] = StatsDetailParticipantUi(
                     id = id,
                     name = issue.creatorName,
-                    subtitle = "Участник",
+                    subtitle = StatsExportCopy.participant(),
                 )
             }
         }
@@ -4519,7 +4610,7 @@ private fun buildParticipantSnapshots(
                 participants[id] = StatsDetailParticipantUi(
                     id = id,
                     name = issue.assigneeNames.getOrNull(index) ?: id,
-                    subtitle = "Участник",
+                    subtitle = StatsExportCopy.participant(),
                 )
             }
         }
@@ -4530,7 +4621,7 @@ private fun buildParticipantSnapshots(
                 participants[id] = StatsDetailParticipantUi(
                     id = id,
                     name = pullRequest.authorName,
-                    subtitle = "Участник",
+                    subtitle = StatsExportCopy.participant(),
                 )
             }
         }
@@ -4628,13 +4719,13 @@ private fun buildWeekDayStats(
     pullRequests: List<StatsDetailPullRequestUi>,
 ): List<DetailWeekDayStat> {
     val labels = listOf(
-        "Понедельник",
-        "Вторник",
-        "Среда",
-        "Четверг",
-        "Пятница",
-        "Суббота",
-        "Воскресенье",
+        StatsDetailCopy.monday(),
+        StatsDetailCopy.tuesday(),
+        StatsDetailCopy.wednesday(),
+        StatsDetailCopy.thursday(),
+        StatsDetailCopy.friday(),
+        StatsDetailCopy.saturday(),
+        StatsDetailCopy.sunday(),
     )
     val counts = linkedMapOf<String, Int>().apply {
         labels.forEach { put(it, 0) }
@@ -4749,19 +4840,19 @@ private fun buildPullRequestLifetimeSlices(
 ): List<ProjectStatsDonutSliceUi> {
     if (durations.isEmpty()) return emptyList()
     val buckets = listOf(
-        "< 1 часа" to durations.count { it < 60 },
-        "1-6 часов" to durations.count { it in 60 until 360 },
-        "6-24 часа" to durations.count { it in 360 until 1440 },
-        "1-3 дня" to durations.count { it in 1440 until 4320 },
-        "3-7 дней" to durations.count { it in 4320 until 10080 },
-        "7-14 дней" to durations.count { it in 10080 until 20160 },
-        ">14 дней" to durations.count { it >= 20160 },
+        StatsDetailCopy.prLifetimeBucket1() to durations.count { it < 60 },
+        StatsDetailCopy.prLifetimeBucket2() to durations.count { it in 60 until 360 },
+        StatsDetailCopy.prLifetimeBucket3() to durations.count { it in 360 until 1440 },
+        StatsDetailCopy.prLifetimeBucket4() to durations.count { it in 1440 until 4320 },
+        StatsDetailCopy.prLifetimeBucket5() to durations.count { it in 4320 until 10080 },
+        StatsDetailCopy.prLifetimeBucket6() to durations.count { it in 10080 until 20160 },
+        StatsDetailCopy.prLifetimeBucket7() to durations.count { it >= 20160 },
     ).filter { it.second > 0 }
     val total = durations.size
     return buckets.mapIndexed { index, (label, value) ->
         ProjectStatsDonutSliceUi(
             label = label,
-            secondaryLabel = "$value PR",
+            secondaryLabel = StatsDetailCopy.prCountInDonut(value),
             percentLabel = percentLabel(value, total),
             value = value.toFloat(),
             colorHex = weekdayPalette[index % weekdayPalette.size],
@@ -4784,18 +4875,18 @@ private fun buildFileChurnSlices(
 ): List<ProjectStatsDonutSliceUi> {
     if (fileStats.isEmpty()) return emptyList()
     val buckets = listOf(
-        "1 изменение" to fileStats.count { it.changes == 1 },
-        "2-3 изменения" to fileStats.count { it.changes in 2..3 },
-        "4-5 изменений" to fileStats.count { it.changes in 4..5 },
-        "6-7 изменений" to fileStats.count { it.changes in 6..7 },
-        "8-10 изменений" to fileStats.count { it.changes in 8..10 },
-        ">10 изменений" to fileStats.count { it.changes > 10 },
+        StatsDetailCopy.fileChurnBucket1() to fileStats.count { it.changes == 1 },
+        StatsDetailCopy.fileChurnBucket2() to fileStats.count { it.changes in 2..3 },
+        StatsDetailCopy.fileChurnBucket3() to fileStats.count { it.changes in 4..5 },
+        StatsDetailCopy.fileChurnBucket4() to fileStats.count { it.changes in 6..7 },
+        StatsDetailCopy.fileChurnBucket5() to fileStats.count { it.changes in 8..10 },
+        StatsDetailCopy.fileChurnBucket6() to fileStats.count { it.changes > 10 },
     ).filter { it.second > 0 }
     val total = buckets.sumOf { it.second }.takeIf { it > 0 } ?: 1
     return buckets.mapIndexed { index, (label, value) ->
         ProjectStatsDonutSliceUi(
             label = label,
-            secondaryLabel = "$value файлов",
+            secondaryLabel = StatsDetailCopy.filesCountInDonut(value),
             percentLabel = percentLabel(value, total),
             value = value.toFloat(),
             colorHex = weekdayPalette[index % weekdayPalette.size],
@@ -4807,6 +4898,7 @@ private fun buildFileChurnSlices(
 private fun buildIssueCreatorRows(
     issues: List<StatsDetailIssueUi>,
     effectiveParticipantId: String?,
+    currentUserParticipantId: String? = null,
 ): List<DetailPersonRow> {
     val counts = linkedMapOf<DetailIssueParticipantKey, Int>()
     val avatarUrls = linkedMapOf<DetailIssueParticipantKey, String?>()
@@ -4825,10 +4917,10 @@ private fun buildIssueCreatorRows(
         .map { (key, count) ->
             DetailPersonRow(
                 id = key.id,
-                name = appendYouSuffix(key.name, key.id == effectiveParticipantId),
+                name = appendYouSuffix(key.name, key.id != null && key.id == currentUserParticipantId),
                 avatarUrl = avatarUrls[key],
-                value = "создано $count Issue",
-                isCurrentUser = key.id == effectiveParticipantId,
+                value = StatsExportCopy.createdIssuesCount(count),
+                isCurrentUser = key.id != null && key.id == currentUserParticipantId,
             )
         }
 }
@@ -4836,6 +4928,7 @@ private fun buildIssueCreatorRows(
 private fun buildIssueAssigneeRows(
     issues: List<StatsDetailIssueUi>,
     effectiveParticipantId: String?,
+    currentUserParticipantId: String? = null,
 ): List<DetailPersonRow> {
     val closedCounts = linkedMapOf<DetailIssueParticipantKey, Int>()
     val avatarUrls = linkedMapOf<DetailIssueParticipantKey, String?>()
@@ -4870,10 +4963,10 @@ private fun buildIssueAssigneeRows(
         .map { (key, closedCount) ->
             DetailPersonRow(
                 id = key.id,
-                name = appendYouSuffix(key.name, key.id == effectiveParticipantId),
+                name = appendYouSuffix(key.name, key.id != null && key.id == currentUserParticipantId),
                 avatarUrl = avatarUrls[key],
-                value = "закрыто $closedCount Issue",
-                isCurrentUser = key.id == effectiveParticipantId,
+                value = StatsExportCopy.closedIssuesCount(closedCount),
+                isCurrentUser = key.id != null && key.id == currentUserParticipantId,
             )
         }
 }
@@ -5003,13 +5096,13 @@ private fun durationMinutes(
 private fun weekdayLabel(value: String?): String? {
     val instant = parseInstant(value) ?: return null
     return when (instant.toLocalDateTime(TimeZone.UTC).dayOfWeek.name.lowercase()) {
-        "monday" -> "Понедельник"
-        "tuesday" -> "Вторник"
-        "wednesday" -> "Среда"
-        "thursday" -> "Четверг"
-        "friday" -> "Пятница"
-        "saturday" -> "Суббота"
-        "sunday" -> "Воскресенье"
+        "monday" -> StatsDetailCopy.monday()
+        "tuesday" -> StatsDetailCopy.tuesday()
+        "wednesday" -> StatsDetailCopy.wednesday()
+        "thursday" -> StatsDetailCopy.thursday()
+        "friday" -> StatsDetailCopy.friday()
+        "saturday" -> StatsDetailCopy.saturday()
+        "sunday" -> StatsDetailCopy.sunday()
         else -> null
     }
 }
@@ -5078,27 +5171,11 @@ private fun percentLabel(value: Int, total: Int): String {
     return "${((value.toDouble() / total.toDouble()) * 100.0).roundToInt()}%"
 }
 
-private fun pluralize(
-    count: Int,
-    one: String,
-    few: String,
-    many: String,
-): String {
-    val mod100 = count % 100
-    val mod10 = count % 10
-    return when {
-        mod100 in 11..14 -> many
-        mod10 == 1 -> one
-        mod10 in 2..4 -> few
-        else -> many
-    }
-}
-
 private fun appendYouSuffix(
     name: String,
     highlight: Boolean,
 ): String {
-    return if (highlight) "$name (Вы)" else name
+    return if (highlight) "${name} (${StatsExportCopy.youMarker()})" else name
 }
 
 private fun round2(value: Double): Double = ((value * 100.0).roundToInt() / 100.0)

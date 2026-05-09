@@ -1,5 +1,7 @@
 package com.spbu.projecttrack.projects.data.api
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 import com.spbu.projecttrack.core.network.ApiConfig
 import com.spbu.projecttrack.projects.data.model.ProjectsResponse
@@ -175,6 +177,27 @@ class ProjectsApi(private val client: HttpClient) {
         } catch (e: Exception) {
             println("❌ Ошибка при запросе getProjectById: ${e.message}")
             e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    suspend fun editMemberRole(memberId: Int, role: String): Result<Unit> {
+        return try {
+            val url = "${ApiConfig.baseUrl}${ApiConfig.AuthRequired.MEMBER_EDIT}/$memberId"
+            val response = client.put(url) {
+                accept(ContentType.Application.Json)
+                header(HttpHeaders.ContentType, ContentType.Application.Json)
+                setBody(
+                    buildJsonObject {
+                        put("role", role)
+                    }.toString()
+                )
+            }
+            if (!response.status.isSuccess()) {
+                return Result.failure(buildHttpError(response.status))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }

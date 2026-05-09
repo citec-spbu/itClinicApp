@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import projecttrack.composeapp.generated.resources.*
@@ -23,6 +24,7 @@ fun MyProjectButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val myProjectLabel = localizedString("Мой проект", "My project")
     Box(
         modifier = modifier
             .wrapContentWidth() // Динамическая ширина
@@ -47,11 +49,10 @@ fun MyProjectButton(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "Мой проект",
+            text = myProjectLabel,
             fontFamily = AppFonts.OpenSansSemiBold,
             fontSize = 14.sp,
             color = AppColors.White
         )
     }
 }
-

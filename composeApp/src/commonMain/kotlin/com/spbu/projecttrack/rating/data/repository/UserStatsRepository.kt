@@ -8,6 +8,7 @@ import com.spbu.projecttrack.projects.data.model.ProjectDetail
 import com.spbu.projecttrack.projects.data.model.ProjectDetailResponse
 import com.spbu.projecttrack.projects.data.model.User
 import com.spbu.projecttrack.rating.data.api.MetricApi
+import com.spbu.projecttrack.user.data.api.UserProfileApi
 import com.spbu.projecttrack.rating.data.model.MetricProjectDetail
 import com.spbu.projecttrack.rating.data.model.MetricProjectMetric
 import com.spbu.projecttrack.rating.data.model.MetricProjectResource
@@ -55,6 +56,7 @@ import kotlin.math.roundToInt
 class UserStatsRepository(
     private val metricApi: MetricApi,
     private val projectsApi: ProjectsApi,
+    private val userProfileApi: UserProfileApi,
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -90,6 +92,8 @@ class UserStatsRepository(
 
         return try {
             coroutineScope {
+                val profile = userProfileApi.getProfile().getOrNull()
+                val currentUserLogin = profile?.user?.githubLogin?.trim()?.takeIf { it.isNotBlank() }
                 val allProjects = projectsApi.getAllProjects().getOrNull()?.projects.orEmpty()
                 val resolvedProject = resolveMetricUserProject(
                     fallbackUserName = fallbackUserName,
@@ -186,6 +190,7 @@ class UserStatsRepository(
                         context = context,
                         teamUsers = teamUsers,
                         selectedUser = selectedUser,
+                        currentUserLogin = currentUserLogin,
                     ),
                     rapidThreshold = buildRapidThreshold(resolvedRapidThresholdMinutes),
                     showOverallRatingButton = true,
@@ -569,6 +574,7 @@ class UserStatsRepository(
         context: UserStatsContext,
         teamUsers: List<TeamUserIdentity>,
         selectedUser: TeamUserIdentity,
+        currentUserLogin: String? = null,
     ): StatsDetailDataUi {
         val nowIso = Instant.fromEpochMilliseconds(PlatformTime.currentTimeMillis()).toString()
         val displayNames = teamUsers.associateBy(
@@ -581,7 +587,7 @@ class UserStatsRepository(
                 id = participantId,
                 name = user.displayName,
                 subtitle = user.role.ifBlank { "Участник" },
-                isCurrentUser = participantId == normalizeLogin(selectedUser.login),
+                isCurrentUser = currentUserLogin != null && participantId == normalizeLogin(currentUserLogin),
             )
         }.distinctBy { it.id }
 

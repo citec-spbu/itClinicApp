@@ -3,7 +3,9 @@ package com.spbu.projecttrack.core.di
 import com.spbu.projecttrack.core.network.HttpClientFactory
 import com.spbu.projecttrack.core.auth.MobileAuthApi
 import com.spbu.projecttrack.projects.data.api.ContactRequestApi
+import com.spbu.projecttrack.projects.data.api.MemberApi
 import com.spbu.projecttrack.projects.data.api.ProjectsApi
+import com.spbu.projecttrack.user.data.api.UserRoleApi
 import com.spbu.projecttrack.user.data.api.UserProfileApi
 import com.spbu.projecttrack.projects.data.repository.ProjectsRepository
 import com.spbu.projecttrack.projects.presentation.ProjectsViewModel
@@ -23,6 +25,8 @@ object DependencyContainer {
     private val projectsApi by lazy { ProjectsApi(httpClient) }
     private val contactRequestApi by lazy { ContactRequestApi(httpClient) }
     private val userProfileApi by lazy { UserProfileApi(httpClient) }
+    private val userRoleApi by lazy { UserRoleApi(httpClient) }
+    private val memberApi by lazy { MemberApi(httpClient) }
     private val metricApi by lazy { MetricApi(httpClient) }
     private val mobileAuthApi by lazy { MobileAuthApi(httpClient) }
     
@@ -44,7 +48,8 @@ object DependencyContainer {
     private val userStatsRepository by lazy {
         UserStatsRepository(
             metricApi = metricApi,
-            projectsApi = projectsApi
+            projectsApi = projectsApi,
+            userProfileApi = userProfileApi
         )
     }
     
@@ -60,12 +65,24 @@ object DependencyContainer {
         return contactRequestApi
     }
 
+    fun provideProjectsApi(): ProjectsApi {
+        return projectsApi
+    }
+
     fun provideUserProfileApi(): UserProfileApi {
         return userProfileApi
     }
 
+    fun provideUserRoleApi(): UserRoleApi {
+        return userRoleApi
+    }
+
     fun provideMobileAuthApi(): MobileAuthApi {
         return mobileAuthApi
+    }
+
+    fun provideMemberApi(): MemberApi {
+        return memberApi
     }
 
     // Singleton — survives tab switches so hasLoaded stays true and no re-loading occurs

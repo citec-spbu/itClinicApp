@@ -13,6 +13,7 @@ data class UserProfileResponse(
 data class UserProfileUser(
     val email: String = "",
     val phone: String = "",
+    val githubLogin: String = "",
     val fullName: UserProfileFullName = UserProfileFullName()
 )
 
