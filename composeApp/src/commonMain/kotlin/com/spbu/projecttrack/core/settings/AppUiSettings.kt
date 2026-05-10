@@ -94,9 +94,12 @@ data class AppStrings(
     val profileLoadError: String,
     val updateAvailableTitle: String,
     val updateAvailableMessage: String,
+    val updateRequiredMessage: String,
     val currentVersionLabel: String,
     val availableVersionLabel: String,
+    val updateWhatsNewLabel: String,
     val installUpdateLabel: String,
+    val updateDownloadingLabel: String,
     val remindMeLaterLabel: String,
     val policyBody: String,
 )
@@ -340,10 +343,13 @@ private fun russianStrings() = AppStrings(
     profileSaveError = "Не удалось сохранить изменения",
     profileLoadError = "Не удалось загрузить профиль",
     updateAvailableTitle = "Доступно обновление",
-    updateAvailableMessage = "Для Android опубликована более новая сборка из main. Установите обновление, чтобы получить последние изменения.",
+    updateAvailableMessage = "Для Android опубликована более новая версия. Установите обновление, чтобы получить последние изменения.",
+    updateRequiredMessage = "Для продолжения работы нужно установить более новую версию приложения.",
     currentVersionLabel = "Текущая версия",
     availableVersionLabel = "Доступная версия",
+    updateWhatsNewLabel = "Что нового",
     installUpdateLabel = "Обновить",
+    updateDownloadingLabel = "Скачиваем...",
     remindMeLaterLabel = "Позже",
     policyBody = """
         Приложение CITEC обрабатывает только те данные, которые нужны для авторизации, отображения профиля, участия в проектах и расчёта проектной статистики.
@@ -410,10 +416,13 @@ private fun englishStrings() = AppStrings(
     profileSaveError = "Failed to save changes",
     profileLoadError = "Failed to load profile",
     updateAvailableTitle = "Update available",
-    updateAvailableMessage = "A newer Android build from the main branch is available. Install the update to get the latest changes.",
+    updateAvailableMessage = "A newer Android version is available. Install the update to get the latest changes.",
+    updateRequiredMessage = "You need to install a newer app version to continue.",
     currentVersionLabel = "Current version",
     availableVersionLabel = "Available version",
+    updateWhatsNewLabel = "What's new",
     installUpdateLabel = "Update now",
+    updateDownloadingLabel = "Downloading...",
     remindMeLaterLabel = "Later",
     policyBody = """
         The CITEC app processes only the data required for sign-in, profile rendering, project participation and project statistics.
