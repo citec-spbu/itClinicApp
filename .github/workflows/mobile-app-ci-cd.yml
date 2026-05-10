@@ -139,6 +139,15 @@ jobs:
         run: ./gradlew :composeApp:testDebugUnitTest --stacktrace
 
       - name: Build and stage APK artifact
+        env:
+          CI_SMTP_HOST: ${{ secrets.CI_SMTP_HOST }}
+          CI_SMTP_PORT: ${{ secrets.CI_SMTP_PORT }}
+          CI_SMTP_USERNAME: ${{ secrets.CI_SMTP_USERNAME }}
+          CI_SMTP_PASSWORD: ${{ secrets.CI_SMTP_PASSWORD }}
+          CI_SMTP_FROM_EMAIL: ${{ secrets.CI_SMTP_FROM_EMAIL }}
+          CI_SMTP_FROM_NAME: ${{ secrets.CI_SMTP_FROM_NAME }}
+          CI_FEEDBACK_TO_EMAIL: ${{ secrets.CI_FEEDBACK_TO_EMAIL }}
+          CI_FEEDBACK_SUBJECT: ${{ secrets.CI_FEEDBACK_SUBJECT }}
         run: bash scripts/prepare_mobile_showcase.sh
 
       - name: Generate Android update manifest

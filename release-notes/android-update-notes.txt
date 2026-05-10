@@ -3,3 +3,4 @@
 # You can optionally start a line with "-" or "*".
 # If this file is unchanged compared with the previous commit,
 # the Android "What's new" dialog will stay empty.
+Пофиксили обратную связь
