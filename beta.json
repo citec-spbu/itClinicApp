@@ -6,10 +6,10 @@
   "forceUpdate": false,
   "releaseTag": "android-main-83",
   "apkUrl": "https://github.com/citec-spbu/itClinicApp/releases/download/android-main-83/itclinicapp-release.apk",
-  "sha256": "349572029f5df0aa6079fa73402e6d899c4493164219d331762355fd9380f00d",
+  "sha256": "3c112135296f166483aa7bda9507f6ad47071a4ad5bf6f9053302fe94df97c6f",
   "sizeBytes": 16275781,
   "releasePageUrl": "https://github.com/citec-spbu/itClinicApp/releases/tag/android-main-83",
   "changelog": [],
   "commitSha": "f49d280c735cd546c64cfddc4a9da3f40f7b2192",
-  "generatedAt": "2026-05-10T13:32:27Z"
+  "generatedAt": "2026-05-10T13:43:48Z"
 }
