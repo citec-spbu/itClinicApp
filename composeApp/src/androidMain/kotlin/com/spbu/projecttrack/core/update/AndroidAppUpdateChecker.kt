@@ -33,22 +33,14 @@ object AndroidAppUpdateChecker {
         }
 
         val preferences = AndroidUpdatePreferences(context)
-        val now = System.currentTimeMillis()
-
-        if (!preferences.shouldCheck(now)) {
-            return null
-        }
 
         return try {
             val installedVersion = readInstalledVersion(context)
             val updateChannel = resolveUpdateChannel(installedVersion)
             val manifest = fetchUpdateManifest(updateChannel)
             if (manifest == null) {
-                preferences.markChecked(now)
                 return null
             }
-
-            preferences.markChecked(now)
 
             if (manifest.versionCode <= installedVersion.versionCode) {
                 return null
@@ -71,7 +63,6 @@ object AndroidAppUpdateChecker {
                 isRequired = isRequired,
             )
         } catch (_: Exception) {
-            preferences.markChecked(now)
             null
         }
     }
@@ -164,15 +155,6 @@ private class AndroidUpdatePreferences(context: Context) {
         Context.MODE_PRIVATE
     )
 
-    fun shouldCheck(nowMillis: Long): Boolean {
-        val lastCheck = prefs.getLong(KEY_LAST_CHECK_AT, 0L)
-        return nowMillis - lastCheck >= UPDATE_CHECK_INTERVAL_MS
-    }
-
-    fun markChecked(nowMillis: Long) {
-        prefs.edit().putLong(KEY_LAST_CHECK_AT, nowMillis).apply()
-    }
-
     fun dismissedVersionCode(): Long {
         return prefs.getLong(KEY_DISMISSED_VERSION_CODE, -1L)
     }
@@ -186,8 +168,6 @@ private class AndroidUpdatePreferences(context: Context) {
     }
 
     private companion object {
-        private const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
-        private const val KEY_LAST_CHECK_AT = "last_check_at"
         private const val KEY_DISMISSED_VERSION_CODE = "dismissed_version_code"
     }
 }
