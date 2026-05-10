@@ -367,22 +367,26 @@ jobs:
         run: |
           set -euo pipefail
 
+          REPO_ROOT="$PWD"
+          UPDATE_WORKTREE="${RUNNER_TEMP}/android-updates-branch"
+          MANIFEST_SOURCE="${REPO_ROOT}/release-artifacts/update-manifests/${UPDATE_CHANNEL}.json"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           if git ls-remote --exit-code origin "${UPDATE_BRANCH}" >/dev/null 2>&1; then
             git fetch origin "${UPDATE_BRANCH}:${UPDATE_BRANCH}"
-            git worktree add "${RUNNER_TEMP}/android-updates-branch" "${UPDATE_BRANCH}"
+            git worktree add "${UPDATE_WORKTREE}" "${UPDATE_BRANCH}"
           else
-            git worktree add --detach "${RUNNER_TEMP}/android-updates-branch"
-            cd "${RUNNER_TEMP}/android-updates-branch"
+            git worktree add --detach "${UPDATE_WORKTREE}"
+            cd "${UPDATE_WORKTREE}"
             git checkout --orphan "${UPDATE_BRANCH}"
             find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
           fi
 
-          cp "release-artifacts/update-manifests/${UPDATE_CHANNEL}.json" "${RUNNER_TEMP}/android-updates-branch/${UPDATE_CHANNEL}.json"
+          cp "${MANIFEST_SOURCE}" "${UPDATE_WORKTREE}/${UPDATE_CHANNEL}.json"
 
-          cd "${RUNNER_TEMP}/android-updates-branch"
+          cd "${UPDATE_WORKTREE}"
           git add "${UPDATE_CHANNEL}.json"
 
           if git diff --cached --quiet; then
