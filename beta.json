@@ -1,15 +1,15 @@
 {
   "channel": "beta",
-  "versionCode": 81,
-  "versionName": "main.81-a053b82",
+  "versionCode": 82,
+  "versionName": "main.82-ed0c33d",
   "minSupportedVersionCode": 0,
   "forceUpdate": false,
-  "releaseTag": "android-main-81",
-  "apkUrl": "https://github.com/citec-spbu/itClinicApp/releases/download/android-main-81/itclinicapp-release.apk",
-  "sha256": "3ba68586db2ff7c3f204fc264604a46b6dcd11441f8eaaf0af186a8ebb835a4e",
+  "releaseTag": "android-main-82",
+  "apkUrl": "https://github.com/citec-spbu/itClinicApp/releases/download/android-main-82/itclinicapp-release.apk",
+  "sha256": "8267ea0099a6d339c77a74e4c3139ef8f9adf3b68aa30d9b6c9caa3a9496ccfa",
   "sizeBytes": 16275781,
-  "releasePageUrl": "https://github.com/citec-spbu/itClinicApp/releases/tag/android-main-81",
-  "changelog": [],
-  "commitSha": "a053b82098ab239942a1f94be3b5f5f312bc7f8b",
-  "generatedAt": "2026-05-10T12:47:33Z"
+  "releasePageUrl": "https://github.com/citec-spbu/itClinicApp/releases/tag/android-main-82",
+  "changelog": ["Пофиксили обратную связь"],
+  "commitSha": "ed0c33db40a49383de09b44a26bc80396941fd47",
+  "generatedAt": "2026-05-10T13:15:08Z"
 }
