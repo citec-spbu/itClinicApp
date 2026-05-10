@@ -42,7 +42,7 @@ The stack uses your local backend configuration from these files.
 
 ## Build the APK artifact
 
-The showcase container expects the debug APK to be available in `release-artifacts/`.
+The showcase container expects the delivery APK to be available in `release-artifacts/`.
 
 Run:
 

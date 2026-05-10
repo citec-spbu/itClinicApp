@@ -32,7 +32,9 @@ import com.spbu.projecttrack.core.storage.createAppPreferences
 import com.spbu.projecttrack.core.ui.AppSnackbarHost
 import com.spbu.projecttrack.core.update.AndroidAppUpdateChecker
 import com.spbu.projecttrack.core.update.AndroidAppUpdateDialog
+import com.spbu.projecttrack.core.update.AndroidAppUpdateInstaller
 import com.spbu.projecttrack.core.update.AndroidAppUpdate
+import com.spbu.projecttrack.core.update.AndroidUpdateInstallException
 import com.spbu.projecttrack.debug.AndroidSplashDebugLock
 import com.spbu.projecttrack.debug.SplashDebugPreviewOverlay
 import com.spbu.projecttrack.debug.shouldShowSplashDebugPreview
@@ -190,12 +192,16 @@ actual fun App(onLaunchReady: () -> Unit) {
     }
 
     var availableAndroidUpdate by remember { mutableStateOf<AndroidAppUpdate?>(null) }
+    var isInstallingAndroidUpdate by remember { mutableStateOf(false) }
     var mainSelectedTab by rememberSaveable { mutableStateOf(0) }
     val screenStack = remember { mutableStateListOf<Screen>() }
 
     LaunchedEffect(authBootstrapComplete, isOnboardingVisible) {
         if (authBootstrapComplete && !isOnboardingVisible) {
             availableAndroidUpdate = AndroidAppUpdateChecker.checkForAvailableUpdate(context)
+            if (availableAndroidUpdate?.isRequired == true) {
+                AndroidAppUpdateChecker.resetDismissedUpdate(context)
+            }
         }
     }
 
@@ -350,13 +356,39 @@ actual fun App(onLaunchReady: () -> Unit) {
             availableAndroidUpdate?.let { update ->
                 AndroidAppUpdateDialog(
                     update = update,
-                    onDismiss = {
-                        AndroidAppUpdateChecker.dismissUpdate(context, update.versionCode)
-                        availableAndroidUpdate = null
+                    isInstalling = isInstallingAndroidUpdate,
+                    onDismiss = if (update.isRequired) {
+                        null
+                    } else {
+                        {
+                            AndroidAppUpdateChecker.dismissUpdate(context, update.versionCode)
+                            availableAndroidUpdate = null
+                        }
                     },
                     onUpdateClick = {
-                        AndroidAppUpdateChecker.openUpdatePage(context, update.apkUrl)
-                        availableAndroidUpdate = null
+                        if (!isInstallingAndroidUpdate) {
+                            scope.launch {
+                                isInstallingAndroidUpdate = true
+                                try {
+                                    AndroidAppUpdateInstaller.installUpdate(context, update)
+                                    availableAndroidUpdate = null
+                                } catch (error: AndroidUpdateInstallException) {
+                                    snackbarHostState.showSnackbar(
+                                        error.message ?: strings.profileLoadError
+                                    )
+                                } catch (_: Exception) {
+                                    snackbarHostState.showSnackbar(
+                                        if (appLanguage == AppLanguage.Russian) {
+                                            "Не удалось подготовить обновление. Попробуйте ещё раз."
+                                        } else {
+                                            "Failed to prepare the update. Please try again."
+                                        }
+                                    )
+                                } finally {
+                                    isInstallingAndroidUpdate = false
+                                }
+                            }
+                        }
                     },
                 )
             }

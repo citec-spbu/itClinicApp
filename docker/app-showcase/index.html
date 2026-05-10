@@ -129,11 +129,11 @@
       <div class="eyebrow">Mobile CD Artifact</div>
       <h1>itClinicApp APK Delivery</h1>
       <p>
-        This container publishes the Android debug build as a downloadable artifact.
-        It is intended for CI/CD verification of the mobile application, not for backend deployment.
+        This container publishes the signed Android release build as a downloadable artifact.
+        It is intended for mobile delivery and CI/CD verification, not for backend deployment.
       </p>
       <div class="actions">
-        <a class="button" href="/release-artifacts/itclinicapp-debug.apk">Download APK</a>
+        <a class="button" href="/release-artifacts/itclinicapp-release.apk">Download APK</a>
         <a class="button secondary" href="/docs/Development/GITHUB_CICD.md">Open CI/CD Documentation</a>
       </div>
     </section>
@@ -142,8 +142,8 @@
       <article class="card">
         <h2>What this image contains</h2>
         <ul>
-          <li>the latest published Android debug APK</li>
-          <li>the Android update manifest used for in-app update checks</li>
+          <li>the latest signed Android release APK</li>
+          <li>the version-specific Android update manifest uploaded to GitHub Releases</li>
           <li>the CI/CD documentation page</li>
           <li>a lightweight nginx server for file delivery</li>
         </ul>

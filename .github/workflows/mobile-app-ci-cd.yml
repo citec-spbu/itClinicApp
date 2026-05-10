@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -44,18 +46,39 @@ jobs:
 
       - name: Resolve Android build metadata
         shell: bash
+        env:
+          ANDROID_BETA_MIN_SUPPORTED_VERSION_CODE: ${{ vars.ANDROID_BETA_MIN_SUPPORTED_VERSION_CODE }}
+          ANDROID_BETA_FORCE_UPDATE: ${{ vars.ANDROID_BETA_FORCE_UPDATE }}
+          ANDROID_STABLE_MIN_SUPPORTED_VERSION_CODE: ${{ vars.ANDROID_STABLE_MIN_SUPPORTED_VERSION_CODE }}
+          ANDROID_STABLE_FORCE_UPDATE: ${{ vars.ANDROID_STABLE_FORCE_UPDATE }}
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
+          CHANGELOG_JSON="$(bash scripts/resolve_android_update_changelog.sh)"
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION_NAME="${GITHUB_REF_NAME}"
             RELEASE_TAG="${GITHUB_REF_NAME}"
+            UPDATE_CHANNEL="stable"
+            DELIVERY_BUILD_TYPE="release"
+            UPDATE_ASSET_NAME="itclinicapp-release.apk"
+            MIN_SUPPORTED_VERSION_CODE="${ANDROID_STABLE_MIN_SUPPORTED_VERSION_CODE:-0}"
+            FORCE_UPDATE="${ANDROID_STABLE_FORCE_UPDATE:-false}"
           elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" == "${{ github.event.repository.default_branch }}" ]]; then
             VERSION_NAME="main.${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
             RELEASE_TAG="android-main-${GITHUB_RUN_NUMBER}"
+            UPDATE_CHANNEL="beta"
+            DELIVERY_BUILD_TYPE="release"
+            UPDATE_ASSET_NAME="itclinicapp-release.apk"
+            MIN_SUPPORTED_VERSION_CODE="${ANDROID_BETA_MIN_SUPPORTED_VERSION_CODE:-0}"
+            FORCE_UPDATE="${ANDROID_BETA_FORCE_UPDATE:-false}"
           else
             VERSION_NAME="dev.${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
             RELEASE_TAG=""
+            UPDATE_CHANNEL="beta"
+            DELIVERY_BUILD_TYPE="debug"
+            UPDATE_ASSET_NAME="itclinicapp-debug.apk"
+            MIN_SUPPORTED_VERSION_CODE="0"
+            FORCE_UPDATE="false"
           fi
 
           echo "ORG_GRADLE_PROJECT_androidVersionCode=${GITHUB_RUN_NUMBER}" >> "${GITHUB_ENV}"
@@ -68,6 +91,12 @@ jobs:
           echo "UPDATE_REPOSITORY_OWNER=${GITHUB_REPOSITORY_OWNER}" >> "${GITHUB_ENV}"
           echo "UPDATE_REPOSITORY_NAME=${GITHUB_REPOSITORY#*/}" >> "${GITHUB_ENV}"
           echo "UPDATE_COMMIT_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "UPDATE_CHANNEL=${UPDATE_CHANNEL}" >> "${GITHUB_ENV}"
+          echo "UPDATE_ASSET_NAME=${UPDATE_ASSET_NAME}" >> "${GITHUB_ENV}"
+          echo "ANDROID_DELIVERY_BUILD_TYPE=${DELIVERY_BUILD_TYPE}" >> "${GITHUB_ENV}"
+          echo "UPDATE_MIN_SUPPORTED_VERSION_CODE=${MIN_SUPPORTED_VERSION_CODE}" >> "${GITHUB_ENV}"
+          echo "UPDATE_FORCE_UPDATE=${FORCE_UPDATE}" >> "${GITHUB_ENV}"
+          echo "UPDATE_CHANGELOG_JSON=${CHANGELOG_JSON}" >> "${GITHUB_ENV}"
 
       - name: Prepare CI stubs
         env:
@@ -80,6 +109,28 @@ jobs:
           CI_FEEDBACK_TO_EMAIL: ${{ secrets.CI_FEEDBACK_TO_EMAIL }}
           CI_FEEDBACK_SUBJECT: ${{ secrets.CI_FEEDBACK_SUBJECT }}
         run: bash scripts/prepare_ci_stubs.sh
+
+      - name: Prepare Android release signing
+        if: github.event_name == 'push' && (github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/'))
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          : "${ANDROID_RELEASE_KEYSTORE_BASE64:?ANDROID_RELEASE_KEYSTORE_BASE64 is required for signed release builds}"
+          : "${ANDROID_RELEASE_STORE_PASSWORD:?ANDROID_RELEASE_STORE_PASSWORD is required for signed release builds}"
+          : "${ANDROID_RELEASE_KEY_ALIAS:?ANDROID_RELEASE_KEY_ALIAS is required for signed release builds}"
+          : "${ANDROID_RELEASE_KEY_PASSWORD:?ANDROID_RELEASE_KEY_PASSWORD is required for signed release builds}"
+
+          KEYSTORE_PATH="${RUNNER_TEMP}/android-release.keystore"
+          echo "${ANDROID_RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
+
+          echo "ORG_GRADLE_PROJECT_androidReleaseStoreFile=${KEYSTORE_PATH}" >> "${GITHUB_ENV}"
+          echo "ORG_GRADLE_PROJECT_androidReleaseStorePassword=${ANDROID_RELEASE_STORE_PASSWORD}" >> "${GITHUB_ENV}"
+          echo "ORG_GRADLE_PROJECT_androidReleaseKeyAlias=${ANDROID_RELEASE_KEY_ALIAS}" >> "${GITHUB_ENV}"
+          echo "ORG_GRADLE_PROJECT_androidReleaseKeyPassword=${ANDROID_RELEASE_KEY_PASSWORD}" >> "${GITHUB_ENV}"
 
       - name: Run Android lint
         run: ./gradlew :composeApp:lintDebug --stacktrace
@@ -263,14 +314,17 @@ jobs:
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION_NAME="${GITHUB_REF_NAME}"
             RELEASE_TAG="${GITHUB_REF_NAME}"
+            UPDATE_CHANNEL="stable"
           else
             VERSION_NAME="main.${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
             RELEASE_TAG="android-main-${GITHUB_RUN_NUMBER}"
+            UPDATE_CHANNEL="beta"
           fi
 
           echo "ANDROID_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
           echo "UPDATE_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
           echo "UPDATE_RELEASE_TAG=${RELEASE_TAG}" >> "${GITHUB_ENV}"
+          echo "UPDATE_CHANNEL=${UPDATE_CHANNEL}" >> "${GITHUB_ENV}"
 
       - name: Create or update GitHub release for main branch
         if: github.ref_name == github.event.repository.default_branch
@@ -302,6 +356,39 @@ jobs:
         run: |
           gh release upload "$UPDATE_RELEASE_TAG" \
             --repo "$GH_REPO" \
-            release-artifacts/itclinicapp-debug.apk \
+            release-artifacts/itclinicapp-release.apk \
             release-artifacts/android-update.json \
             --clobber
+
+      - name: Publish channel manifest branch
+        env:
+          UPDATE_BRANCH: android-updates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code origin "${UPDATE_BRANCH}" >/dev/null 2>&1; then
+            git fetch origin "${UPDATE_BRANCH}:${UPDATE_BRANCH}"
+            git worktree add "${RUNNER_TEMP}/android-updates-branch" "${UPDATE_BRANCH}"
+          else
+            git worktree add --detach "${RUNNER_TEMP}/android-updates-branch"
+            cd "${RUNNER_TEMP}/android-updates-branch"
+            git checkout --orphan "${UPDATE_BRANCH}"
+            find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          fi
+
+          cp "release-artifacts/update-manifests/${UPDATE_CHANNEL}.json" "${RUNNER_TEMP}/android-updates-branch/${UPDATE_CHANNEL}.json"
+
+          cd "${RUNNER_TEMP}/android-updates-branch"
+          git add "${UPDATE_CHANNEL}.json"
+
+          if git diff --cached --quiet; then
+            echo "No manifest changes to publish."
+            exit 0
+          fi
+
+          git commit -m "Update ${UPDATE_CHANNEL} manifest for ${UPDATE_RELEASE_TAG}"
+          git push origin HEAD:"${UPDATE_BRANCH}"

@@ -28,6 +28,17 @@ val resolvedAndroidVersionName = providers.gradleProperty("androidVersionName")
     .orNull
     ?: "1.0"
 
+val androidReleaseStoreFile = providers.gradleProperty("androidReleaseStoreFile").orNull
+val androidReleaseStorePassword = providers.gradleProperty("androidReleaseStorePassword").orNull
+val androidReleaseKeyAlias = providers.gradleProperty("androidReleaseKeyAlias").orNull
+val androidReleaseKeyPassword = providers.gradleProperty("androidReleaseKeyPassword").orNull
+val hasAndroidReleaseSigning = listOf(
+    androidReleaseStoreFile,
+    androidReleaseStorePassword,
+    androidReleaseKeyAlias,
+    androidReleaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
 kotlin {
     androidTarget {
         compilerOptions {
@@ -53,6 +64,7 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.splashscreen)
             implementation(libs.ktor.client.okhttp)
+            implementation(compose.components.uiToolingPreview)
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -87,6 +99,17 @@ android {
     namespace = "com.spbu.projecttrack"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
+    signingConfigs {
+        if (hasAndroidReleaseSigning) {
+            create("release") {
+                storeFile = file(androidReleaseStoreFile!!)
+                storePassword = androidReleaseStorePassword
+                keyAlias = androidReleaseKeyAlias
+                keyPassword = androidReleaseKeyPassword
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.spbu.projecttrack"
         minSdk = libs.versions.android.minSdk.get().toInt()
@@ -102,10 +125,16 @@ android {
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
+            if (hasAndroidReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+    dependencies {
+        debugImplementation(compose.uiTooling)
     }
 }

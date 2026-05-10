@@ -1,9 +1,7 @@
 package com.spbu.projecttrack.core.update
 
 import android.content.Context
-import android.content.Intent
 import android.content.SharedPreferences
-import android.net.Uri
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -13,22 +11,22 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 data class AndroidAppUpdate(
+    val channel: AndroidUpdateChannel,
     val versionCode: Long,
     val currentVersionName: String,
     val availableVersionName: String,
     val apkUrl: String,
+    val sha256: String,
     val releasePageUrl: String,
+    val changelog: List<String>,
+    val isRequired: Boolean,
 )
 
 object AndroidAppUpdateChecker {
-    private const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
-    private const val UPDATE_MANIFEST_ASSET_NAME = "android-update.json"
-
     suspend fun checkForAvailableUpdate(context: Context): AndroidAppUpdate? {
         if (AndroidUpdateChannelConfig.repositoryOwner.isBlank() || AndroidUpdateChannelConfig.repositoryName.isBlank()) {
             return null
@@ -43,7 +41,8 @@ object AndroidAppUpdateChecker {
 
         return try {
             val installedVersion = readInstalledVersion(context)
-            val manifest = fetchLatestMainChannelManifest()
+            val updateChannel = resolveUpdateChannel(installedVersion)
+            val manifest = fetchUpdateManifest(updateChannel)
             if (manifest == null) {
                 preferences.markChecked(now)
                 return null
@@ -55,16 +54,21 @@ object AndroidAppUpdateChecker {
                 return null
             }
 
-            if (preferences.dismissedVersionCode() == manifest.versionCode) {
+            val isRequired = manifest.forceUpdate || installedVersion.versionCode < manifest.minSupportedVersionCode
+            if (!isRequired && preferences.dismissedVersionCode() == manifest.versionCode) {
                 return null
             }
 
             AndroidAppUpdate(
+                channel = updateChannel,
                 versionCode = manifest.versionCode,
                 currentVersionName = installedVersion.versionName,
                 availableVersionName = manifest.versionName,
                 apkUrl = manifest.apkUrl,
+                sha256 = manifest.sha256,
                 releasePageUrl = manifest.releasePageUrl,
+                changelog = manifest.changelog.filter { it.isNotBlank() },
+                isRequired = isRequired,
             )
         } catch (_: Exception) {
             preferences.markChecked(now)
@@ -76,33 +80,18 @@ object AndroidAppUpdateChecker {
         AndroidUpdatePreferences(context).markDismissed(versionCode)
     }
 
-    fun openUpdatePage(context: Context, url: String) {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+    fun resetDismissedUpdate(context: Context) {
+        AndroidUpdatePreferences(context).clearDismissed()
     }
 
-    private suspend fun fetchLatestMainChannelManifest(): AndroidUpdateManifest? {
+    private suspend fun fetchUpdateManifest(channel: AndroidUpdateChannel): AndroidUpdateManifest? {
         createClient().use { client ->
-            val releases = client.get(
-                "https://api.github.com/repos/${AndroidUpdateChannelConfig.repositoryOwner}/${AndroidUpdateChannelConfig.repositoryName}/releases?per_page=10"
-            ) {
-                header(HttpHeaders.Accept, "application/vnd.github+json")
-                header(HttpHeaders.UserAgent, "itClinicApp-android-update-check")
-            }.body<List<GitHubReleaseDto>>()
-
-            val latestMainRelease = releases.firstOrNull { release ->
-                !release.draft && release.tagName.startsWith(AndroidUpdateChannelConfig.releaseTagPrefix)
-            } ?: return null
-
-            val manifestAsset = latestMainRelease.assets.firstOrNull { asset ->
-                asset.name == UPDATE_MANIFEST_ASSET_NAME
-            } ?: return null
-
-            return client.get(manifestAsset.browserDownloadUrl) {
+            return client.get(AndroidUpdateChannelConfig.manifestUrl(channel)) {
                 header(HttpHeaders.Accept, "application/json")
                 header(HttpHeaders.UserAgent, "itClinicApp-android-update-check")
+                url {
+                    parameters.append("t", System.currentTimeMillis().toString())
+                }
             }.body<AndroidUpdateManifest>()
         }
     }
@@ -139,12 +128,29 @@ object AndroidAppUpdateChecker {
             versionName = packageInfo.versionName ?: versionCode.toString(),
         )
     }
+
+    private fun resolveUpdateChannel(installedVersion: InstalledAndroidVersion): AndroidUpdateChannel {
+        return if (installedVersion.versionName.startsWith("v")) {
+            AndroidUpdateChannel.Stable
+        } else {
+            AndroidUpdateChannel.Beta
+        }
+    }
 }
 
 private object AndroidUpdateChannelConfig {
     const val repositoryOwner = "FergeSS"
     const val repositoryName = "itClinicApp"
-    const val releaseTagPrefix = "android-main-"
+    private const val updatesBranch = "android-updates"
+
+    fun manifestUrl(channel: AndroidUpdateChannel): String {
+        return "https://raw.githubusercontent.com/$repositoryOwner/$repositoryName/$updatesBranch/${channel.manifestFileName}"
+    }
+}
+
+enum class AndroidUpdateChannel(val manifestFileName: String) {
+    Beta("beta.json"),
+    Stable("stable.json"),
 }
 
 private data class InstalledAndroidVersion(
@@ -175,6 +181,10 @@ private class AndroidUpdatePreferences(context: Context) {
         prefs.edit().putLong(KEY_DISMISSED_VERSION_CODE, versionCode).apply()
     }
 
+    fun clearDismissed() {
+        prefs.edit().remove(KEY_DISMISSED_VERSION_CODE).apply()
+    }
+
     private companion object {
         private const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
         private const val KEY_LAST_CHECK_AT = "last_check_at"
@@ -183,27 +193,18 @@ private class AndroidUpdatePreferences(context: Context) {
 }
 
 @Serializable
-private data class GitHubReleaseDto(
-    @SerialName("tag_name")
-    val tagName: String,
-    val draft: Boolean,
-    val assets: List<GitHubReleaseAssetDto>,
-)
-
-@Serializable
-private data class GitHubReleaseAssetDto(
-    val name: String,
-    @SerialName("browser_download_url")
-    val browserDownloadUrl: String,
-)
-
-@Serializable
 private data class AndroidUpdateManifest(
+    val channel: String,
     val versionCode: Long,
     val versionName: String,
+    val minSupportedVersionCode: Long = 0L,
+    val forceUpdate: Boolean = false,
     val releaseTag: String,
     val apkUrl: String,
+    val sha256: String,
+    val sizeBytes: Long = 0L,
     val releasePageUrl: String,
+    val changelog: List<String> = emptyList(),
     val commitSha: String? = null,
     val generatedAt: String? = null,
 )
