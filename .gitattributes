@@ -1,0 +1,13 @@
+# Git attributes
+
+# Ensure BuildConfig files are treated as text
+*.kt text
+
+# Never commit BuildConfig.kt (дополнительная защита)
+BuildConfig.kt export-ignore
+
+# LFS для больших файлов
+*.jar filter=lfs diff=lfs merge=lfs -text
+*.pdf filter=lfs diff=lfs merge=lfs -text
+*.png filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text

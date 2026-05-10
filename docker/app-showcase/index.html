@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>itClinicApp APK Delivery</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --card: #ffffff;
+      --text: #18212b;
+      --muted: #5a6572;
+      --accent: #0d6efd;
+      --border: #d7dee7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(180deg, #f8fafc 0%, #edf2f7 100%);
+      color: var(--text);
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+
+    .hero,
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 16px 44px rgba(24, 33, 43, 0.08);
+    }
+
+    .hero {
+      padding: 36px;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(13, 110, 253, 0.08);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 40px;
+      line-height: 1.05;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.65;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px;
+      margin-top: 24px;
+    }
+
+    .card {
+      padding: 24px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(13, 110, 253, 0.18);
+      background: rgba(13, 110, 253, 0.08);
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .button.secondary {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--border);
+      font-weight: 600;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="eyebrow">Mobile CD Artifact</div>
+      <h1>itClinicApp APK Delivery</h1>
+      <p>
+        This container publishes the signed Android release build as a downloadable artifact.
+        It is intended for mobile delivery and CI/CD verification, not for backend deployment.
+      </p>
+      <div class="actions">
+        <a class="button" href="/release-artifacts/itclinicapp-release.apk">Download APK</a>
+        <a class="button secondary" href="/docs/Development/GITHUB_CICD.md">Open CI/CD Documentation</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>What this image contains</h2>
+        <ul>
+          <li>the latest signed Android release APK</li>
+          <li>the version-specific Android update manifest uploaded to GitHub Releases</li>
+          <li>the CI/CD documentation page</li>
+          <li>a lightweight nginx server for file delivery</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>How to use it</h2>
+        <ul>
+          <li>open the container root page in a browser</li>
+          <li>download the APK from the provided link</li>
+          <li>share the image tag as a reproducible mobile build artifact</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

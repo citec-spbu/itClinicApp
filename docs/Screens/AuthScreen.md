@@ -1,0 +1,153 @@
+# Экран авторизации (Onboarding Screen)
+
+## Когда показывается
+Экран отображается при первом запуске приложения на устройстве. После того как пользователь выберет один из вариантов входа, экран больше не показывается (информация сохраняется через `AppPreferences`).
+
+
+## Назначение
+Предложить пользователю выбрать один из вариантов:
+- войти через **GitHub** (тестовая авторизация);
+- продолжить работу **без авторизации**.
+
+## Структура экрана
+
+### Фон
+- **Цвет фона**: Белый (`#FFFFFF`)
+- **Логотип СПбГУ**: Размещен на весь экран с прозрачностью 70% (`alpha = 0.7`)
+
+### Элементы UI (сверху вниз)
+
+#### 1. Название приложения
+- **Текст**: "IT Clinic"
+- **Шрифт**: Philosopher-Bold
+- **Размер**: 40pt
+- **Цвет**: `#9F2D20` (бордовый)
+- **Положение**: Вверху экрана с отступом 80dp от верхнего края
+- **Выравнивание**: По центру
+
+#### 2. Кнопка авторизации через GitHub
+- **Размеры**: 261×55 dp
+- **Положение**: По центру экрана (вертикально и горизонтально)
+- **Фон**: `#A8ADB4` (серый)
+- **Обводка**: 2px, цвет `#D0D5DC`
+- **Закругление углов**: 25dp
+- **Тень**: 
+  - Смещение: (0, 4)
+  - Blur: 7dp
+  - Цвет: Черный с прозрачностью 15%
+  
+**Содержимое кнопки**:
+- **Слева**: Логотип GitHub (55×55 dp)
+- **Справа**: Текст "Login With GitHub"
+  - Шрифт: OpenSans-Bold
+  - Размер: 20pt
+  - Цвет: Черный (`#000000`)
+
+**Действие**: При нажатии устанавливается тестовый JWT токен и выполняется авторизация.
+
+#### 3. Текст "Продолжить без авторизации"
+- **Шрифт**: OpenSans-Bold
+- **Размер**: 14pt
+- **Цвет**: `#BDBDBD` (светло-серый)
+- **Оформление**: Подчеркнутый текст
+- **Положение**: Под кнопкой GitHub с отступом 24dp
+- **Действие**: При клике пользователь переходит на главный экран приложения
+
+## Реализация
+
+### Файлы
+- **UI**: `/composeApp/src/commonMain/kotlin/com/spbu/projecttrack/onboarding/presentation/OnboardingScreen.kt`
+- **Локализация (Android)**: `/composeApp/src/androidMain/kotlin/com/spbu/projecttrack/onboarding/presentation/LocalizationStrings.android.kt`
+- **Локализация (iOS)**: `/composeApp/src/iosMain/kotlin/com/spbu/projecttrack/onboarding/presentation/LocalizationStrings.ios.kt`
+- **Хранилище настроек (Android)**: `/composeApp/src/androidMain/kotlin/com/spbu/projecttrack/core/storage/AppPreferences.android.kt`
+- **Хранилище настроек (iOS)**: `/composeApp/src/iosMain/kotlin/com/spbu/projecttrack/core/storage/AppPreferences.ios.kt`
+
+### Ресурсы
+- **Логотип GitHub**: `/composeApp/src/commonMain/composeResources/drawable/github_logo.png`
+- **Логотип СПбГУ**: `/composeApp/src/commonMain/composeResources/drawable/spbu_logo.png`
+- **Шрифт Philosopher-Bold**: `/composeApp/src/commonMain/composeResources/font/philosopher_bold.ttf`
+- **Шрифт OpenSans-Bold**: `/composeApp/src/commonMain/composeResources/font/opensans_bold.ttf`
+
+### Навигация
+После завершения онбординга (выбора любой опции), пользователь перенаправляется на главный экран (`MainScreen`) с тремя вкладками:
+1. **Проекты** - список всех проектов
+2. **Рейтинг и Статистика** - рейтинги и метрики разработки
+3. **Информация** - профиль пользователя и настройки
+
+## Сохранение состояния
+Используется платформо-зависимое хранилище через интерфейс `AppPreferences`:
+- **Android**: `SharedPreferences`
+- **iOS**: `NSUserDefaults`
+
+Ключ: `onboarding_completed`
+
+## Локализация
+Для локализации используются `expect`/`actual` функции:
+- `getLocalizedAppName()` - название приложения
+- `getLocalizedAuthText()` - текст кнопки авторизации
+- `getLocalizedContinueText()` - текст кнопки "Продолжить без авторизации"
+
+Локализация захардкожена в текущей версии.
+
+## Авторизация
+
+### Тестовая авторизация
+
+В текущей версии реализована тестовая авторизация через кнопку "Login With GitHub":
+
+1. При нажатии устанавливается тестовый JWT токен через `AuthManager.setTestToken()`
+2. Токен автоматически добавляется ко всем HTTP запросам через `AuthInterceptor`
+3. Показывается уведомление "Авторизация выполнена (тестовый режим)"
+4. В UI отображается индикатор "🔐 Авторизован" в списке проектов и детальном просмотре
+
+### Индикация авторизованного состояния
+
+- **В списке проектов**: Показывается "🔐 Авторизован" под заголовком "Проекты"
+- **В детальном просмотре**: Показывается "🔐 Авторизован" в TopAppBar
+
+### Автоматическая отправка токена
+
+Все HTTP запросы автоматически включают заголовок `Authorization: Bearer {token}` через `AuthInterceptor` в Ktor клиенте.
+
+### Настройка тестового токена
+
+Токен настраивается в `AuthManager.kt`:
+
+```kotlin
+val testToken = "YOUR_JWT_TOKEN_HERE"
+```
+
+Для генерации токена:
+1. Получите `TOKEN_SECRET` из `Registry/server/.env` или `Registry/auth/.env`
+2. Используйте [jwt.io](https://jwt.io) для генерации токена с payload:
+   ```json
+   {
+     "id": 1,
+     "iat": 1700000000,
+     "exp": 2000000000
+   }
+   ```
+3. Вставьте токен в `AuthManager.kt`
+
+### Проверка токена
+
+Через curl:
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+     http://localhost:8000/user/me
+```
+
+В логах приложения (LogLevel.INFO):
+```
+REQUEST: http://localhost:8000/project/findmany
+COMMON HEADERS
+-> Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Режим без авторизации
+
+При выборе "Продолжить без авторизации":
+- Токен не устанавливается
+- Доступны только публичные эндпоинты
+- Используется продакшн API (`citec.spb.ru`)
+- Индикатор "🔐 Авторизован" не показывается
