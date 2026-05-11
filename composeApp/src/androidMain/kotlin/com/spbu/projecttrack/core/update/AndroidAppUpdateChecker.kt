@@ -3,14 +3,12 @@ package com.spbu.projecttrack.core.update
 import android.content.Context
 import android.content.SharedPreferences
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -77,13 +75,14 @@ object AndroidAppUpdateChecker {
 
     private suspend fun fetchUpdateManifest(channel: AndroidUpdateChannel): AndroidUpdateManifest? {
         createClient().use { client ->
-            return client.get(AndroidUpdateChannelConfig.manifestUrl(channel)) {
+            val responseText = client.get(AndroidUpdateChannelConfig.manifestUrl(channel)) {
                 header(HttpHeaders.Accept, "application/json")
                 header(HttpHeaders.UserAgent, "itClinicApp-android-update-check")
                 url {
                     parameters.append("t", System.currentTimeMillis().toString())
                 }
-            }.body<AndroidUpdateManifest>()
+            }.bodyAsText()
+            return manifestJson.decodeFromString<AndroidUpdateManifest>(responseText)
         }
     }
 
@@ -94,15 +93,12 @@ object AndroidAppUpdateChecker {
                 connectTimeoutMillis = 10_000
                 socketTimeoutMillis = 15_000
             }
-            install(ContentNegotiation) {
-                json(
-                    Json {
-                        ignoreUnknownKeys = true
-                        isLenient = true
-                    }
-                )
-            }
         }
+    }
+
+    private val manifestJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
     }
 
     @Suppress("DEPRECATION")
