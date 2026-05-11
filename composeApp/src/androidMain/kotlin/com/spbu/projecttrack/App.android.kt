@@ -196,8 +196,8 @@ actual fun App(onLaunchReady: () -> Unit) {
     var mainSelectedTab by rememberSaveable { mutableStateOf(0) }
     val screenStack = remember { mutableStateListOf<Screen>() }
 
-    LaunchedEffect(authBootstrapComplete, isOnboardingVisible) {
-        if (authBootstrapComplete && !isOnboardingVisible) {
+    LaunchedEffect(authBootstrapComplete) {
+        if (authBootstrapComplete) {
             availableAndroidUpdate = AndroidAppUpdateChecker.checkForAvailableUpdate(context)
             if (availableAndroidUpdate?.isRequired == true) {
                 AndroidAppUpdateChecker.resetDismissedUpdate(context)
