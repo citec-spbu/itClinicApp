@@ -1,15 +1,15 @@
 {
   "channel": "beta",
-  "versionCode": 87,
-  "versionName": "main.87-3a30f8f",
+  "versionCode": 88,
+  "versionName": "main.88-fffe980",
   "minSupportedVersionCode": 0,
   "forceUpdate": false,
-  "releaseTag": "android-main-87",
-  "apkUrl": "https://github.com/citec-spbu/CiteC/releases/download/android-main-87/itclinicapp-release.apk",
-  "sha256": "a2ab1e12f764e17d1e3bea5cc6ed4ed3bfbdd4f03136ba3fa3f9469d32bd08d0",
-  "sizeBytes": 16893769,
-  "releasePageUrl": "https://github.com/citec-spbu/CiteC/releases/tag/android-main-87",
-  "changelog": ["Пофиксили обратную связь", "Улучшили точность поиска в проектах и рейтинге", "Исправили мелкие баги"],
-  "commitSha": "3a30f8f8d677154d622e4029c653e8af8893325d",
-  "generatedAt": "2026-05-11T19:23:58Z"
+  "releaseTag": "android-main-88",
+  "apkUrl": "https://github.com/citec-spbu/CiteC/releases/download/android-main-88/itclinicapp-release.apk",
+  "sha256": "259bcf44cb3204e9eea441d3f8273af97abd397972f3061c946b8b8d5b323715",
+  "sizeBytes": 16893765,
+  "releasePageUrl": "https://github.com/citec-spbu/CiteC/releases/tag/android-main-88",
+  "changelog": [],
+  "commitSha": "fffe980fe13dbe3d8a61362786b9f8e7d0f5f059",
+  "generatedAt": "2026-05-11T20:12:51Z"
 }
