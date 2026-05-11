@@ -1,15 +1,15 @@
 {
   "channel": "beta",
-  "versionCode": 89,
-  "versionName": "main.89-e7048c9",
+  "versionCode": 90,
+  "versionName": "main.90-b7e4914",
   "minSupportedVersionCode": 0,
   "forceUpdate": false,
-  "releaseTag": "android-main-89",
-  "apkUrl": "https://github.com/citec-spbu/CiteC/releases/download/android-main-89/itclinicapp-release.apk",
-  "sha256": "90246c2a8e0b1f536fe69719667444ea00a8ae6a07c7b0d553ce96ca58b5806d",
-  "sizeBytes": 16893769,
-  "releasePageUrl": "https://github.com/citec-spbu/CiteC/releases/tag/android-main-89",
-  "changelog": ["Tестовый апдейт", "С", "Очень", "Длинным", "Списком", "Новых", "Функций", "И", "Исправлений", "Багов"],
-  "commitSha": "e7048c9f332b283bbc8f3d2f221fde207506b502",
-  "generatedAt": "2026-05-11T20:20:38Z"
+  "releaseTag": "android-main-90",
+  "apkUrl": "https://github.com/citec-spbu/CiteC/releases/download/android-main-90/itclinicapp-release.apk",
+  "sha256": "b0ccbfd51f751c0161f3786bc3437f17d3d51fe6bbce67414ca04cf4820e65a4",
+  "sizeBytes": 16893773,
+  "releasePageUrl": "https://github.com/citec-spbu/CiteC/releases/tag/android-main-90",
+  "changelog": [],
+  "commitSha": "b7e4914910fad27792893a6c4ba23d3268107257",
+  "generatedAt": "2026-05-11T20:35:24Z"
 }
