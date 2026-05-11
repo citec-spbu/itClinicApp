@@ -57,12 +57,8 @@ internal fun buildRapidPullRequestDetailExportContent(
     val share = percentLabel(rapidPullRequests.size, filteredPullRequests.size)
     val contributorRows = participantSnapshots.values
         .sortedByDescending { it.rapidPullRequestCount }
-        .map { snapshot ->
-            ProjectStatsTableRow(
-                label = appendYouSuffix(snapshot.participant.name, snapshot.participant.id == participantId),
-                value = snapshot.rapidPullRequestCount.toString(),
-            )
-        }
+        .distinctBy { it.participant.name.trim().lowercase() }
+        .map { snapshot -> listOf(snapshot.participant.name, snapshot.rapidPullRequestCount.toString()) }
     val chartPoints = buildRapidPullRequestChartPoints(rapidPullRequests.mapNotNull { it.closedAtIso })
     val thresholdLabel = formatRapidThreshold(rapidThreshold)
     val summaryCards = listOf(
@@ -89,21 +85,8 @@ internal fun buildRapidPullRequestDetailExportContent(
     val sections = buildList {
         add(
             ProjectStatsSection(
-                title = localizeRuntime("Порог быстроты", "Rapid threshold"),
-                rows = listOf(
-                    ProjectStatsTableRow(
-                        label = localizeRuntime(
-                            "Быстрый PR считается закрытым быстрее чем",
-                            "A rapid PR is defined as closed faster than",
-                        ),
-                        value = thresholdLabel,
-                    )
-                )
-            )
-        )
-        add(
-            ProjectStatsSection(
-                title = localizeRuntime("Сводные показатели быстрых PR", "Rapid PR summary"),
+                title = localizeRuntime("Быстрые PR", "Rapid PRs"),
+                score = score,
                 rows = listOf(
                     ProjectStatsTableRow(
                         label = localizeRuntime("Всего быстрых PR", "Total rapid PRs"),
@@ -136,41 +119,57 @@ internal fun buildRapidPullRequestDetailExportContent(
                         },
                     ),
                     ProjectStatsTableRow(
+                        label = localizeRuntime("Порог быстроты", "Rapid threshold"),
+                        value = thresholdLabel,
+                    ),
+                    ProjectStatsTableRow(
                         label = localizeRuntime("Оценка быстрых PR", "Rapid PR score"),
                         value = score?.let(::formatScoreValue) ?: "—",
                     ),
-                )
-            )
-        )
-        if (chartPoints.isNotEmpty()) {
-            val chartTitle = localizeRuntime("График быстрых PR", "Rapid PR chart")
-            add(
-                ProjectStatsSection(
-                    title = chartTitle,
-                    chart = ProjectStatsChart.Bar(
-                        title = chartTitle,
-                        points = chartPoints,
-                    )
-                )
-            )
-        }
-        add(
-            ProjectStatsSection(
-                title = localizeRuntime(
-                    "Количество быстрых Pull Request",
-                    "Rapid pull request count",
                 ),
-                rows = contributorRows.ifEmpty {
-                    listOf(ProjectStatsTableRow(label = StatsExportCopy.noData(), value = "—"))
+                table = ProjectStatsTable(
+                    title = localizeRuntime(
+                        "Количество быстрых Pull Request",
+                        "Rapid pull request count",
+                    ),
+                    headers = listOf(
+                        localizeRuntime("Участник", "Participant"),
+                        localizeRuntime("Количество", "Count"),
+                    ),
+                    rows = contributorRows.ifEmpty {
+                        listOf(listOf(StatsExportCopy.noData(), "—"))
+                    },
+                    columnFractions = listOf(0.72f, 0.28f),
+                ),
+                chart = chartPoints.takeIf { it.isNotEmpty() }?.let { points ->
+                    val chartTitle = localizeRuntime("График быстрых PR", "Rapid PR chart")
+                    ProjectStatsChart.Bar(
+                        title = chartTitle,
+                        points = points,
+                    )
                 },
             )
         )
         add(
             ProjectStatsSection(
                 title = localizeRuntime("Список быстрых Pull Requests", "Rapid pull request list"),
-                rows = sortedRapidPullRequests
-                    .map(::rapidPullRequestRow)
-                    .ifEmpty { listOf(ProjectStatsTableRow(label = StatsExportCopy.noData(), value = "—")) },
+                table = ProjectStatsTable(
+                    headers = listOf(
+                        "PR",
+                        localizeRuntime("Статус", "Status"),
+                        localizeRuntime("Закрыт за", "Closed in"),
+                        localizeRuntime("Автор", "Author"),
+                        localizeRuntime("Назначенные", "Assignees"),
+                        localizeRuntime("Создано / закрыто", "Created / closed"),
+                        localizeRuntime("Комментарии", "Comments"),
+                        localizeRuntime("Ссылка", "Link"),
+                    ),
+                    rows = sortedRapidPullRequests
+                        .map(::rapidPullRequestTableRow)
+                        .ifEmpty { listOf(listOf(StatsExportCopy.noData(), "—", "", "", "", "", "", "")) },
+                    columnFractions = listOf(0.20f, 0.08f, 0.09f, 0.10f, 0.11f, 0.24f, 0.08f, 0.10f),
+                    pdfStyle = ProjectStatsTablePdfStyle.RapidPullRequestList,
+                ),
             )
         )
     }
@@ -216,52 +215,28 @@ private fun buildParticipantSnapshots(
     }
 }
 
-private fun rapidPullRequestRow(pullRequest: StatsDetailPullRequestUi): ProjectStatsTableRow {
+private fun rapidPullRequestTableRow(pullRequest: StatsDetailPullRequestUi): List<String> {
     val duration = durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso)
-    val metrics = buildList {
-        pullRequest.comments?.let {
-            add("${localizeRuntime("Комментарии", "Comments")}: $it")
-        }
-        pullRequest.commitsCount?.let {
-            add("${localizeRuntime("Коммиты", "Commits")}: $it")
-        }
-        pullRequest.changedFiles?.let {
-            add("${localizeRuntime("Файлы", "Files")}: $it")
-        }
-        if (pullRequest.additions != null || pullRequest.deletions != null) {
-            add("+${pullRequest.additions ?: 0}/-${pullRequest.deletions ?: 0}")
-        }
-    }.joinToString("; ")
-    val note = buildList {
-        add("${localizeRuntime("Автор", "Author")}: ${pullRequest.authorName}")
-        if (pullRequest.assigneeNames.isNotEmpty()) {
-            add(
-                "${localizeRuntime("Назначенные", "Assignees")}: ${pullRequest.assigneeNames.joinToString()}",
-            )
-        }
-        add("${StatsExportCopy.createdField()} ${pullRequest.createdAtLabel}")
-        pullRequest.closedAtLabel?.let {
-            add("${StatsExportCopy.closedField()} $it")
-        }
-        metrics.takeIf { it.isNotBlank() }?.let(::add)
-        pullRequest.url?.takeIf { it.isNotBlank() }?.let {
-            add("${localizeRuntime("Ссылка", "Link")}: $it")
-        }
-    }.joinToString("; ")
-    return ProjectStatsTableRow(
-        label = buildString {
+    return listOf(
+        buildString {
             pullRequest.number?.let { append("#$it ") }
             append(pullRequest.title)
         },
-        value = buildList {
-            pullRequest.state?.uppercase()?.takeIf { it.isNotBlank() }?.let(::add)
-            duration?.let {
-                add(
-                    "${localizeRuntime("Закрыт за", "Closed in")} ${formatDurationMinutesLabel(it)}",
-                )
+        pullRequest.state?.uppercase().orEmpty(),
+        duration?.let(::formatDurationMinutesLabel).orEmpty(),
+        pullRequest.authorName,
+        pullRequest.assigneeNames.joinToString(separator = "\n"),
+        buildString {
+            append(pullRequest.createdAtLabel)
+            pullRequest.closedAtLabel?.takeIf { it.isNotBlank() }?.let {
+                append('\n')
+                append(it)
             }
-        }.joinToString(" · ").ifBlank { "—" },
-        note = note.ifBlank { null },
+        },
+        pullRequest.comments?.toString().orEmpty(),
+        pullRequest.url?.takeIf { it.isNotBlank() }?.let { url ->
+            "@LINK:$url|${localizeRuntime("Ссылка", "Link")}"
+        }.orEmpty(),
     )
 }
 
@@ -382,13 +357,6 @@ private fun percentLabel(
 ): String {
     if (total <= 0) return "0%"
     return "${((value.toDouble() / total.toDouble()) * 100.0).roundToInt()}%"
-}
-
-private fun appendYouSuffix(
-    name: String,
-    highlight: Boolean,
-): String {
-    return if (highlight) "${name} (${StatsExportCopy.youMarker()})" else name
 }
 
 private fun formatRapidThreshold(threshold: ProjectStatsThresholdUi): String {

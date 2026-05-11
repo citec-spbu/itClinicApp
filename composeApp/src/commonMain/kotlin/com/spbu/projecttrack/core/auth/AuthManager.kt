@@ -9,15 +9,6 @@ import kotlinx.serialization.json.Json
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-/**
- * Менеджер авторизации для управления токенами
- * 
- * Использование:
- * - AuthManager.setToken(token) - установить токен после авторизации
- * - AuthManager.clearToken() - очистить токен при выходе
- * - AuthManager.isAuthorized - проверить статус авторизации
- * - AuthManager.getToken() - получить текущий токен
- */
 object AuthManager {
     private val _authToken = MutableStateFlow<String?>(null)
     val authToken: StateFlow<String?> = _authToken.asStateFlow()
@@ -30,38 +21,23 @@ object AuthManager {
 
     private val json = Json { ignoreUnknownKeys = true }
     
-    /**
-     * Установить токен авторизации
-     * @param token JWT токен
-     */
     fun setToken(token: String) {
         _authToken.value = token
         _isAuthorized.value = true
         _currentUserId.value = decodeUserId(token)
     }
     
-    /**
-     * Очистить токен (выход из системы)
-     */
     fun clearToken() {
         _authToken.value = null
         _isAuthorized.value = false
         _currentUserId.value = null
     }
     
-    /**
-     * Получить текущий токен
-     * @return JWT токен или null
-     */
     fun getToken(): String? = _authToken.value
     
-    /**
-     * Установить тестовый токен для разработки
-     * Токен берется из BuildConfig.kt
-     */
     fun setTestToken() {
         setToken(BuildConfig.TEST_TOKEN)
-        println("🔑 Установлен тестовый токен для разработки")
+        println("🔑 Test token applied for local development")
     }
 
     @Serializable

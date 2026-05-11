@@ -21,16 +21,13 @@ class MainActivity : ComponentActivity() {
         AppContextHolder.initialize(this)
         intent?.dataString?.let(::handleIncomingAuthRedirect)
         
-        // Настройка статус-бара: белый фон с темными иконками
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = true // Темные иконки на светлом фоне
+            isAppearanceLightStatusBars = true
         }
         
-        // Устанавливаем цвет статус-бара и навигационного бара
         window.statusBarColor = android.graphics.Color.WHITE
         window.navigationBarColor = android.graphics.Color.WHITE
         
-        // Инициализируем AppPreferences для Android
         initAppPreferences(this)
         showNativeLaunchSplash()
         setContent {

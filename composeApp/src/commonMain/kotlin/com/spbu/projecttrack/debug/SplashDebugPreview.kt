@@ -24,8 +24,8 @@ import androidx.compose.ui.geometry.Offset
 
 object SplashDebugPreviewConfig {
     /**
-     * Включает удержание splash только в debug-сборках.
-     * После запуска экран можно закрыть долгим нажатием.
+     * Keeps the splash screen visible in debug builds.
+     * Dismiss it with a long press after launch.
      */
     const val enabled = false
 }

@@ -52,7 +52,6 @@ fun OnboardingScreen(
 ) {
     val strings = LocalAppStrings.current
     val palette = appPalette()
-    // Загрузка шрифтов
     val philosopherBold = FontFamily(Font(Res.font.philosopher_bold, FontWeight.Bold))
     val openSansBold = FontFamily(Font(Res.font.opensans_bold, FontWeight.Bold))
 
@@ -62,15 +61,12 @@ fun OnboardingScreen(
             .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
-        // Добавляем отступ для статус-бара на контент
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .systemBarsPadding(),
             contentAlignment = Alignment.Center
         ) {
-
-        // Герб СПбГУ: в тёмной теме — 50% непрозрачности (см. SettingsPalette.spbuBackdropLogoAlpha).
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
             contentDescription = null,
@@ -80,14 +76,12 @@ fun OnboardingScreen(
             contentScale = ContentScale.Fit
         )
 
-        // Контент поверх фона
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 32.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Название приложения - сверху экрана
             Spacer(modifier = Modifier.height(80.dp))
 
             Text(
@@ -266,4 +260,3 @@ private fun ContinueWithoutAuthButton(
         )
     }
 }
-

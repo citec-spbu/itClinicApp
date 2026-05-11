@@ -3,7 +3,6 @@ package com.spbu.projecttrack.rating.common
 import com.spbu.projecttrack.core.settings.localizePluralRuntime
 import com.spbu.projecttrack.core.settings.localizeRuntime
 
-/** Строки экрана детальной статистики (RU/EN, см. AppRuntimeLocalization). */
 object StatsDetailCopy {
     fun commitsCount(count: Int): String =
         localizePluralRuntime(count, "коммит", "коммита", "коммитов", "commit", "commits")

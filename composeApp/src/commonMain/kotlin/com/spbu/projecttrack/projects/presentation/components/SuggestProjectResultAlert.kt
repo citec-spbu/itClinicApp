@@ -36,6 +36,7 @@ import com.spbu.projecttrack.core.theme.appPalette
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.spbu_logo
+import androidx.compose.ui.text.font.FontWeight
 
 @Composable
 fun SuggestProjectResultAlert(
@@ -74,7 +75,8 @@ fun SuggestProjectResultAlert(
             Box(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = title,
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 22.sp,
                     color = AppColors.Color2,
                     textAlign = TextAlign.Center,
@@ -86,7 +88,8 @@ fun SuggestProjectResultAlert(
 
             Text(
                 text = message,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 12.sp,
                 lineHeight = 13.sp,
                 color = AppColors.Color1,
@@ -126,7 +129,8 @@ fun SuggestProjectResultAlert(
             ) {
                 Text(
                     text = okLabel,
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
                     color = AppColors.White
                 )

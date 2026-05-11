@@ -115,7 +115,6 @@ class AppPreferencesImpl(context: Context) : AppPreferences {
     }
 }
 
-// Глобальная переменная для хранения единственного экземпляра
 private var instance: AppPreferences? = null
 
 actual fun createAppPreferences(): AppPreferences {
@@ -124,7 +123,6 @@ actual fun createAppPreferences(): AppPreferences {
     )
 }
 
-// Функция инициализации (вызывается в MainActivity)
 fun initAppPreferences(context: Context) {
     if (instance == null) {
         instance = AppPreferencesImpl(context.applicationContext)

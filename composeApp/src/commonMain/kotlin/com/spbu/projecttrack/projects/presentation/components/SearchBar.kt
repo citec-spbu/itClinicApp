@@ -76,16 +76,14 @@ fun SearchBar(
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-            // Лого поиска
             Image(
                 painter = painterResource(Res.drawable.search_icon),
                 contentDescription = searchLabel,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(24.dp),
             )
 
             androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(8.dp))
 
-            // Поле ввода - одна строка
             BasicTextField(
                 value = searchText,
                 onValueChange = onSearchTextChange,
@@ -96,7 +94,8 @@ fun SearchBar(
                     },
                 singleLine = true,
                 textStyle = androidx.compose.ui.text.TextStyle(
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
                     color = palette.primaryText
                 ),
@@ -113,7 +112,8 @@ fun SearchBar(
                     if (searchText.isEmpty()) {
                         Text(
                             text = searchLabel,
-                            fontFamily = AppFonts.OpenSansSemiBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.SemiBold,
                             fontSize = 16.sp,
                             color = palette.dimText
                         )
@@ -123,7 +123,6 @@ fun SearchBar(
             )
             
             if (showFilters) {
-                // Лого фильтров с индикатором (цвет 2)
                 Box(modifier = Modifier.size(24.dp)) {
                     Image(
                         painter = painterResource(Res.drawable.filter_icon),
@@ -136,10 +135,8 @@ fun SearchBar(
                                 indication = null,
                                 onClick = onFilterClick
                             ),
-                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(palette.primaryText)
                     )
 
-                    // Индикатор активных фильтров
                     if (hasActiveFilters) {
                         Box(
                             modifier = Modifier

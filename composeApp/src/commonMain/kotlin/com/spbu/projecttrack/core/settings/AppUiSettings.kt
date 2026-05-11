@@ -274,8 +274,7 @@ fun ITClinicTheme(
     }
 
     val isDark = when (themeMode) {
-        // Temporary product decision: ship light theme only for now.
-        // Keep theme modes and dark palette code in place for future versions.
+        // Dark theme wiring stays in place, but the product currently forces the light palette.
         AppThemeMode.Light -> false
         AppThemeMode.Dark -> false
         AppThemeMode.System -> false

@@ -19,8 +19,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,9 +31,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Edit
@@ -60,6 +55,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -68,13 +65,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.storage.createAppPreferences
+import com.spbu.projecttrack.core.logging.AppLog
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.core.theme.appPalette
 import com.spbu.projecttrack.core.theme.subtleBorder
 import com.spbu.projecttrack.core.ui.AppSnackbarHost
+import com.spbu.projecttrack.core.ui.lazyListEdgeFadeMask
 import com.spbu.projecttrack.rating.data.StatsScreenSettingsPersistence
 import com.spbu.projecttrack.rating.data.model.ProjectStatsIssueSectionUi
 import com.spbu.projecttrack.rating.data.model.ProjectStatsMetricSectionUi
@@ -89,6 +89,7 @@ import com.spbu.projecttrack.rating.presentation.settings.statsScreenSectionsFro
 import com.spbu.projecttrack.rating.export.ProjectStatsExportPayload
 import com.spbu.projecttrack.rating.export.ProjectStatsSection
 import com.spbu.projecttrack.rating.export.ProjectStatsSummaryCard
+import com.spbu.projecttrack.rating.export.ProjectStatsTable
 import com.spbu.projecttrack.rating.export.ProjectStatsTableRow
 import com.spbu.projecttrack.rating.export.buildRapidPullRequestDetailExportContent
 import com.spbu.projecttrack.rating.export.rememberProjectStatsExporter
@@ -107,9 +108,13 @@ import com.spbu.projecttrack.rating.presentation.projectstats.ScoreCard
 import com.spbu.projecttrack.rating.presentation.projectstats.SectionHeader
 import com.spbu.projecttrack.rating.presentation.projectstats.SingleMetricCard
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsBackgroundLogo
+import com.spbu.projecttrack.rating.presentation.projectstats.rememberStatsBackDispatcher
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsDateRangePickerDialog
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBar
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBarTotalHeight
+import com.spbu.projecttrack.rating.presentation.projectstats.buildCommitExportTableRows
+import com.spbu.projecttrack.rating.presentation.projectstats.buildDailyCountChart
+import com.spbu.projecttrack.rating.presentation.projectstats.buildPullRequestExportTableRows
 import com.spbu.projecttrack.rating.common.StatsExportCopy
 import com.spbu.projecttrack.rating.presentation.projectstats.toExportSection
 import kotlinx.coroutines.launch
@@ -133,6 +138,7 @@ fun UserStatsScreen(
     onProjectClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val logTag = "UserStatsScreen"
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -151,6 +157,9 @@ fun UserStatsScreen(
     val activeSections = remember(activeSectionIds) { statsScreenSectionsFromIds(activeSectionIds) }
     val detailTransitionState = remember { MutableTransitionState(false) }
     val palette = appPalette()
+    val dispatchBack = rememberStatsBackDispatcher(logTag) {
+        "settingsVisible=$showSettingsScreen detailSection=${activeDetailSection?.id ?: "none"}"
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.load()
@@ -178,9 +187,11 @@ fun UserStatsScreen(
     }
 
     BackHandler(enabled = activeDetailSection != null || showSettingsScreen) {
-        when {
-            activeDetailSection != null -> activeDetailSection = null
-            showSettingsScreen -> showSettingsScreen = false
+        dispatchBack("system_back") {
+            when {
+                activeDetailSection != null -> activeDetailSection = null
+                showSettingsScreen -> showSettingsScreen = false
+            }
         }
     }
 
@@ -217,7 +228,7 @@ fun UserStatsScreen(
                     ErrorState(
                         message = state.message,
                         onRetry = { viewModel.retry() },
-                        onBackClick = onBackClick
+                        onBackClick = { dispatchBack("error_back") { onBackClick() } }
                     )
                 }
 
@@ -225,15 +236,17 @@ fun UserStatsScreen(
                     UserStatsContent(
                         model = state.data,
                         visibleSections = activeSections,
-                        onBackClick = onBackClick,
+                        onBackClick = { dispatchBack("stats_top_bar") { onBackClick() } },
                         onProjectClick = onProjectClick,
                         onRepositorySelected = viewModel::selectRepository,
                         onDateRangeSelected = viewModel::selectDateRange,
                         onRapidThresholdChanged = viewModel::updateRapidThreshold,
                         onDetailsClick = { section ->
+                            AppLog.d(logTag, "openDetail section=${section.id}")
                             activeDetailSection = section
                         },
                         onSettingsClick = {
+                            AppLog.d(logTag, "openSettings")
                             showSettingsScreen = true
                         },
                         onExportPdfClick = {
@@ -265,7 +278,7 @@ fun UserStatsScreen(
                     target = StatsScreenSettingsTarget.User,
                     activeSectionIds = activeSectionIds,
                     onActiveSectionIdsChange = { activeSectionIds = it },
-                    onBackClick = { showSettingsScreen = false },
+                    onBackClick = { dispatchBack("settings_top_bar") { showSettingsScreen = false } },
                 )
             }
 
@@ -305,7 +318,7 @@ fun UserStatsScreen(
                             StatsScreenSection.CodeOwnership -> model.codeOwnership.score
                             StatsScreenSection.DominantWeekDay -> model.dominantWeekDay.score
                         },
-                        onBackClick = { activeDetailSection = null },
+                        onBackClick = { dispatchBack("detail_top_bar") { activeDetailSection = null } },
                         onRepositorySelected = viewModel::selectRepository,
                         onDateRangeSelected = viewModel::selectDateRange,
                         onRapidThresholdChanged = viewModel::updateRapidThreshold,
@@ -364,20 +377,26 @@ private fun UserStatsContent(
 ) {
     var showDateRangePicker by remember { mutableStateOf(false) }
     val palette = appPalette()
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val density = LocalDensity.current
+    var topBarHeight by remember { mutableStateOf(0.dp) }
+    val topContentPadding = maxOf(topBarHeight, StatsTopBarTotalHeight) + 8.dp
 
     Box(
         modifier = modifier.fillMaxSize()
     ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+                .lazyListEdgeFadeMask(
+                    listState = listState,
+                    topInset = topContentPadding,
                 ),
             contentPadding = PaddingValues(
                 start = UserStatsHorizontalPadding,
                 end = UserStatsHorizontalPadding,
-                top = StatsTopBarTotalHeight + 8.dp,
+                top = topContentPadding,
                 bottom = 40.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -487,7 +506,9 @@ private fun UserStatsContent(
         StatsTopBar(
             title = localizedString("Статистика", "Statistics"),
             onBackClick = onBackClick,
-            modifier = Modifier.align(Alignment.TopCenter)
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged { topBarHeight = with(density) { it.height.toDp() } }
         )
 
         if (showDateRangePicker) {
@@ -519,7 +540,8 @@ private fun PersonalStatsSummary(
     ) {
         Text(
             text = userName,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 20.sp,
             lineHeight = 20.sp,
             letterSpacing = 0.2.sp,
@@ -534,7 +556,8 @@ private fun PersonalStatsSummary(
         ) {
             Text(
                 text = role,
-                fontFamily = AppFonts.OpenSansLight,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Light,
                 fontSize = 16.sp,
                 color = palette.primaryText
             )
@@ -567,7 +590,8 @@ private fun ProjectLinkCard(
         ) {
             Text(
                 text = projectTitle,
-                fontFamily = AppFonts.OpenSansMedium,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Medium,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 color = palette.primaryText,
@@ -576,7 +600,8 @@ private fun ProjectLinkCard(
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = "→",
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 24.sp,
                 color = palette.primaryText
             )
@@ -868,22 +893,32 @@ private fun UserStatsUiModel.toSectionExportPayload(
                 sections = listOf(
                     ProjectStatsSection(
                         title = StatsExportCopy.commitListTitle(),
-                        rows = allCommits
-                            .sortedByDescending { it.committedAtIso }
-                            .map { commit ->
-                                ProjectStatsTableRow(
-                                    label = commit.message,
-                                    value = commit.committedAtLabel,
-                                    note = buildString {
-                                        append(commit.authorName)
-                                        append("  +${commit.additions}/-${commit.deletions}")
-                                        if (commit.files.isNotEmpty()) {
-                                            append("  ${StatsExportCopy.filesCount(commit.files.size)}")
-                                        }
-                                        commit.sha?.take(7)?.let { append("  [$it]") }
-                                    }
+                        score = commits.score,
+                        chart = buildDailyCountChart(
+                            title = localizeRuntime("График коммитов", "Commit chart"),
+                            dates = allCommits.mapNotNull { it.committedAtIso },
+                            pointHint = { count ->
+                                localizeRuntime(
+                                    "$count ${if (count == 1) "коммит" else "коммитов"}",
+                                    "$count ${if (count == 1) "commit" else "commits"}",
                                 )
-                            }
+                            },
+                        ),
+                        table = ProjectStatsTable(
+                            headers = listOf(
+                                localizeRuntime("Коммит", "Commit"),
+                                localizeRuntime("Дата", "Date"),
+                                localizeRuntime("Автор", "Author"),
+                                localizeRuntime("Добавлено", "Added"),
+                                localizeRuntime("Удалено", "Removed"),
+                                localizeRuntime("Файлы", "Files"),
+                                "SHA",
+                                localizeRuntime("Ссылка", "Link"),
+                            ),
+                            rows = buildCommitExportTableRows(
+                                allCommits.sortedByDescending { it.committedAtIso },
+                            ),
+                        ),
                     )
                 )
             )
@@ -937,26 +972,35 @@ private fun UserStatsUiModel.toSectionExportPayload(
                 sections = listOf(
                     ProjectStatsSection(
                         title = StatsExportCopy.prListTitle(),
-                        rows = allPRs
-                            .sortedByDescending { it.createdAtIso }
-                            .map { pr ->
-                                ProjectStatsTableRow(
-                                    label = pr.title,
-                                    value = pr.state?.uppercase() ?: "—",
-                                    note = buildString {
-                                        append(pr.authorName)
-                                        append("  ${StatsExportCopy.createdField()} ${pr.createdAtLabel}")
-                                        pr.closedAtLabel?.let {
-                                            append("  ${StatsExportCopy.closedField()} $it")
-                                        }
-                                        val add = pr.additions; val del = pr.deletions
-                                        if (add != null || del != null) {
-                                            append("  +${add ?: 0}/-${del ?: 0}")
-                                        }
-                                        pr.number?.let { append("  #$it") }
-                                    }
+                        score = pullRequests.score,
+                        chart = buildDailyCountChart(
+                            title = localizeRuntime("График Pull Requests", "Pull request chart"),
+                            dates = allPRs.mapNotNull { it.createdAtIso },
+                            pointHint = { count ->
+                                localizeRuntime(
+                                    "$count ${if (count == 1) "PR" else "PR"}",
+                                    "$count ${if (count == 1) "PR" else "PRs"}",
                                 )
-                            }
+                            },
+                        ),
+                        table = ProjectStatsTable(
+                            headers = listOf(
+                                "PR",
+                                localizeRuntime("Статус", "Status"),
+                                localizeRuntime("Автор", "Author"),
+                                localizeRuntime("Назначенные", "Assignees"),
+                                localizeRuntime("Создано", "Created"),
+                                localizeRuntime("Закрыто", "Closed"),
+                                localizeRuntime("Комментарии", "Comments"),
+                                localizeRuntime("Коммиты", "Commits"),
+                                localizeRuntime("Файлы", "Files"),
+                                localizeRuntime("Изменения", "Changes"),
+                                localizeRuntime("Ссылка", "Link"),
+                            ),
+                            rows = buildPullRequestExportTableRows(
+                                allPRs.sortedByDescending { it.createdAtIso },
+                            ),
+                        ),
                     )
                 )
             )

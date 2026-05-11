@@ -1,26 +1,10 @@
 package com.spbu.projecttrack.core.network
 
-/**
- * Информация об устройстве для определения типа подключения
- */
 expect object DeviceInfo {
-    /**
-     * Проверяет, работает ли приложение на эмуляторе/симуляторе
-     */
     fun isEmulator(): Boolean
     
     /**
-     * Возвращает IP адрес компьютера для локальной разработки
-     * Для эмулятора возвращает специальный адрес (10.0.2.2 для Android)
-     * Для реального устройства возвращает IP компьютера в локальной сети
+     * Returns the host address the app should use during local development.
      */
     fun getLocalHostAddress(): String
 }
-
-
-
-
-
-
-
-

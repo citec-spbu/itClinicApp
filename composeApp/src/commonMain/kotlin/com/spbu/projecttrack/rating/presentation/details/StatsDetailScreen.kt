@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,13 +23,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -51,13 +48,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -69,11 +71,14 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.core.search.matchesSearchQuery
+import com.spbu.projecttrack.core.logging.AppLog
 import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.theme.AppColors
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.core.theme.appPalette
 import com.spbu.projecttrack.core.theme.subtleBorder
+import com.spbu.projecttrack.core.ui.lazyListEdgeFadeMask
 import com.spbu.projecttrack.rating.common.StatsDetailCopy
 import com.spbu.projecttrack.rating.common.StatsExportCopy
 import com.spbu.projecttrack.rating.common.formatDurationMinutesLabel
@@ -106,6 +111,7 @@ import com.spbu.projecttrack.rating.presentation.projectstats.formatScoreValue
 import com.spbu.projecttrack.rating.presentation.projectstats.projectScoreColor
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsBackgroundLogo
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsDateRangePickerDialog
+import com.spbu.projecttrack.rating.presentation.projectstats.rememberStatsBackDispatcher
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBar
 import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBarTotalHeight
 import com.spbu.projecttrack.rating.presentation.projectstats.WeekDayDistributionCard
@@ -211,6 +217,7 @@ fun StatsDetailScreen(
     onExportExcelClick: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val logTag = "StatsDetailScreen"
     val palette = appPalette()
     var showDateRangePicker by remember { mutableStateOf(false) }
     var showAllIssues by rememberSaveable(section.id) { mutableStateOf(false) }
@@ -257,11 +264,23 @@ fun StatsDetailScreen(
         )
         else -> StatsDetailCopy.allPullRequestsDefaultTitle()
     }
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    var topBarHeight by remember { mutableStateOf(0.dp) }
+    val topContentPadding = maxOf(topBarHeight, StatsTopBarTotalHeight) + 8.dp
+    val dispatchBack = rememberStatsBackDispatcher("$logTag:${section.id}") {
+        "issuesOverlay=$showAllIssues pullRequestsOverlay=$showAllPullRequests filesOverlay=$showAllFiles participant=${effectiveParticipantId ?: "all"}"
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(palette.background)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            )
     ) {
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
@@ -274,17 +293,19 @@ fun StatsDetailScreen(
         )
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+                .lazyListEdgeFadeMask(
+                    listState = listState,
+                    topInset = topContentPadding,
                 ),
             contentPadding = PaddingValues(
                 start = 21.dp,
-                top = StatsTopBarTotalHeight + 8.dp,
+                top = topContentPadding,
                 end = 21.dp,
                 bottom = 20.dp,
-                ),
+            ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
@@ -317,85 +338,96 @@ fun StatsDetailScreen(
                     )
                 }
             }
-
             when (section) {
-                    StatsScreenSection.Commits -> commitItems(
-                        snapshots = participantSnapshots,
-                        selectedSnapshot = selectedSnapshot,
-                        peerSnapshots = peerSnapshots,
-                        effectiveParticipantId = effectiveParticipantId,
-                        overallRank = overallRank,
-                        overallScore = overallScore,
-                        details = details,
-                    )
+                StatsScreenSection.Commits -> commitItems(
+                    snapshots = participantSnapshots,
+                    selectedSnapshot = selectedSnapshot,
+                    peerSnapshots = peerSnapshots,
+                    effectiveParticipantId = effectiveParticipantId,
+                    overallRank = overallRank,
+                    overallScore = overallScore,
+                    details = details,
+                )
 
-                    StatsScreenSection.Issues -> issueItems(
-                        snapshots = participantSnapshots,
-                        selectedSnapshot = selectedSnapshot,
-                        peerSnapshots = peerSnapshots,
-                        effectiveParticipantId = effectiveParticipantId,
-                        overallRank = overallRank,
-                        overallScore = overallScore,
-                        details = details,
-                        onShowAllClick = { showAllIssues = true },
-                    )
+                StatsScreenSection.Issues -> issueItems(
+                    snapshots = participantSnapshots,
+                    selectedSnapshot = selectedSnapshot,
+                    peerSnapshots = peerSnapshots,
+                    effectiveParticipantId = effectiveParticipantId,
+                    overallRank = overallRank,
+                    overallScore = overallScore,
+                    details = details,
+                    onShowAllClick = {
+                        AppLog.d(logTag, "openIssuesOverlay section=${section.id}")
+                        showAllIssues = true
+                    },
+                )
 
-                    StatsScreenSection.PullRequests -> pullRequestItems(
-                        snapshots = participantSnapshots,
-                        selectedSnapshot = selectedSnapshot,
-                        peerSnapshots = peerSnapshots,
-                        effectiveParticipantId = effectiveParticipantId,
-                        overallRank = overallRank,
-                        overallScore = overallScore,
-                        details = details,
-                        rapidThreshold = rapidThreshold,
-                        onShowAllClick = { showAllPullRequests = true },
-                    )
+                StatsScreenSection.PullRequests -> pullRequestItems(
+                    snapshots = participantSnapshots,
+                    selectedSnapshot = selectedSnapshot,
+                    peerSnapshots = peerSnapshots,
+                    effectiveParticipantId = effectiveParticipantId,
+                    overallRank = overallRank,
+                    overallScore = overallScore,
+                    details = details,
+                    rapidThreshold = rapidThreshold,
+                    onShowAllClick = {
+                        AppLog.d(logTag, "openPullRequestsOverlay section=${section.id}")
+                        showAllPullRequests = true
+                    },
+                )
 
-                    StatsScreenSection.RapidPullRequests -> rapidPullRequestItems(
-                        snapshots = participantSnapshots,
-                        selectedSnapshot = selectedSnapshot,
-                        peerSnapshots = peerSnapshots,
-                        effectiveParticipantId = effectiveParticipantId,
-                        overallRank = overallRank,
-                        overallScore = overallScore,
-                        details = details,
-                        rapidThreshold = rapidThreshold,
-                        onRapidThresholdChanged = onRapidThresholdChanged,
-                        onShowAllClick = { showAllPullRequests = true },
-                    )
+                StatsScreenSection.RapidPullRequests -> rapidPullRequestItems(
+                    snapshots = participantSnapshots,
+                    selectedSnapshot = selectedSnapshot,
+                    peerSnapshots = peerSnapshots,
+                    effectiveParticipantId = effectiveParticipantId,
+                    overallRank = overallRank,
+                    overallScore = overallScore,
+                    details = details,
+                    rapidThreshold = rapidThreshold,
+                    onRapidThresholdChanged = onRapidThresholdChanged,
+                    onShowAllClick = {
+                        AppLog.d(logTag, "openPullRequestsOverlay section=${section.id}")
+                        showAllPullRequests = true
+                    },
+                )
 
-                    StatsScreenSection.CodeChurn -> codeChurnItems(
-                        snapshots = participantSnapshots,
-                        selectedSnapshot = selectedSnapshot,
-                        peerSnapshots = peerSnapshots,
-                        effectiveParticipantId = effectiveParticipantId,
-                        overallRank = overallRank,
-                        overallScore = overallScore,
-                        details = details,
-                        onShowAllFilesClick = { showAllFiles = true },
-                    )
+                StatsScreenSection.CodeChurn -> codeChurnItems(
+                    snapshots = participantSnapshots,
+                    selectedSnapshot = selectedSnapshot,
+                    peerSnapshots = peerSnapshots,
+                    effectiveParticipantId = effectiveParticipantId,
+                    overallRank = overallRank,
+                    overallScore = overallScore,
+                    details = details,
+                    onShowAllFilesClick = {
+                        AppLog.d(logTag, "openFilesOverlay section=${section.id}")
+                        showAllFiles = true
+                    },
+                )
 
-                    StatsScreenSection.CodeOwnership -> ownershipItems(
-                        snapshots = participantSnapshots,
-                        selectedSnapshot = selectedSnapshot,
-                        peerSnapshots = peerSnapshots,
-                        effectiveParticipantId = effectiveParticipantId,
-                        overallRank = overallRank,
-                        overallScore = overallScore,
-                        details = details,
-                    )
+                StatsScreenSection.CodeOwnership -> ownershipItems(
+                    snapshots = participantSnapshots,
+                    selectedSnapshot = selectedSnapshot,
+                    peerSnapshots = peerSnapshots,
+                    effectiveParticipantId = effectiveParticipantId,
+                    overallRank = overallRank,
+                    overallScore = overallScore,
+                    details = details,
+                )
 
-                    StatsScreenSection.DominantWeekDay -> dominantWeekDayItems(
-                        snapshots = participantSnapshots,
-                        selectedSnapshot = selectedSnapshot,
-                        peerSnapshots = peerSnapshots,
-                        effectiveParticipantId = effectiveParticipantId,
-                        overallRank = overallRank,
-                        overallScore = overallScore,
-                        details = details,
-                    )
-                }
+                StatsScreenSection.DominantWeekDay -> dominantWeekDayItems(
+                    snapshots = participantSnapshots,
+                    selectedSnapshot = selectedSnapshot,
+                    peerSnapshots = peerSnapshots,
+                    effectiveParticipantId = effectiveParticipantId,
+                    overallRank = overallRank,
+                    overallScore = overallScore,
+                    details = details,
+                )
+            }
 
             item {
                 DetailExportActions(
@@ -407,10 +439,11 @@ fun StatsDetailScreen(
 
         StatsTopBar(
             title = detailTitle(section),
-            onBackClick = onBackClick,
-            titleFontSize = if (section == StatsScreenSection.DominantWeekDay) 20.sp else 28.sp,
-            titleLineHeight = if (section == StatsScreenSection.DominantWeekDay) 20.sp else 28.sp,
-            modifier = Modifier.align(Alignment.TopCenter)
+            onBackClick = { dispatchBack("detail_top_bar") { onBackClick() } },
+            titleMaxLines = 2,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged { topBarHeight = with(density) { it.height.toDp() } },
         )
 
         AnimatedVisibility(
@@ -421,7 +454,11 @@ fun StatsDetailScreen(
         ) {
             AllIssuesOverlay(
                 issues = issueListForOverlay,
-                onBackClick = { showAllIssues = false },
+                onBackClick = {
+                    dispatchBack("issues_overlay_top_bar") {
+                        showAllIssues = false
+                    }
+                },
             )
         }
 
@@ -435,7 +472,11 @@ fun StatsDetailScreen(
             AllPullRequestsOverlay(
                 pullRequests = pullRequestListForOverlay,
                 title = pullRequestOverlayTitle,
-                onBackClick = { showAllPullRequests = false },
+                onBackClick = {
+                    dispatchBack("pull_requests_overlay_top_bar") {
+                        showAllPullRequests = false
+                    }
+                },
             )
         }
 
@@ -447,7 +488,11 @@ fun StatsDetailScreen(
         ) {
             AllFilesOverlay(
                 files = fileListForOverlay,
-                onBackClick = { showAllFiles = false },
+                onBackClick = {
+                    dispatchBack("files_overlay_top_bar") {
+                        showAllFiles = false
+                    }
+                },
             )
         }
     }
@@ -480,8 +525,8 @@ private fun LazyListScope.commitItems(
     val additions = filteredCommits.sumOf { it.additions }
     val deletions = filteredCommits.sumOf { it.deletions }
     val dailyCounts = buildDailyCounts(filteredCommits.mapNotNull { it.committedAtIso })
-    // Делим на реальный диапазон (от первого до последнего коммита включительно),
-    // а не на количество дней с коммитами — иначе получается среднее «в активный день»
+    // Divide by the full first-to-last-commit span, not just by active days, to avoid
+    // reporting an "average per active day" as the overall daily average.
     val commitInstants = filteredCommits.mapNotNull { parseInstant(it.committedAtIso) }
     val spanDays = if (commitInstants.size < 2) {
         dailyCounts.size.coerceAtLeast(1)
@@ -493,7 +538,7 @@ private fun LazyListScope.commitItems(
     val averagePerDay = if (filteredCommits.isEmpty()) 0.0
     else filteredCommits.size.toDouble() / spanDays.toDouble()
     val maxPerDay = dailyCounts.maxOfOrNull { it.count } ?: 0
-    // Если активных дней меньше чем дней в диапазоне — были дни с 0 коммитами, минимум = 0
+    // Missing days inside the span imply at least one zero-commit day.
     val minPerDay = if (dailyCounts.size < spanDays) 0
                    else dailyCounts.minOfOrNull { it.count } ?: 0
     val linePoints = buildLineDeltaPoints(filteredCommits)
@@ -765,14 +810,16 @@ private fun LazyListScope.issueItems(
                 val scoreText = score?.let(::formatScoreValue) ?: "—"
                 Text(
                     text = scoreText,
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 32.sp,
                     lineHeight = 32.sp,
                     color = projectScoreColor(score),
                 )
                 Text(
                     text = StatsDetailCopy.issueScoreTitle(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 14.sp,
                     lineHeight = 16.sp,
                     color = appPalette().primaryText,
@@ -1104,7 +1151,8 @@ private fun LazyListScope.codeChurnItems(
         item {
             Text(
                 text = StatsDetailCopy.fileChangesDistributionText(),
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
                 color = appPalette().primaryText,
@@ -1254,7 +1302,8 @@ private fun LazyListScope.dominantWeekDayItems(
             ) {
                 Text(
                     text = StatsDetailCopy.activityByWeekdayTitle(),
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
                     lineHeight = 20.sp,
                     color = appPalette().primaryText,
@@ -1321,7 +1370,8 @@ private fun DetailHeader(
         )
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 28.sp,
             lineHeight = 28.sp,
             color = palette.accent,
@@ -1361,7 +1411,8 @@ private fun DetailThresholdSelector(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = StatsDetailCopy.rapidThresholdHeading(),
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 color = palette.primaryText,
             )
@@ -1410,11 +1461,10 @@ private fun DetailValueSelector(
     )
 }
 
-// Цвета графика изменения строк (по Figma)
 private val DualLineAddColor = Color(0xFF27AE60)
-private val DualLineDelColor = Color(0xFF9F2D20)   // = AppColors.Color3
+private val DualLineDelColor = Color(0xFF9F2D20)
 private val DualChartGridColor = Color(0xFFE3E3E6)
-// Порог совпадения точек: если разница add/del < 12% от максимума — плашка объединяется
+// Merge add/remove tooltip rows when both values are visually indistinguishable on the chart scale.
 private const val DualLineMergeThreshold = 0.12f
 
 @Composable
@@ -1428,14 +1478,16 @@ private fun DualLineChartCard(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 text = title,
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 color = palette.primaryText,
             )
             if (points.isEmpty()) {
                 Text(
                     text = StatsDetailCopy.noData(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
                     color = palette.primaryText,
                 )
@@ -1473,15 +1525,13 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var tooltipSize by remember { mutableStateOf(IntSize.Zero) }
 
-    // Константы разметки
     val chartHeight = 152.dp
     val axisLabelWidth = 24.dp
     val axisLabelGap = 4.dp
     val plotTopPadding = 10.dp
     val plotBottomPadding = 6.dp
-    // hPadding = 0 — карточка уже даёт горизонтальный паддинг, не дублируем
     val hPadding = 0.dp
-    val plotEndPadding = 6.dp   // небольшой правый отступ, чтобы крайняя точка не обрезалась
+    val plotEndPadding = 6.dp
     val xAxisGap = 4.dp
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -1491,8 +1541,6 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
         val plotHeight = chartHeight - plotTopPadding - plotBottomPadding
         val slotWidth = plotWidth / points.size.coerceAtLeast(1)
 
-        // Разреживаем подписи оси X если не помещаются
-        // 64dp на каждую метку — достаточно для "11.02.26" при шрифте 11sp
         val maxVisibleLabels = ((plotWidth / 64.dp).toInt()).coerceAtLeast(2)
         val labelStep = if (points.size <= maxVisibleLabels) 1
         else (points.size.toFloat() / maxVisibleLabels.toFloat()).roundToInt().coerceAtLeast(1)
@@ -1504,7 +1552,6 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
             }
         }
 
-        // Позиции точек в dp (x, y) — хранятся как Float (dp-magnitude)
         val addPositions = remember(points, plotStart, slotWidth, plotTopPadding, plotHeight, axisScaleMax) {
             points.mapIndexed { i, pt ->
                 val x = (plotStart + slotWidth * i + slotWidth / 2).value
@@ -1528,7 +1575,6 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
         Column {
             Box(modifier = Modifier.fillMaxWidth().height(chartHeight)) {
 
-                // Сетка + оси (как в ChartCard)
                 DualLineChartGrid(
                     axisLabels = axisLabels,
                     axisLabelWidth = axisLabelWidth,
@@ -1539,7 +1585,6 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                     plotBottomPadding = plotBottomPadding,
                 )
 
-                // Линии + точки
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1565,7 +1610,6 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                     drawPath(addPath, DualLineAddColor, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
                     drawPath(delPath, DualLineDelColor, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
 
-                    // Точки с белым ободком
                     addPositions.indices.forEach { i ->
                         val isSelected = i == selectedIndex
                         val r = if (isSelected) 5.5.dp.toPx() else 4.dp.toPx()
@@ -1578,7 +1622,6 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                     }
                 }
 
-                // Тултип при выборе точки
                 selectedIndex?.let { idx ->
                     val point = points[idx]
                     val px = addPositions[idx].x.dp
@@ -1604,27 +1647,29 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = point.label,
-                                fontFamily = AppFonts.OpenSansBold,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
                                 color = appPalette().buttonText,
                             )
                             Text(
                                 text = StatsDetailCopy.tooltipAdded(point.firstValue),
-                                fontFamily = AppFonts.OpenSansMedium,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Medium,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
                                 color = DualLineAddColor,
                             )
                             Text(
                                 text = StatsDetailCopy.tooltipRemoved(point.secondValue, isMerged),
-                                fontFamily = AppFonts.OpenSansMedium,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Medium,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
                                 color = Color(0xFFFF8A80),
                             )
                         }
-                        // Кнопка закрытия — штатная иконка из ресурсов
                         Box(
                             modifier = Modifier
                                 .size(20.dp)
@@ -1646,8 +1691,6 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                 }
             }
 
-            // Подписи оси X — абсолютное позиционирование, каждая метка 60dp шириной,
-            // центрирована над своей точкой. Даты не обрезаются и не переносятся.
             val labelFixedWidth = 60.dp
             Box(
                 modifier = Modifier
@@ -1662,7 +1705,8 @@ private fun DualLineChart(points: List<DetailLinePoint>) {
                         .coerceAtMost((totalWidth - labelFixedWidth).coerceAtLeast(0.dp))
                     Text(
                         text = points[i].label,
-                        fontFamily = AppFonts.OpenSansMedium,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Medium,
                         fontSize = 11.sp,
                         lineHeight = 12.sp,
                         letterSpacing = 0.11.sp,
@@ -1710,7 +1754,8 @@ private fun DualLineChartGrid(
             ) {
                 Text(
                     text = formatDualAxisLabel(label),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 12.sp,
                     lineHeight = 12.sp,
                     letterSpacing = 0.12.sp,
@@ -1731,7 +1776,6 @@ private fun DualLineChartGrid(
             }
         }
 
-        // Вертикальная линия оси Y
         Box(
             modifier = Modifier
                 .offset(x = plotStart, y = plotTopPadding)
@@ -1754,7 +1798,6 @@ private fun DualLineLegendItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // Линия со скруглёнными краями
         Box(
             modifier = Modifier
                 .width(16.dp)
@@ -1763,7 +1806,8 @@ private fun DualLineLegendItem(
         )
         Text(
             text = label,
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 12.sp,
             color = palette.primaryText,
         )
@@ -1787,7 +1831,8 @@ private fun DetailFilesCard(
             ) {
                 Text(
                     text = title,
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
                     color = palette.primaryText,
                 )
@@ -1801,7 +1846,8 @@ private fun DetailFilesCard(
                     )
                     Text(
                         text = StatsDetailCopy.viewAll(),
-                        fontFamily = AppFonts.OpenSansMedium,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Medium,
                         fontSize = 12.sp,
                         color = palette.primaryText.copy(alpha = alpha),
                         modifier = Modifier
@@ -1816,7 +1862,8 @@ private fun DetailFilesCard(
             if (rows.isEmpty()) {
                 Text(
                     text = StatsDetailCopy.noData(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
                     color = palette.primaryText,
                 )
@@ -1828,18 +1875,17 @@ private fun DetailFilesCard(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.Top,
                         ) {
-                            // Левая колонка: имя файла + цветные дельты
                             Column(
                                 modifier = Modifier.weight(1f).padding(end = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 Text(
                                     text = breakableFileName(row.fileName),
-                                    fontFamily = AppFonts.OpenSansMedium,
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = FontWeight.Medium,
                                     fontSize = 13.sp,
                                     color = palette.primaryText,
                                 )
-                                // "+additions/-deletions" — зелёный/красный
                                 Text(
                                     text = buildAnnotatedString {
                                         withStyle(SpanStyle(color = DualLineAddColor)) {
@@ -1849,11 +1895,11 @@ private fun DetailFilesCard(
                                             append("/-${row.deletions}")
                                         }
                                     },
-                                    fontFamily = AppFonts.OpenSansMedium,
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = FontWeight.Medium,
                                     fontSize = 12.sp,
                                 )
                             }
-                            // Правая колонка: "N изменений" + статус
                             Column(
                                 horizontalAlignment = Alignment.End,
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1861,13 +1907,15 @@ private fun DetailFilesCard(
                                 Text(
                                     text = buildAnnotatedString {
                                         withStyle(SpanStyle(
-                                            fontFamily = AppFonts.OpenSansBold,
+                                            fontFamily = AppFonts.OpenSans,
+                                            fontWeight = FontWeight.Bold,
                                             color = palette.accent,
                                         )) {
                                             append("${row.changes}")
                                         }
                                         withStyle(SpanStyle(
-                                            fontFamily = AppFonts.OpenSansRegular,
+                                            fontFamily = AppFonts.OpenSans,
+                                            fontWeight = FontWeight.Normal,
                                             color = palette.primaryText,
                                         )) {
                                             append(" ${StatsDetailCopy.changesWord(row.changes)}")
@@ -1879,7 +1927,8 @@ private fun DetailFilesCard(
                                 row.status?.takeIf { it.isNotBlank() }?.let { status ->
                                     Text(
                                         text = status,
-                                        fontFamily = AppFonts.OpenSansBold,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
                                         color = fileStatusColor(status),
                                         textAlign = TextAlign.End,
@@ -1897,7 +1946,6 @@ private fun DetailFilesCard(
     }
 }
 
-/** Цвет статуса файла по Figma: added=зелёный, removed=красный, modified=оранжевый */
 @Composable
 private fun fileStatusColor(status: String): Color = when (status.lowercase()) {
     "added" -> DualLineAddColor
@@ -1954,14 +2002,16 @@ private fun DetailTableCard(
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = title,
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
                     color = palette.primaryText,
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
-                        fontFamily = AppFonts.OpenSansRegular,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Normal,
                         fontSize = 13.sp,
                         color = palette.primaryText,
                     )
@@ -1970,7 +2020,8 @@ private fun DetailTableCard(
             if (rows.isEmpty()) {
                 Text(
                     text = StatsDetailCopy.noData(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
                     color = palette.primaryText,
                 )
@@ -1982,7 +2033,8 @@ private fun DetailTableCard(
                     ) {
                         Text(
                             text = StatsDetailCopy.tableNameColumn(),
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
                             color = palette.primaryText,
                             modifier = Modifier.weight(1f),
@@ -1990,7 +2042,8 @@ private fun DetailTableCard(
                         headers.forEach { header ->
                             Text(
                                 text = header,
-                                fontFamily = AppFonts.OpenSansBold,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
                                 color = palette.primaryText,
                                 textAlign = TextAlign.End,
@@ -2007,7 +2060,7 @@ private fun DetailTableCard(
                         ) {
                             Text(
                                 text = row.title,
-                                fontFamily = AppFonts.OpenSansRegular,
+                                fontFamily = AppFonts.OpenSans,
                                 fontWeight = if (row.highlight) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 13.sp,
                                 color = if (row.highlight) palette.accent else palette.primaryText,
@@ -2016,7 +2069,8 @@ private fun DetailTableCard(
                             row.values.forEach { value ->
                                 Text(
                                     text = value,
-                                    fontFamily = AppFonts.OpenSansSemiBold,
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.sp,
                                     color = palette.primaryText,
                                     textAlign = TextAlign.End,
@@ -2034,7 +2088,6 @@ private fun DetailTableCard(
     }
 }
 
-/** Инициалы для аватара из имени автора */
 private fun authorInitials(name: String): String {
     val parts = name.trim().split(" ")
     return when {
@@ -2044,7 +2097,6 @@ private fun authorInitials(name: String): String {
     }
 }
 
-/** Цвет фона аватара на основе хеша имени */
 private fun authorAvatarColor(name: String): Color {
     val palette = listOf(
         Color(0xFF4A90D9), Color(0xFF7B68EE), Color(0xFF2ECC71),
@@ -2061,21 +2113,22 @@ private fun CommitEntityListCard(
     modifier: Modifier = Modifier,
 ) {
     val palette = appPalette()
-    // Track which commit indices are expanded
     var expandedIndices by remember { mutableStateOf(emptySet<Int>()) }
 
     DetailCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = title,
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 color = palette.primaryText,
             )
             if (commits.isEmpty()) {
                 Text(
                     text = StatsDetailCopy.noData(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
                     color = palette.primaryText,
                 )
@@ -2083,7 +2136,6 @@ private fun CommitEntityListCard(
                 val uriHandler = LocalUriHandler.current
                 commits.forEachIndexed { index, commit ->
                     val isExpanded = index in expandedIndices
-                    // Animated chevron rotation: 0° collapsed → 180° expanded
                     val chevronAngle by animateFloatAsState(
                         targetValue = if (isExpanded) 180f else 0f,
                         animationSpec = tween(durationMillis = 250),
@@ -2091,7 +2143,6 @@ private fun CommitEntityListCard(
                     )
 
                     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                        // ── Main commit row ──
                         val rowInteraction = remember { MutableInteractionSource() }
                         val rowPressed by rowInteraction.collectIsPressedAsState()
                         val rowScale by animateFloatAsState(
@@ -2110,21 +2161,19 @@ private fun CommitEntityListCard(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.Top,
                         ) {
-                            // Avatar circle: initials as fallback, real avatar on top when loaded
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .background(authorAvatarColor(commit.authorName), CircleShape),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                // Initials — always rendered, hidden by image if it loads
                                 Text(
                                     text = authorInitials(commit.authorName),
-                                    fontFamily = AppFonts.OpenSansBold,
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     color = appPalette().buttonText,
                                 )
-                                // Real avatar from GitHub (overlays initials on success)
                                 commit.authorAvatarUrl?.let { url ->
                                     AsyncImage(
                                         model = url,
@@ -2137,12 +2186,10 @@ private fun CommitEntityListCard(
                                 }
                             }
 
-                            // Content column
                             Column(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
-                                // Row 1: author name + date + chevron
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -2150,7 +2197,8 @@ private fun CommitEntityListCard(
                                 ) {
                                     Text(
                                         text = commit.authorName,
-                                        fontFamily = AppFonts.OpenSansSemiBold,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.SemiBold,
                                         fontSize = 14.sp,
                                         color = palette.primaryText,
                                         modifier = Modifier.weight(1f),
@@ -2163,7 +2211,8 @@ private fun CommitEntityListCard(
                                     ) {
                                         Text(
                                             text = commit.committedAtLabel,
-                                            fontFamily = AppFonts.OpenSansRegular,
+                                            fontFamily = AppFonts.OpenSans,
+                                            fontWeight = FontWeight.Normal,
                                             fontSize = 12.sp,
                                             color = palette.primaryText,
                                         )
@@ -2181,47 +2230,45 @@ private fun CommitEntityListCard(
                                         )
                                     }
                                 }
-                                // Row 2: commit message
                                 Text(
                                     text = commit.message,
-                                    fontFamily = AppFonts.OpenSansRegular,
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = FontWeight.Normal,
                                     fontSize = 12.sp,
                                     color = palette.primaryText,
                                     maxLines = if (isExpanded) Int.MAX_VALUE else 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                // Row 3: additions/deletions + file count + link
                                 Spacer(Modifier.height(2.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    // Left: "+N / -M  K файлов"
                                     Text(
                                         text = buildAnnotatedString {
-                                            withStyle(SpanStyle(color = DualLineAddColor, fontFamily = AppFonts.OpenSansMedium)) {
+                                            withStyle(SpanStyle(color = DualLineAddColor, fontFamily = AppFonts.OpenSans, fontWeight = FontWeight.Medium)) {
                                                 append("+${commit.additions}")
                                             }
-                                            withStyle(SpanStyle(color = palette.primaryText, fontFamily = AppFonts.OpenSansRegular)) {
+                                            withStyle(SpanStyle(color = palette.primaryText, fontFamily = AppFonts.OpenSans, fontWeight = FontWeight.Normal)) {
                                                 append(" / ")
                                             }
-                                            withStyle(SpanStyle(color = DualLineDelColor, fontFamily = AppFonts.OpenSansMedium)) {
+                                            withStyle(SpanStyle(color = DualLineDelColor, fontFamily = AppFonts.OpenSans, fontWeight = FontWeight.Medium)) {
                                                 append("-${commit.deletions}")
                                             }
                                             if (commit.files.isNotEmpty()) {
-                                                withStyle(SpanStyle(color = palette.primaryText, fontFamily = AppFonts.OpenSansRegular)) {
+                                                withStyle(SpanStyle(color = palette.primaryText, fontFamily = AppFonts.OpenSans, fontWeight = FontWeight.Normal)) {
                                                     append("  ${commit.files.size} ${StatsDetailCopy.filesCount(commit.files.size)}")
                                                 }
                                             }
                                         },
                                         fontSize = 12.sp,
                                     )
-                                    // Right: clickable link to commit
                                     commit.url?.let { url ->
                                         Text(
                                             text = StatsDetailCopy.linkLabel(),
-                                            fontFamily = AppFonts.OpenSansRegular,
+                                            fontFamily = AppFonts.OpenSans,
+                                            fontWeight = FontWeight.Normal,
                                             fontSize = 12.sp,
                                             color = palette.accent,
                                             style = androidx.compose.ui.text.TextStyle(
@@ -2234,7 +2281,6 @@ private fun CommitEntityListCard(
                             }
                         }
 
-                        // ── Expanded files list (animated) ──
                         AnimatedVisibility(
                             visible = isExpanded,
                             enter = fadeIn(tween(200)) + expandVertically(tween(250)),
@@ -2253,7 +2299,8 @@ private fun CommitEntityListCard(
                                     ) {
                                         Text(
                                             text = StatsDetailCopy.changedFilesHeading(),
-                                            fontFamily = AppFonts.OpenSansSemiBold,
+                                            fontFamily = AppFonts.OpenSans,
+                                            fontWeight = FontWeight.SemiBold,
                                             fontSize = 12.sp,
                                             color = palette.primaryText,
                                         )
@@ -2269,7 +2316,8 @@ private fun CommitEntityListCard(
                                                 ) {
                                                     Text(
                                                         text = file.fileName.substringAfterLast('/'),
-                                                        fontFamily = AppFonts.OpenSansMedium,
+                                                        fontFamily = AppFonts.OpenSans,
+                                                        fontWeight = FontWeight.Medium,
                                                         fontSize = 11.sp,
                                                         color = palette.primaryText,
                                                         maxLines = 1,
@@ -2281,13 +2329,15 @@ private fun CommitEntityListCard(
                                                             withStyle(SpanStyle(color = DualLineDelColor)) { append(" -${file.deletions}") }
                                                         },
                                                         fontSize = 10.sp,
-                                                        fontFamily = AppFonts.OpenSansRegular,
+                                                        fontFamily = AppFonts.OpenSans,
+                                                        fontWeight = FontWeight.Normal,
                                                     )
                                                 }
                                                 file.status?.takeIf { it.isNotBlank() }?.let { status ->
                                                     Text(
                                                         text = status,
-                                                        fontFamily = AppFonts.OpenSansBold,
+                                                        fontFamily = AppFonts.OpenSans,
+                                                        fontWeight = FontWeight.Bold,
                                                         fontSize = 10.sp,
                                                         color = fileStatusColor(status),
                                                     )
@@ -2296,10 +2346,10 @@ private fun CommitEntityListCard(
                                         }
                                     }
                                 } else {
-                                    // Commit message full text when no files
                                     Text(
                                         text = StatsDetailCopy.noFileData(),
-                                        fontFamily = AppFonts.OpenSansRegular,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Normal,
                                         fontSize = 12.sp,
                                         color = palette.primaryText,
                                     )
@@ -2327,16 +2377,19 @@ private fun AllFilesOverlay(
 ) {
     val palette = appPalette()
     val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
     var searchText by remember { mutableStateOf("") }
     var sortAscending by remember { mutableStateOf(false) }
     var selectedStatusFilter by rememberSaveable { mutableStateOf(StatsDetailCopy.allFilesInternalFilter()) }
+    var topBarHeight by remember { mutableStateOf(0.dp) }
+    val topContentPadding = maxOf(topBarHeight, StatsTopBarTotalHeight) + 8.dp
     val statusFilters = remember(files) { buildFileStatusFilters(files) }
 
     val displayedFiles = remember(files, searchText, sortAscending, selectedStatusFilter) {
         files
             .let { list ->
                 if (searchText.isBlank()) list
-                else list.filter { it.fileName.contains(searchText.trim(), ignoreCase = true) }
+                else list.filter { matchesSearchQuery(searchText, it.fileName) }
             }
             .let { list ->
                 if (selectedStatusFilter == StatsDetailCopy.allFilesInternalFilter()) list
@@ -2350,6 +2403,7 @@ private fun AllFilesOverlay(
             .fillMaxSize()
             .background(palette.background),
     ) {
+        val listState = rememberLazyListState()
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
             contentDescription = null,
@@ -2360,13 +2414,17 @@ private fun AllFilesOverlay(
             alpha = palette.spbuBackdropLogoAlpha,
         )
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .lazyListEdgeFadeMask(
+                    listState = listState,
+                    topInset = topContentPadding,
+                )
                 .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
             contentPadding = PaddingValues(
                 start = 21.dp,
-                top = StatsTopBarTotalHeight + 8.dp,
+                top = topContentPadding,
                 end = 21.dp,
                 bottom = 20.dp,
             ),
@@ -2454,7 +2512,8 @@ private fun AllFilesOverlay(
                             } else {
                                 StatsDetailCopy.nothingFound()
                             },
-                            fontFamily = AppFonts.OpenSansMedium,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Medium,
                             fontSize = 13.sp,
                             color = palette.primaryText,
                         )
@@ -2475,10 +2534,10 @@ private fun AllFilesOverlay(
                 focusManager.clearFocus()
                 onBackClick()
             },
-            titleFontSize = overlayPullRequestTitleFontSize(StatsDetailCopy.fileStatsTitle()),
-            titleLineHeight = overlayPullRequestTitleFontSize(StatsDetailCopy.fileStatsTitle()),
             titleMaxLines = 2,
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged { topBarHeight = with(density) { it.height.toDp() } },
         )
     }
 }
@@ -2491,8 +2550,11 @@ private fun AllIssuesOverlay(
 ) {
     val palette = appPalette()
     val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
     var searchText by remember { mutableStateOf("") }
     var stateFilterKey by remember { mutableStateOf(IssueStateFilter.All.key) }
+    var topBarHeight by remember { mutableStateOf(0.dp) }
+    val topContentPadding = maxOf(topBarHeight, StatsTopBarTotalHeight) + 8.dp
     val stateFilter = IssueStateFilter.fromKey(stateFilterKey)
     val filteredIssues = remember(issues, searchText, stateFilter) {
         filterAllIssues(issues, searchText, stateFilter)
@@ -2502,7 +2564,7 @@ private fun AllIssuesOverlay(
             .fillMaxSize()
             .background(palette.background),
     ) {
-        // Лого СПбГУ по центру — как на экране авторизации
+        val listState = rememberLazyListState()
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
             contentDescription = null,
@@ -2512,23 +2574,23 @@ private fun AllIssuesOverlay(
             contentScale = ContentScale.Fit,
             alpha = palette.spbuBackdropLogoAlpha,
         )
-
-        // LazyColumn fills the full screen → clipping boundary is the screen edges,
-        // so item shadows are never clipped when scrolling to the top.
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .lazyListEdgeFadeMask(
+                    listState = listState,
+                    topInset = topContentPadding,
+                )
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = { focusManager.clearFocus() })
                 },
             contentPadding = PaddingValues(
-                top = StatsTopBarTotalHeight + 8.dp,
+                top = topContentPadding,
                 bottom = 20.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Search + filter scroll together with the list
             item(key = "search_header") {
                 Column(
                     modifier = Modifier
@@ -2560,7 +2622,8 @@ private fun AllIssuesOverlay(
                                 } else {
                                     localizedString("Ничего не найдено", "Nothing found")
                                 },
-                                fontFamily = AppFonts.OpenSansMedium,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Medium,
                                 fontSize = 13.sp,
                                 color = appPalette().primaryText,
                             )
@@ -2578,17 +2641,16 @@ private fun AllIssuesOverlay(
                 }
             }
         }
-
-        // Top bar drawn last — sits above everything
         StatsTopBar(
             title = StatsDetailCopy.allIssuesTitle(),
             onBackClick = {
                 focusManager.clearFocus()
                 onBackClick()
             },
-            titleFontSize = 28.sp,
-            titleLineHeight = 28.sp,
-            modifier = Modifier.align(Alignment.TopCenter),
+            titleMaxLines = 2,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged { topBarHeight = with(density) { it.height.toDp() } },
         )
     }
 }
@@ -2601,8 +2663,11 @@ private fun AllPullRequestsOverlay(
     modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
     var searchText by remember { mutableStateOf("") }
     var stateFilterKey by remember { mutableStateOf(IssueStateFilter.All.key) }
+    var topBarHeight by remember { mutableStateOf(0.dp) }
+    val topContentPadding = maxOf(topBarHeight, StatsTopBarTotalHeight) + 8.dp
     val stateFilter = IssueStateFilter.fromKey(stateFilterKey)
     val filteredPullRequests = remember(pullRequests, searchText, stateFilter) {
         filterAllPullRequests(pullRequests, searchText, stateFilter)
@@ -2613,6 +2678,7 @@ private fun AllPullRequestsOverlay(
             .fillMaxSize()
             .background(appPalette().background),
     ) {
+        val listState = rememberLazyListState()
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
             contentDescription = null,
@@ -2622,16 +2688,19 @@ private fun AllPullRequestsOverlay(
             contentScale = ContentScale.Fit,
             alpha = appPalette().spbuBackdropLogoAlpha,
         )
-
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .lazyListEdgeFadeMask(
+                    listState = listState,
+                    topInset = topContentPadding,
+                )
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = { focusManager.clearFocus() })
                 },
             contentPadding = PaddingValues(
-                top = StatsTopBarTotalHeight + 8.dp,
+                top = topContentPadding,
                 bottom = 20.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -2667,7 +2736,8 @@ private fun AllPullRequestsOverlay(
                                 } else {
                                     localizedString("Ничего не найдено", "Nothing found")
                                 },
-                                fontFamily = AppFonts.OpenSansMedium,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Medium,
                                 fontSize = 13.sp,
                                 color = appPalette().primaryText,
                             )
@@ -2685,17 +2755,16 @@ private fun AllPullRequestsOverlay(
                 }
             }
         }
-
         StatsTopBar(
             title = title,
             onBackClick = {
                 focusManager.clearFocus()
                 onBackClick()
             },
-            titleFontSize = overlayPullRequestTitleFontSize(title),
-            titleLineHeight = overlayPullRequestTitleFontSize(title),
             titleMaxLines = 2,
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged { topBarHeight = with(density) { it.height.toDp() } },
         )
     }
 }
@@ -2735,7 +2804,8 @@ private fun DetailIssueSearchBar(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             textStyle = TextStyle(
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 color = appPalette().primaryText,
                 letterSpacing = 0.16.sp,
@@ -2744,7 +2814,8 @@ private fun DetailIssueSearchBar(
                 if (searchText.isBlank()) {
                     Text(
                         text = placeholder,
-                        fontFamily = AppFonts.OpenSansSemiBold,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp,
                         color = appPalette().subtleBorder,
                         letterSpacing = 0.16.sp,
@@ -2775,7 +2846,8 @@ private fun DetailIssueSection(
         ) {
             Text(
                 text = title,
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
                 color = appPalette().primaryText,
             )
@@ -2783,7 +2855,8 @@ private fun DetailIssueSection(
                 AnimatedClickableText(
                     text = actionLabel,
                     onClick = onActionClick,
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
                     color = appPalette().primaryText,
                 )
@@ -2793,7 +2866,8 @@ private fun DetailIssueSection(
             DetailCard {
                 Text(
                     text = StatsDetailCopy.noData(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
                     color = appPalette().primaryText,
                 )
@@ -2825,7 +2899,8 @@ private fun DetailPullRequestSection(
         ) {
             Text(
                 text = title,
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
                 color = appPalette().primaryText,
@@ -2834,7 +2909,8 @@ private fun DetailPullRequestSection(
                 AnimatedClickableText(
                     text = actionLabel,
                     onClick = onActionClick,
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 12.sp,
                     lineHeight = 20.sp,
                     color = appPalette().primaryText,
@@ -2846,7 +2922,8 @@ private fun DetailPullRequestSection(
             DetailCard {
                 Text(
                     text = StatsDetailCopy.noData(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
                     color = appPalette().primaryText,
                 )
@@ -2905,7 +2982,8 @@ private fun DetailPullRequestCard(
                 ) {
                     Text(
                         text = pullRequest.title,
-                        fontFamily = AppFonts.OpenSansBold,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
                         lineHeight = 20.sp,
                         color = appPalette().primaryText,
@@ -2915,7 +2993,8 @@ private fun DetailPullRequestCard(
                     pullRequest.number?.let { number ->
                         Text(
                             text = "#$number",
-                            fontFamily = AppFonts.OpenSansMedium,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Medium,
                             fontSize = 15.sp,
                             lineHeight = 20.sp,
                             color = appPalette().primaryText,
@@ -2967,8 +3046,7 @@ private fun DetailPullRequestCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // В PR payload нет реакций, поэтому повторяем Figma-slot layout
-                // и маппим существующие compact-метрики: comments / commits / files.
+                // PR payloads have no reactions, so reuse the compact footer slots for the fields we do have.
                 IssueFooterMetric(
                     icon = {
                         Image(
@@ -3013,7 +3091,8 @@ private fun DetailPullRequestCard(
                     AnimatedClickableText(
                         text = StatsDetailCopy.linkWithArrow(),
                         onClick = { uriHandler.openUri(url) },
-                        fontFamily = AppFonts.OpenSansRegular,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Normal,
                         fontSize = 12.sp,
                         lineHeight = 20.sp,
                         color = appPalette().subtleBorder,
@@ -3073,7 +3152,8 @@ private fun DetailIssueCard(
                 ) {
                     Text(
                         text = issue.title,
-                        fontFamily = AppFonts.OpenSansBold,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
                         lineHeight = 20.sp,
                         color = appPalette().primaryText,
@@ -3087,7 +3167,8 @@ private fun DetailIssueCard(
                         issue.number?.let { number ->
                             Text(
                                 text = "#$number",
-                                fontFamily = AppFonts.OpenSansMedium,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Medium,
                                 fontSize = 15.sp,
                                 lineHeight = 20.sp,
                                 color = appPalette().primaryText,
@@ -3198,7 +3279,8 @@ private fun DetailIssueCard(
                     AnimatedClickableText(
                         text = StatsDetailCopy.linkWithArrow(),
                         onClick = { uriHandler.openUri(url) },
-                        fontFamily = AppFonts.OpenSansRegular,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Normal,
                         fontSize = 12.sp,
                         lineHeight = 20.sp,
                         color = appPalette().subtleBorder,
@@ -3223,7 +3305,8 @@ private fun IssueBadge(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
             lineHeight = 20.sp,
             color = textColor,
@@ -3249,7 +3332,8 @@ private fun IssueParticipantsSection(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 15.sp,
             lineHeight = 20.sp,
             color = appPalette().primaryText,
@@ -3257,7 +3341,8 @@ private fun IssueParticipantsSection(
         if (visibleParticipants.isEmpty()) {
             Text(
                 text = emptyText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 color = appPalette().subtleBorder,
@@ -3299,7 +3384,8 @@ private fun IssueParticipantItem(
         )
         Text(
             text = participant.name,
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 14.sp,
             lineHeight = 18.sp,
             color = appPalette().primaryText,
@@ -3322,14 +3408,16 @@ private fun IssueDateColumn(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 15.sp,
             lineHeight = 20.sp,
             color = appPalette().primaryText,
         )
         Text(
             text = value,
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 12.sp,
             lineHeight = 20.sp,
             color = appPalette().primaryText,
@@ -3351,7 +3439,8 @@ private fun IssueFooterMetric(
         icon()
         Text(
             text = value,
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 15.sp,
             lineHeight = 20.sp,
             color = appPalette().primaryText,
@@ -3373,7 +3462,8 @@ private fun IssueParticipantAvatar(
     ) {
         Text(
             text = authorInitials(name),
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 12.sp,
             color = appPalette().buttonText,
         )
@@ -3402,7 +3492,8 @@ private fun DetailPullRequestCompactSection(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
             lineHeight = 20.sp,
             color = appPalette().primaryText,
@@ -3451,7 +3542,8 @@ private fun DetailPullRequestCompactCard(
             pullRequest.number?.let { number ->
                 Text(
                     text = "#$number",
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 15.sp,
                     lineHeight = 20.sp,
                     color = appPalette().primaryText,
@@ -3459,7 +3551,8 @@ private fun DetailPullRequestCompactCard(
             }
             Text(
                 text = pullRequest.title,
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
                 color = appPalette().primaryText,
@@ -3472,7 +3565,8 @@ private fun DetailPullRequestCompactCard(
                         durationMinutes(pullRequest.createdAtIso, pullRequest.effectiveEndAtIso),
                     ),
                 ),
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 color = appPalette().primaryText,
@@ -3488,7 +3582,8 @@ private fun AnimatedClickableText(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    fontFamily: androidx.compose.ui.text.font.FontFamily = AppFonts.OpenSansRegular,
+    fontFamily: androidx.compose.ui.text.font.FontFamily = AppFonts.OpenSans,
+    fontWeight: FontWeight = FontWeight.Normal,
     fontSize: androidx.compose.ui.unit.TextUnit = 12.sp,
     lineHeight: androidx.compose.ui.unit.TextUnit = fontSize,
     color: Color = AppColors.Color2,
@@ -3509,6 +3604,7 @@ private fun AnimatedClickableText(
     Text(
         text = text,
         fontFamily = fontFamily,
+        fontWeight = fontWeight,
         fontSize = fontSize,
         lineHeight = lineHeight,
         color = color,
@@ -3536,14 +3632,16 @@ private fun DetailEntityListCard(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = title,
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 color = appPalette().primaryText,
             )
             if (items.isEmpty()) {
                 Text(
                     text = StatsDetailCopy.noData(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
                     color = appPalette().primaryText,
                 )
@@ -3561,7 +3659,8 @@ private fun DetailEntityListCard(
                             ) {
                                 Text(
                                     text = item.title,
-                                    fontFamily = AppFonts.OpenSansBold,
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     color = appPalette().primaryText,
                                 )
@@ -3575,7 +3674,8 @@ private fun DetailEntityListCard(
                                     item.secondary?.let { secondary ->
                                         Text(
                                             text = secondary,
-                                            fontFamily = AppFonts.OpenSansMedium,
+                                            fontFamily = AppFonts.OpenSans,
+                                            fontWeight = FontWeight.Medium,
                                             fontSize = 12.sp,
                                             color = appPalette().primaryText,
                                         )
@@ -3585,7 +3685,8 @@ private fun DetailEntityListCard(
                             item.trailing?.let { trailing ->
                                 Text(
                                     text = trailing,
-                                    fontFamily = AppFonts.OpenSansBold,
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
                                     color = appPalette().accent,
                                     textAlign = TextAlign.End,
@@ -3596,7 +3697,8 @@ private fun DetailEntityListCard(
                         item.metaLines.forEach { line ->
                             Text(
                                 text = line,
-                                fontFamily = AppFonts.OpenSansRegular,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Normal,
                                 fontSize = 12.sp,
                                 color = appPalette().primaryText,
                             )
@@ -3604,7 +3706,8 @@ private fun DetailEntityListCard(
                         item.link?.let { link ->
                             Text(
                                 text = item.linkLabel ?: link,
-                                fontFamily = AppFonts.OpenSansBold,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
                                 color = appPalette().accent,
                                 maxLines = 1,
@@ -3631,7 +3734,8 @@ private fun DetailChipSection(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = title,
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 color = appPalette().primaryText,
             )
@@ -3659,7 +3763,8 @@ private fun DetailPersonSection(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
             color = appPalette().primaryText,
         )
@@ -3697,7 +3802,8 @@ private fun DetailPersonCard(
             ) {
                 Text(
                     text = authorInitials(row.name),
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                     color = appPalette().buttonText,
                 )
@@ -3714,7 +3820,8 @@ private fun DetailPersonCard(
             }
             Text(
                 text = row.name,
-                fontFamily = if (row.isCurrentUser) AppFonts.OpenSansBold else AppFonts.OpenSansMedium,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = if (row.isCurrentUser) FontWeight.Bold else FontWeight.Medium,
                 fontSize = 13.sp,
                 color = appPalette().primaryText,
                 modifier = Modifier.weight(1f),
@@ -3723,7 +3830,8 @@ private fun DetailPersonCard(
             )
             Text(
                 text = row.value,
-                fontFamily = AppFonts.OpenSansMedium,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Medium,
                 fontSize = 12.sp,
                 color = appPalette().primaryText,
             )
@@ -3744,11 +3852,11 @@ private fun DetailLabelSection(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
             color = appPalette().primaryText,
         )
-        // FlowRow — метки переносятся, как в Figma
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -3765,7 +3873,6 @@ private fun DetailLabelBadge(
     chip: DetailLabelChipUi,
     modifier: Modifier = Modifier,
 ) {
-    // Figma: chip с именем метки + серый текст "- N issue" рядом
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
@@ -3777,7 +3884,8 @@ private fun DetailLabelBadge(
         ) {
             Text(
                 text = chip.label,
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 color = appPalette().buttonText,
@@ -3786,7 +3894,8 @@ private fun DetailLabelBadge(
         }
         Text(
             text = StatsDetailCopy.issueLabelCount(chip.count),
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
             lineHeight = 20.sp,
             color = appPalette().primaryText,
@@ -3823,21 +3932,24 @@ private fun DetailOwnershipDonutCard(
                                     withStyle(
                                         SpanStyle(
                                             color = appPalette().accent,
-                                            fontFamily = AppFonts.OpenSansBold,
+                                            fontFamily = AppFonts.OpenSans,
+                                            fontWeight = FontWeight.Bold,
                                         )
                                     ) {
                                         append(StatsDetailCopy.youInParens())
                                     }
                                 }
                             },
-                            fontFamily = AppFonts.OpenSansRegular,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Normal,
                             fontSize = 13.sp,
                             lineHeight = 20.sp,
                             color = appPalette().primaryText,
                         )
                         Text(
                             text = StatsDetailCopy.linesCountLabel(row.lines),
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
                             lineHeight = 20.sp,
                             color = appPalette().primaryText,
@@ -3871,25 +3983,29 @@ private fun CodeChurnDonutCard(
                     Text(
                         text = buildAnnotatedString {
                             withStyle(SpanStyle(
-                                fontFamily = AppFonts.OpenSansSemiBold,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.SemiBold,
                                 color = appPalette().primaryText,
                             )) {
                                 append(slice.label)
                             }
                             withStyle(SpanStyle(
-                                fontFamily = AppFonts.OpenSansRegular,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Normal,
                                 color = appPalette().primaryText,
                             )) {
                                 append(" - ")
                             }
                             withStyle(SpanStyle(
-                                fontFamily = AppFonts.OpenSansBold,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Bold,
                                 color = appPalette().accent,
                             )) {
                                 append(slice.secondaryLabel.substringBefore(' '))
                             }
                             withStyle(SpanStyle(
-                                fontFamily = AppFonts.OpenSansRegular,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Normal,
                                 color = appPalette().primaryText,
                             )) {
                                 append(" " + slice.secondaryLabel.substringAfter(' '))
@@ -3931,7 +4047,8 @@ private fun DetailMetricStatementCard(
             value = {
                 Text(
                     text = value,
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = valueFontSize,
                     lineHeight = valueLineHeight,
                     color = valueColor,
@@ -3942,7 +4059,8 @@ private fun DetailMetricStatementCard(
             caption = {
                 Text(
                     text = caption,
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 14.sp,
                     lineHeight = 16.sp,
                     color = appPalette().primaryText,
@@ -3963,7 +4081,8 @@ private fun DetailOwnershipParticipantsTableCard(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = StatsDetailCopy.participantsTableTitle(),
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
                 color = appPalette().primaryText,
@@ -3971,7 +4090,8 @@ private fun DetailOwnershipParticipantsTableCard(
             if (rows.isEmpty()) {
                 Text(
                     text = StatsDetailCopy.noData(),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
                     color = appPalette().primaryText,
                 )
@@ -4006,7 +4126,8 @@ private fun DetailOwnershipParticipantRow(
         ) {
             Text(
                 text = row.name,
-                fontFamily = AppFonts.OpenSansMedium,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Medium,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 color = appPalette().primaryText,
@@ -4018,7 +4139,8 @@ private fun DetailOwnershipParticipantRow(
                     withStyle(
                         SpanStyle(
                             color = DualLineAddColor,
-                            fontFamily = AppFonts.OpenSansMedium,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Medium,
                         )
                     ) {
                         append("+${row.additions}")
@@ -4026,7 +4148,8 @@ private fun DetailOwnershipParticipantRow(
                     withStyle(
                         SpanStyle(
                             color = appPalette().primaryText,
-                            fontFamily = AppFonts.OpenSansMedium,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Medium,
                         )
                     ) {
                         append("/")
@@ -4034,7 +4157,8 @@ private fun DetailOwnershipParticipantRow(
                     withStyle(
                         SpanStyle(
                             color = DualLineDelColor,
-                            fontFamily = AppFonts.OpenSansMedium,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Medium,
                         )
                     ) {
                         append("-${row.deletions}")
@@ -4053,7 +4177,8 @@ private fun DetailOwnershipParticipantRow(
                     withStyle(
                         SpanStyle(
                             color = appPalette().accent,
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                         )
                     ) {
                         append(row.changes.toString())
@@ -4061,7 +4186,8 @@ private fun DetailOwnershipParticipantRow(
                     withStyle(
                         SpanStyle(
                             color = appPalette().primaryText,
-                            fontFamily = AppFonts.OpenSansMedium,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Medium,
                         )
                     ) {
                         append(" ${StatsDetailCopy.changesWord(row.changes)}")
@@ -4076,7 +4202,8 @@ private fun DetailOwnershipParticipantRow(
                     withStyle(
                         SpanStyle(
                             color = appPalette().accent,
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                         )
                     ) {
                         append(row.lines.toString())
@@ -4084,7 +4211,8 @@ private fun DetailOwnershipParticipantRow(
                     withStyle(
                         SpanStyle(
                             color = appPalette().primaryText,
-                            fontFamily = AppFonts.OpenSansMedium,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Medium,
                         )
                     ) {
                         append(" ${StatsDetailCopy.linesWord(row.lines)}")
@@ -4113,7 +4241,8 @@ private fun FileNameMetricCard(
         ) {
             Text(
                 text = breakableFileName(fileName.uppercase()),
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 24.sp,
                 lineHeight = 28.sp,
                 color = appPalette().accent,
@@ -4121,7 +4250,8 @@ private fun FileNameMetricCard(
             )
             Text(
                 text = StatsDetailCopy.mostChangedFileSubtitle(),
-                fontFamily = AppFonts.OpenSansMedium,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Medium,
                 fontSize = 14.sp,
                 lineHeight = 16.sp,
                 color = appPalette().primaryText,
@@ -4142,7 +4272,8 @@ private fun DetailPullRequestLifetimeSection(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 16.sp,
             lineHeight = 20.sp,
             color = appPalette().primaryText,
@@ -4164,7 +4295,8 @@ private fun DetailPullRequestLifetimeSection(
                             text = buildAnnotatedString {
                                 withStyle(
                                     SpanStyle(
-                                        fontFamily = AppFonts.OpenSansSemiBold,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = appPalette().primaryText,
                                     )
                                 ) {
@@ -4172,7 +4304,8 @@ private fun DetailPullRequestLifetimeSection(
                                 }
                                 withStyle(
                                     SpanStyle(
-                                        fontFamily = AppFonts.OpenSansRegular,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Normal,
                                         color = appPalette().primaryText,
                                     )
                                 ) {
@@ -4180,7 +4313,8 @@ private fun DetailPullRequestLifetimeSection(
                                 }
                                 withStyle(
                                     SpanStyle(
-                                        fontFamily = AppFonts.OpenSansBold,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Bold,
                                         color = appPalette().accent,
                                     )
                                 ) {
@@ -4188,7 +4322,8 @@ private fun DetailPullRequestLifetimeSection(
                                 }
                                 withStyle(
                                     SpanStyle(
-                                        fontFamily = AppFonts.OpenSansRegular,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Normal,
                                         color = appPalette().primaryText,
                                     )
                                 ) {
@@ -4215,7 +4350,8 @@ private fun DetailHighlightCard(
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = value,
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 32.sp,
                 lineHeight = 32.sp,
                 color = appPalette().accent,
@@ -4224,7 +4360,8 @@ private fun DetailHighlightCard(
             )
             Text(
                 text = title,
-                fontFamily = AppFonts.OpenSansMedium,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Medium,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 color = appPalette().primaryText,
@@ -4301,7 +4438,8 @@ private fun DetailActionRow(
         icon()
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
             color = appPalette().primaryText,
         )
@@ -4321,7 +4459,8 @@ private fun DetailChip(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 11.sp,
             color = appPalette().primaryText,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -4347,7 +4486,8 @@ private fun FileStatusFilterChip(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 11.sp,
             color = if (selected) appPalette().buttonText else appPalette().primaryText,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -4466,10 +4606,9 @@ private fun filterAllIssues(
     searchText: String,
     stateFilter: IssueStateFilter,
 ): List<StatsDetailIssueUi> {
-    val normalizedQuery = searchText.trim().lowercase()
     return sortIssuesByNewest(issues).filter { issue ->
         issueMatchesStateFilter(issue, stateFilter) &&
-            issueMatchesSearch(issue, normalizedQuery)
+            issueMatchesSearch(issue, searchText)
     }
 }
 
@@ -4486,10 +4625,9 @@ private fun issueMatchesStateFilter(
 
 private fun issueMatchesSearch(
     issue: StatsDetailIssueUi,
-    normalizedQuery: String,
+    query: String,
 ): Boolean {
-    if (normalizedQuery.isBlank()) return true
-    val haystack = buildList {
+    val searchableTexts = buildList {
         add(issue.title)
         add(issue.creatorName)
         add(issue.state.orEmpty())
@@ -4497,13 +4635,9 @@ private fun issueMatchesSearch(
         addAll(issue.labels)
         issue.number?.let { add("#$it") }
         issue.number?.let { add(it.toString()) }
-    }.joinToString(separator = "\n") { it.lowercase() }
-    return haystack.contains(normalizedQuery)
+    }.toTypedArray()
+    return matchesSearchQuery(query, *searchableTexts)
 }
-
-private fun overlayPullRequestTitleFontSize(
-    title: String,
-) = if (title.length > 20) 24.sp else 28.sp
 
 private fun formatIssueMetricValue(value: Int?): String = value?.toString() ?: "—"
 
@@ -4536,10 +4670,9 @@ private fun filterAllPullRequests(
     searchText: String,
     stateFilter: IssueStateFilter,
 ): List<StatsDetailPullRequestUi> {
-    val normalizedQuery = searchText.trim().lowercase()
     return sortPullRequestsByNewest(pullRequests).filter { pullRequest ->
         pullRequestMatchesStateFilter(pullRequest, stateFilter) &&
-            pullRequestMatchesSearch(pullRequest, normalizedQuery)
+            pullRequestMatchesSearch(pullRequest, searchText)
     }
 }
 
@@ -4556,18 +4689,17 @@ private fun pullRequestMatchesStateFilter(
 
 private fun pullRequestMatchesSearch(
     pullRequest: StatsDetailPullRequestUi,
-    normalizedQuery: String,
+    query: String,
 ): Boolean {
-    if (normalizedQuery.isBlank()) return true
-    val haystack = buildList {
+    val searchableTexts = buildList {
         add(pullRequest.title)
         add(pullRequest.authorName)
         add(pullRequest.state.orEmpty())
         addAll(pullRequest.assigneeNames)
         pullRequest.number?.let { add("#$it") }
         pullRequest.number?.let { add(it.toString()) }
-    }.joinToString(separator = "\n") { it.lowercase() }
-    return haystack.contains(normalizedQuery)
+    }.toTypedArray()
+    return matchesSearchQuery(query, *searchableTexts)
 }
 
 private fun filterPullRequests(
@@ -4627,7 +4759,7 @@ private fun buildParticipantSnapshots(
         }
     }
 
-    // changes = additions + deletions в GitHub API, поэтому не суммируем — иначе двойной счёт
+    // GitHub already defines `changes` as additions plus deletions, so summing them again would double count.
     val totalProjectLines = details.commits.sumOf { it.additions + it.deletions }
 
     return participants.mapValues { (_, participant) ->
@@ -4761,8 +4893,7 @@ private fun buildChartPoints(
     hintFormatter: (Int) -> String,
 ): List<ProjectStatsChartPointUi> {
     if (dates.isEmpty()) return emptyList()
-    // Сохраняем epochMs для хронологической сортировки,
-    // иначе groupingBy/LinkedHashMap даёт порядок вставки (не по дате)
+    // Store the epoch so grouped points can be sorted chronologically instead of by insertion order.
     data class ChartEntry(val label: String, val epochMs: Long, var count: Int)
     val grouped = linkedMapOf<String, ChartEntry>()
     dates.mapNotNull { parseInstant(it) }.forEach { instant ->
@@ -4803,7 +4934,7 @@ private fun buildDailyCounts(dates: List<String>): List<DetailCountPoint> {
 }
 
 private fun buildLineDeltaPoints(commits: List<StatsDetailCommitUi>): List<DetailLinePoint> {
-    // Храним тройку: метка, значения, epoch-дата для сортировки
+    // Keep the formatted label plus epoch millis so the aggregated series can still be sorted by date.
     data class Entry(val label: String, var additions: Int, var deletions: Int, val epochMs: Long)
     val grouped = linkedMapOf<String, Entry>()
     commits.forEach { commit ->
@@ -4820,7 +4951,7 @@ private fun buildLineDeltaPoints(commits: List<StatsDetailCommitUi>): List<Detai
         }
     }
     return grouped.values
-        .sortedBy { it.epochMs }             // хронологический порядок
+        .sortedBy { it.epochMs }
         .map { entry ->
             DetailLinePoint(
                 label = entry.label,
@@ -4938,7 +5069,7 @@ private fun buildIssueAssigneeRows(
             issue.assigneeNames.forEach { assigneeName ->
                 val key = DetailIssueParticipantKey(id = null, name = assigneeName)
                 if (isClosed) closedCounts[key] = (closedCounts[key] ?: 0) + 1
-                else closedCounts.getOrPut(key) { 0 } // ensure key exists even with 0
+                else closedCounts.getOrPut(key) { 0 }
             }
         } else {
             issue.assigneeIds.forEachIndexed { index, assigneeId ->
@@ -5120,8 +5251,8 @@ private fun formatDate(date: kotlinx.datetime.LocalDate): String {
 }
 
 /**
- * Catmull-Rom сплайн для сглаженных линий графика.
- * Контрольные точки вычисляются так, что кривая проходит через все исходные точки.
+ * Catmull-Rom spline used for chart smoothing.
+ * The control points are chosen so the curve still passes through every source point.
  */
 private fun buildCatmullRomPath(pts: List<Offset>): Path {
     val path = Path()
@@ -5146,7 +5277,7 @@ private fun buildCatmullRomPath(pts: List<Offset>): Path {
     return path
 }
 
-/** Компактный формат для подписей оси Y: 1500 → "1.5k", 10000 → "10k" */
+/** Compact Y-axis label format: `1500 -> 1.5k`, `10000 -> 10k`. */
 private fun formatDualAxisLabel(value: Int): String = when {
     value == 0 -> "0"
     value >= 10_000 -> "${value / 1000}k"

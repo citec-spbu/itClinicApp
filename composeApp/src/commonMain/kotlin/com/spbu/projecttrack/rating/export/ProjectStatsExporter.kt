@@ -1,6 +1,7 @@
 package com.spbu.projecttrack.rating.export
 
 import androidx.compose.runtime.Composable
+import com.spbu.projecttrack.rating.common.StatsExportCopy
 
 data class ProjectStatsExportPayload(
     val projectId: String,
@@ -24,15 +25,16 @@ data class ProjectStatsSummaryCard(
 data class ProjectStatsMemberRow(
     val name: String,
     val role: String? = null,
-    val value: String? = null,
-    val marker: String? = null
 )
 
 data class ProjectStatsSection(
     val title: String,
     val subtitle: String? = null,
+    val score: Double? = null,
     val rows: List<ProjectStatsTableRow> = emptyList(),
+    val table: ProjectStatsTable? = null,
     val chart: ProjectStatsChart? = null,
+    val chartFirst: Boolean = false,
     val notes: List<String> = emptyList()
 )
 
@@ -41,6 +43,19 @@ data class ProjectStatsTableRow(
     val value: String,
     val note: String? = null
 )
+
+data class ProjectStatsTable(
+    val title: String? = null,
+    val headers: List<String>,
+    val rows: List<List<String>>,
+    val columnFractions: List<Float>? = null,
+    val pdfStyle: ProjectStatsTablePdfStyle = ProjectStatsTablePdfStyle.Default,
+)
+
+enum class ProjectStatsTablePdfStyle {
+    Default,
+    RapidPullRequestList,
+}
 
 sealed interface ProjectStatsChart {
     val title: String
@@ -133,8 +148,6 @@ internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): L
             val parts = buildList {
                 add(member.name)
                 member.role?.takeIf { it.isNotBlank() }?.let { add(it) }
-                member.value?.takeIf { it.isNotBlank() }?.let { add(it) }
-                member.marker?.takeIf { it.isNotBlank() }?.let { add(it) }
             }
             lines += "• " + parts.joinToString(" — ")
         }
@@ -144,6 +157,7 @@ internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): L
         lines += ""
         lines += section.title
         section.subtitle?.takeIf { it.isNotBlank() }?.let { lines += "  $it" }
+        section.score?.let { lines += "  ${StatsExportCopy.scoreLabel()}: ${formatChartValue(it)}" }
         section.rows.forEach { row ->
             lines += buildString {
                 append("• ")
@@ -156,15 +170,22 @@ internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): L
                 }
             }
         }
+        section.table?.let { table ->
+            table.title?.takeIf { it.isNotBlank() }?.let(lines::add)
+            lines += "  " + table.headers.joinToString(" | ")
+            table.rows.forEach { row ->
+                lines += "  " + row.joinToString(" | ")
+            }
+        }
         section.chart?.let { chart ->
-            lines += "График: ${chart.title}"
+            lines += chart.title
             when (chart) {
                 is ProjectStatsChart.Bar -> chart.points.forEach { point ->
                     lines += buildString {
                         append("  • ")
                         append(point.label)
                         append(": ")
-                        append(point.value)
+                        append(formatChartValue(point.value))
                         point.note?.takeIf { it.isNotBlank() }?.let {
                             append(" — ")
                             append(it)
@@ -176,7 +197,7 @@ internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): L
                         append("  • ")
                         append(point.label)
                         append(": ")
-                        append(point.value)
+                        append(formatChartValue(point.value))
                         point.note?.takeIf { it.isNotBlank() }?.let {
                             append(" — ")
                             append(it)
@@ -188,7 +209,7 @@ internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): L
                         append("  • ")
                         append(segment.label)
                         append(": ")
-                        append(segment.value)
+                        append(formatChartValue(segment.value))
                         segment.colorHint?.takeIf { it.isNotBlank() }?.let {
                             append(" — ")
                             append(it)
@@ -206,62 +227,101 @@ internal fun buildProjectStatsReportLines(payload: ProjectStatsExportPayload): L
 }
 
 internal fun buildProjectStatsCsv(payload: ProjectStatsExportPayload): String {
-    val rows = mutableListOf(
-        listOf("Группа", "Блок", "Метрика", "Значение", "Комментарий")
-    )
+    val lines = mutableListOf<List<String>>()
 
-    fun addRow(group: String, block: String, metric: String, value: String, note: String? = null) {
-        rows += listOf(group, block, metric, value, note.orEmpty())
-    }
+    fun row(vararg cells: String) = lines.add(cells.toList())
+    fun blank()                   = lines.add(emptyList())
+    fun header(title: String)     = lines.add(listOf("=== $title ==="))
 
-    addRow("Контекст", "Проект", "Название", payload.projectName)
-    payload.periodLabel?.takeIf { it.isNotBlank() }?.let {
-        addRow("Контекст", "Проект", "Период", it)
-    }
-    payload.customerName?.takeIf { it.isNotBlank() }?.let {
-        addRow("Контекст", "Проект", "Заказчик", it)
-    }
-    payload.repositoryUrl?.takeIf { it.isNotBlank() }?.let {
-        addRow("Контекст", "Проект", "Репозиторий", it)
-    }
+    // ── Project info ──────────────────────────────────────────────────────────
+    header(payload.projectName)
+    payload.periodLabel?.takeIf      { it.isNotBlank() }?.let { row("Период", it) }
+    payload.customerName?.takeIf     { it.isNotBlank() }?.let { row("Заказчик", it) }
+    payload.repositoryUrl?.takeIf    { it.isNotBlank() }?.let { row("Репозиторий", it) }
+    payload.description?.takeIf      { it.isNotBlank() }?.let { row("Описание", it) }
+    payload.generatedAtLabel?.takeIf { it.isNotBlank() }?.let { row("Сформировано", it) }
+    blank()
 
-    payload.summaryCards.forEach { card ->
-        addRow("Сводка", "Ключевые показатели", card.title, card.value, card.subtitle)
-    }
-
-    payload.members.forEach { member ->
-        addRow(
-            group = "Команда",
-            block = member.role.orEmpty().ifBlank { "Участник" },
-            metric = member.name,
-            value = member.value.orEmpty(),
-            note = member.marker
-        )
+    // ── Summary cards ─────────────────────────────────────────────────────────
+    if (payload.summaryCards.isNotEmpty()) {
+        header("СВОДКА")
+        row("Показатель", "Значение")
+        payload.summaryCards.forEach { card ->
+            row(card.title, card.value)
+        }
+        blank()
     }
 
+    // ── Team ──────────────────────────────────────────────────────────────────
+    if (payload.members.isNotEmpty()) {
+        header("КОМАНДА")
+        row("Участник", "Роль")
+        payload.members.forEach { m ->
+            row(m.name, m.role.orEmpty())
+        }
+        blank()
+    }
+
+    // ── Data sections ─────────────────────────────────────────────────────────
     payload.sections.forEach { section ->
-        section.rows.forEach { row ->
-            addRow(section.title, "Показатели", row.label, row.value, row.note)
+        header(section.title.uppercase())
+
+        section.score?.let { row(StatsExportCopy.scoreLabel(), formatChartValue(it)) }
+
+        section.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
+            row("Подзаголовок", subtitle)
+            blank()
         }
-        when (val chart = section.chart) {
-            is ProjectStatsChart.Bar -> chart.points.forEach { point ->
-                addRow(section.title, chart.title, point.label, point.value.toString(), point.note)
+
+        // Metric rows
+        if (section.rows.isNotEmpty()) {
+            row("Показатель", "Значение", "Комментарий")
+            section.rows.forEach { r ->
+                row(r.label, r.value, r.note.orEmpty())
             }
-            is ProjectStatsChart.Line -> chart.points.forEach { point ->
-                addRow(section.title, chart.title, point.label, point.value.toString(), point.note)
-            }
-            is ProjectStatsChart.Donut -> chart.segments.forEach { segment ->
-                addRow(section.title, chart.title, segment.label, segment.value.toString(), segment.colorHint)
-            }
-            null -> Unit
         }
-        section.notes.forEach { note ->
-            addRow(section.title, "Примечания", "Комментарий", note, null)
+
+        // Chart sub-table
+        section.chart?.let { chart ->
+            blank()
+            when (chart) {
+                is ProjectStatsChart.Bar, is ProjectStatsChart.Line -> {
+                    val pts = if (chart is ProjectStatsChart.Bar) chart.points else (chart as ProjectStatsChart.Line).points
+                    lines.add(listOf("— ${chart.title} —"))
+                    row("Дата / Метка", "Значение")
+                    pts.forEach { pt ->
+                        row(pt.label, formatChartValue(pt.value))
+                    }
+                }
+                is ProjectStatsChart.Donut -> {
+                    lines.add(listOf("— ${chart.title} —"))
+                    row("Категория", "Значение")
+                    chart.segments.forEach { seg ->
+                row(seg.label, formatChartValue(seg.value))
+                    }
+                }
+            }
         }
+
+        section.table?.let { table ->
+            blank()
+            table.title?.takeIf { it.isNotBlank() }?.let { lines.add(listOf("— $it —")) }
+            lines.add(table.headers)
+            table.rows.forEach { tableRow -> lines.add(tableRow) }
+        }
+
+        // Notes
+        if (section.notes.isNotEmpty()) {
+            blank()
+            lines.add(listOf("— Примечания —"))
+            section.notes.forEach { note -> row(note) }
+        }
+
+        blank()
     }
 
-    return rows.joinToString(separator = "\n") { row ->
-        row.joinToString(";") { cell -> csvCell(cell) }
+    return lines.joinToString(separator = "\n") { cells ->
+        cells.joinToString(";") { csvCell(it) }
     }
 }
 
@@ -269,3 +329,6 @@ private fun csvCell(value: String): String {
     val escaped = value.replace("\"", "\"\"")
     return "\"$escaped\""
 }
+
+internal fun formatChartValue(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else value.toString().replace('.', ',')

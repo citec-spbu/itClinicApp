@@ -85,7 +85,7 @@ object DependencyContainer {
         return memberApi
     }
 
-    // Singleton — survives tab switches so hasLoaded stays true and no re-loading occurs
+    // Keep a single instance so tab switches do not trigger a full ranking reload.
     private val rankingViewModel by lazy { RankingViewModel(rankingRepository) }
 
     fun provideRankingViewModel(): RankingViewModel {

@@ -1,16 +1,10 @@
 package com.spbu.projecttrack
 
 /**
- * ШАБЛОН локальной SMTP-конфигурации для отправки обратной связи из приложения.
+ * Template for local SMTP settings used by the in-app feedback form.
  *
- * 1. Скопируйте этот файл как MailConfig.kt
- * 2. Заполните своими значениями
- * 3. MailConfig.kt уже добавлен в .gitignore и не должен попадать в Git
- *
- * Важно:
- * - Для Яндекса нужен SMTP, а не IMAP
- * - Разрешение IMAP/почтовых клиентов в кабинете Яндекса все равно должно быть включено,
- *   иначе пароль приложения для внешних клиентов не сработает
+ * Copy this file to `MailConfig.kt`, fill in your credentials, and keep the
+ * real file out of Git.
  */
 object MailConfigExample {
     const val SMTP_HOST = "smtp.yandex.ru"

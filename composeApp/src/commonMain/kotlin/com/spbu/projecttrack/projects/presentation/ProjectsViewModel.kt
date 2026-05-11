@@ -46,7 +46,7 @@ class ProjectsViewModel(
                     _uiState.value = ProjectsUiState.Success(
                         projects = response.projects,
                         tags = response.tags,
-                        hasMorePages = response.projects.size >= 5 // Если меньше 5, значит последняя страница
+                        hasMorePages = response.projects.size >= 5
                     )
                 }
                 .onFailure { error ->
@@ -86,7 +86,6 @@ class ProjectsViewModel(
                     isLoadingMore = false
                 }
                 .onFailure { error ->
-                    // В случае ошибки возвращаем предыдущее состояние
                     _uiState.value = currentState.copy(isLoadingMore = false)
                     isLoadingMore = false
                 }

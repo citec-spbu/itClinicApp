@@ -90,7 +90,7 @@ fun AppSnackbarHost(
                     text = snackbarData.visuals.message,
                     modifier = Modifier.weight(1f),
                     color = palette.primaryText,
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
@@ -101,7 +101,8 @@ fun AppSnackbarHost(
                         Text(
                             text = actionLabel,
                             color = palette.accent,
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                         )
                     }
