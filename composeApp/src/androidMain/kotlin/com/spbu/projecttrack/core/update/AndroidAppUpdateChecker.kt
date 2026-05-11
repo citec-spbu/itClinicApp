@@ -130,8 +130,8 @@ object AndroidAppUpdateChecker {
 }
 
 private object AndroidUpdateChannelConfig {
-    const val repositoryOwner = "FergeSS"
-    const val repositoryName = "itClinicApp"
+    const val repositoryOwner = "citec-spbu"
+    const val repositoryName = "CiteC"
     private const val updatesBranch = "android-updates"
 
     fun manifestUrl(channel: AndroidUpdateChannel): String {
