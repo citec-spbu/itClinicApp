@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -65,6 +66,8 @@ import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.core.theme.appPalette
+import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBar
+import com.spbu.projecttrack.rating.presentation.projectstats.StatsTopBarTotalHeight
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -75,6 +78,7 @@ import projecttrack.composeapp.generated.resources.settings_remove
 import projecttrack.composeapp.generated.resources.settings_trash
 import projecttrack.composeapp.generated.resources.spbu_logo
 import kotlin.math.roundToInt
+import androidx.compose.ui.text.font.FontWeight
 
 enum class StatsScreenSettingsTarget {
     Project,
@@ -128,7 +132,6 @@ fun StatsScreenSettingsScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val backLabel = localizedString("Назад", "Back")
     val settingsTitle = localizedString("Настройки", "Settings")
     val removeBlockLabel = localizedString("Убрать блок", "Remove section")
     val unusedLabel = localizedString("Неиспользуемые", "Unused")
@@ -139,6 +142,7 @@ fun StatsScreenSettingsScreen(
         "Choose the sections you want to see on the ${target.descriptionSuffix()} screen and their order",
     )
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
     var localActiveSectionIds by remember { mutableStateOf(activeSectionIds) }
     var draggingSectionId by remember { mutableStateOf<String?>(null) }
     var draggingOffsetPx by remember { mutableStateOf(0f) }
@@ -217,7 +221,12 @@ fun StatsScreenSettingsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White),
+            .background(Color.White)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
     ) {
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
@@ -231,53 +240,24 @@ fun StatsScreenSettingsScreen(
         )
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(
                     WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
                 )
                 .padding(horizontal = 21.dp),
-            contentPadding = PaddingValues(bottom = 32.dp),
+            contentPadding = PaddingValues(
+                top = StatsTopBarTotalHeight + 8.dp,
+                bottom = 32.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            item("header") {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                ) {
-                    SettingsPressableBox(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .size(28.dp),
-                        onClick = onBackClick,
-                    ) {
-                        Image(
-                            painter = painterResource(Res.drawable.arrow_back),
-                            contentDescription = backLabel,
-                            modifier = Modifier.size(24.dp),
-                            colorFilter = ColorFilter.tint(SettingsSecondaryText),
-                        )
-                    }
-                    Text(
-                        text = settingsTitle,
-                        fontFamily = AppFonts.OpenSansBold,
-                        fontSize = 40.sp,
-                        color = SettingsAccent,
-                        letterSpacing = 0.4.sp,
-                        modifier = Modifier.align(Alignment.Center),
-                    )
-                }
-            }
-
-            item("header_spacer") {
-                Spacer(modifier = Modifier.height(14.dp))
-            }
-
             item("description") {
                 Text(
                     text = descriptionText,
-                    fontFamily = AppFonts.OpenSansRegular,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 13.sp,
                     lineHeight = 15.sp,
                     color = Color.Black,
@@ -377,62 +357,59 @@ fun StatsScreenSettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
-                item("inactive_section_title") {
-                    Text(
-                        text = unusedLabel,
-                        fontFamily = AppFonts.OpenSansMedium,
-                        fontSize = 16.sp,
-                        color = Color.Black,
-                    )
-                }
-
-                item("inactive_title_spacer") {
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-
-                itemsIndexed(
-                    items = inactiveSections,
-                    key = { _, section -> "inactive_${section.id}" },
-                ) { index, section ->
-                    val isAppearing = appearingSectionId == section.id
-                    val (alpha, scale) = animatedSettingsCardAppearance(
-                        isAppearing = false,
-                        isDragging = false,
-                    )
-
-                    SettingsSectionCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .animateItem(
-                                fadeInSpec = null,
-                                fadeOutSpec = null,
-                                placementSpec = spring(stiffness = Spring.StiffnessVeryLow),
-                            )
-                            .graphicsLayer {
-                                this.alpha = alpha
-                                scaleX = scale
-                                scaleY = scale
-                            },
-                        title = section.title(),
-                        titleColor = SettingsDisabledText,
-                        trailingContent = {
-                            SettingsActionIcon(
-                                drawable = Res.drawable.settings_plus,
-                                contentDescription = addBlockLabel,
-                                tint = SettingsSecondaryText,
-                                iconWidth = 18.dp,
-                                iconHeight = 18.dp,
-                                onClick = { addSection(section.id) },
-                            )
-                        },
-                    )
-
-                    if (index < inactiveSections.lastIndex) {
-                        Spacer(modifier = Modifier.height(SettingsCardSpacing))
+                item("inactive_section_block") {
+                    Column(
+                        modifier = Modifier.animateItem(
+                            placementSpec = spring(stiffness = Spring.StiffnessVeryLow),
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = unusedLabel,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 16.sp,
+                            color = Color.Black,
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(SettingsCardSpacing)) {
+                            inactiveSections.forEach { section ->
+                                val (alpha, scale) = animatedSettingsCardAppearance(
+                                    isAppearing = false,
+                                    isDragging = false,
+                                )
+                                SettingsSectionCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .graphicsLayer {
+                                            this.alpha = alpha
+                                            scaleX = scale
+                                            scaleY = scale
+                                        },
+                                    title = section.title(),
+                                    titleColor = SettingsDisabledText,
+                                    trailingContent = {
+                                        SettingsActionIcon(
+                                            drawable = Res.drawable.settings_plus,
+                                            contentDescription = addBlockLabel,
+                                            tint = SettingsSecondaryText,
+                                            iconWidth = 18.dp,
+                                            iconHeight = 18.dp,
+                                            onClick = { addSection(section.id) },
+                                        )
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+
+        StatsTopBar(
+            title = settingsTitle,
+            onBackClick = onBackClick,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
     }
 }
 
@@ -486,7 +463,8 @@ private fun SettingsSectionCard(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 20.sp,
             lineHeight = 20.sp,
             color = titleColor,

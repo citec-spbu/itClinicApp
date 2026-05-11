@@ -36,9 +36,7 @@ actual object HttpClientFactory {
                 storage = AcceptAllCookiesStorage()
             }
             
-            // Автоматическое добавление токена авторизации
             install(AuthInterceptor)
         }
     }
 }
-

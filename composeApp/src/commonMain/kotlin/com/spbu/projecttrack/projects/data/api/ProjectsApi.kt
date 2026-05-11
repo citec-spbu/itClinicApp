@@ -62,7 +62,7 @@ class ProjectsApi(private val client: HttpClient) {
     suspend fun getAllProjects(): Result<ProjectsResponse> {
         return try {
             val endpoint = ApiConfig.Public.PROJECT_FINDMANY
-            // Загружаем все страницы, так как каждая страница возвращает только 5 проектов
+            // The API pages results in chunks of 5, so keep fetching until a short page appears.
             val allProjects = mutableListOf<com.spbu.projecttrack.projects.data.model.Project>()
             val allTags = mutableSetOf<com.spbu.projecttrack.projects.data.model.Tag>()
 
@@ -82,7 +82,6 @@ class ProjectsApi(private val client: HttpClient) {
                 allProjects.addAll(pageData.projects)
                 allTags.addAll(pageData.tags)
 
-                // Если проектов меньше 5, значит это последняя страница
                 if (pageData.projects.size < 5) break
 
                 page += 1
@@ -143,15 +142,14 @@ class ProjectsApi(private val client: HttpClient) {
 
             val bodyText = response.bodyAsText()
             println("✅ Статус ответа: ${response.status}")
-            println("📄 Тело ответа: ${bodyText.take(2000)}...") // первые 2000 символов
+            println("📄 Тело ответа: ${bodyText.take(2000)}...")
             if (!response.status.isSuccess()) {
                 return Result.failure(buildHttpError(response.status))
             }
 
-            // Парсим из текста (так мы гарантированно парсим именно то, что залогировали)
+            // Parse the exact payload we just logged so debugging matches the decoded result.
             val parsed = json.decodeFromString(ProjectDetailResponse.serializer(), bodyText)
 
-            // Короткий дамп полей проекта (чтобы сразу видеть, что пришло)
             val p = parsed.project
             if (p == null) {
                 println("⚠️ parsed.project == null")

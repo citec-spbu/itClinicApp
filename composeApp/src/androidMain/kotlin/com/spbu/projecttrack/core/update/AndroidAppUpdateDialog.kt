@@ -154,7 +154,8 @@ fun AndroidAppUpdateDialog(
                             Text(
                                 text = strings.updateAvailableTitle,
                                 color = palette.secondaryText,
-                                fontFamily = AppFonts.OpenSansBold,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 24.sp,
                                 lineHeight = 28.sp,
                             )
@@ -170,7 +171,8 @@ fun AndroidAppUpdateDialog(
                             strings.updateAvailableMessage
                         },
                         color = palette.primaryText,
-                        fontFamily = AppFonts.OpenSansRegular,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Normal,
                         fontSize = 14.sp,
                         lineHeight = 21.sp,
                     )
@@ -208,7 +210,8 @@ fun AndroidAppUpdateDialog(
                             Text(
                                 text = strings.updateWhatsNewLabel,
                                 color = palette.secondaryText,
-                                fontFamily = AppFonts.OpenSansBold,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
                                 lineHeight = 20.sp,
                             )
@@ -222,7 +225,8 @@ fun AndroidAppUpdateDialog(
                                     Text(
                                         text = "•",
                                         color = palette.accent,
-                                        fontFamily = AppFonts.OpenSansBold,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Bold,
                                         fontSize = 16.sp,
                                         lineHeight = 20.sp,
                                     )
@@ -230,7 +234,8 @@ fun AndroidAppUpdateDialog(
                                         text = item,
                                         modifier = Modifier.weight(1f),
                                         color = palette.primaryText,
-                                        fontFamily = AppFonts.OpenSansRegular,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Normal,
                                         fontSize = 13.sp,
                                         lineHeight = 20.sp,
                                     )
@@ -292,7 +297,8 @@ private fun UpdateDialogBadge(text: String) {
         Text(
             text = text,
             color = palette.accent,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 11.sp,
             letterSpacing = 0.6.sp,
         )
@@ -320,14 +326,16 @@ private fun UpdateVersionCard(
         Text(
             text = title,
             color = palette.secondaryText,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 12.sp,
             lineHeight = 15.sp,
         )
         Text(
             text = value,
             color = palette.primaryText,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 13.sp,
             lineHeight = 15.sp,
             maxLines = 1,
@@ -382,7 +390,8 @@ private fun UpdateDialogButton(
         Text(
             text = text,
             color = palette.buttonText,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
             textAlign = TextAlign.Center,
         )

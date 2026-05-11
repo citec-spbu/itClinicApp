@@ -12,9 +12,6 @@ import com.spbu.projecttrack.core.network.ApiConfig
 import com.spbu.projecttrack.core.network.DeviceInfo
 import com.spbu.projecttrack.core.network.NetworkSettings
 
-/**
- * Экран отладки сети для проверки IP адресов и подключения
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NetworkDebugScreen(
@@ -43,7 +40,6 @@ fun NetworkDebugScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Manual IP Configuration
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -110,7 +106,6 @@ fun NetworkDebugScreen(
                 }
             }
             
-            // API Configuration
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -125,7 +120,6 @@ fun NetworkDebugScreen(
                 }
             }
             
-            // Device Info
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -139,9 +133,6 @@ fun NetworkDebugScreen(
                 }
             }
             
-            // Network Interfaces info removed (platform-specific)
-            
-            // Debug Info
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -159,7 +150,6 @@ fun NetworkDebugScreen(
                 }
             }
             
-            // Instructions
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -213,4 +203,3 @@ private fun InfoRow(label: String, value: String) {
         )
     }
 }
-

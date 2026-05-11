@@ -4,12 +4,8 @@ import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.logging.AppLog
 import io.ktor.client.plugins.api.*
 
-/**
- * Плагин для автоматического добавления токена авторизации к запросам
- */
 val AuthInterceptor = createClientPlugin("AuthInterceptor") {
     onRequest { request, _ ->
-        // Если есть токен, добавляем его в заголовок Authorization
         val token = AuthManager.getToken()
         val path = request.url.build().encodedPath
         if (!token.isNullOrBlank()) {
@@ -24,7 +20,6 @@ val AuthInterceptor = createClientPlugin("AuthInterceptor") {
         }
     }
 }
-
 
 
 

@@ -16,10 +16,9 @@ actual object DeviceInfo {
     
     actual fun getLocalHostAddress(): String {
         return if (isEmulator()) {
-            // Для iOS симулятора используем IPv4 loopback, чтобы не упираться в IPv6 localhost.
+            // Use an explicit IPv4 loopback on the simulator to avoid IPv6 localhost resolution issues.
             "127.0.0.1"
         } else {
-            // Для реального устройства - используем настроенный IP
             LocalDevConfig.LOCAL_MACHINE_IP
         }
     }

@@ -835,7 +835,7 @@ class ProjectStatsRepository(
     private fun deduplicateCommits(
         commits: List<ProjectCommitSnapshot>,
     ): List<ProjectCommitSnapshot> {
-        // Prefer the entry with more file details (non-empty files list)
+        // Keep the richest duplicate because some snapshots omit the file list entirely.
         return commits
             .groupBy { it.sha?.trim()?.lowercase() ?: it.commit?.message?.trim() ?: "" }
             .values
@@ -982,7 +982,7 @@ class ProjectStatsRepository(
             val delta = commit.files.sumOf { file ->
                 val additions = file.additions ?: 0
                 val deletions = file.deletions ?: 0
-                // changes = additions + deletions в GitHub API — не суммируем, иначе двойной счёт
+                // GitHub already defines `changes` as additions plus deletions.
                 additions + deletions
             }
 
@@ -1391,7 +1391,7 @@ class ProjectStatsRepository(
             commit.files.forEach { file ->
                 val additions = file.additions ?: 0
                 val deletions = file.deletions ?: 0
-                // changes = additions + deletions в GitHub API — не суммируем
+                // GitHub already defines `changes` as additions plus deletions.
                 val lineDelta = additions + deletions
                 if (lineDelta <= 0) return@forEach
 

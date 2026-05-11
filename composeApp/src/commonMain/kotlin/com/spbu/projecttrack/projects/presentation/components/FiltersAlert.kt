@@ -68,6 +68,7 @@ import projecttrack.composeapp.generated.resources.calendar_icon
 import projecttrack.composeapp.generated.resources.close_icon
 import projecttrack.composeapp.generated.resources.spbu_logo
 import projecttrack.composeapp.generated.resources.stats_dropdown_chevron
+import androidx.compose.ui.text.font.FontWeight
 
 private val FiltersAlertShape = RoundedCornerShape(20.dp)
 private val FiltersFieldShape = RoundedCornerShape(10.dp)
@@ -226,7 +227,8 @@ private fun FiltersAlertHeader(
     Box(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = filtersTitle,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 24.sp,
             color = AppColors.Color2,
             modifier = Modifier.align(Alignment.Center)
@@ -335,11 +337,8 @@ private fun TagsFilterSection(
                                     )
                                     Text(
                                         text = tag.name,
-                                        fontFamily = if (isSelected) {
-                                            AppFonts.OpenSansSemiBold
-                                        } else {
-                                            AppFonts.OpenSansRegular
-                                        },
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                         fontSize = 14.sp,
                                         color = if (isSelected) AppColors.Color3 else AppColors.Color2,
                                         maxLines = 1,
@@ -407,7 +406,8 @@ private fun TagSelectionField(
                 selectedNames.size == 1 -> selectedNames.first()
                 else -> selectedNames.joinToString(", ")
             },
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 12.sp,
             lineHeight = 14.sp,
             color = if (selectedNames.isEmpty()) AppColors.Color1 else AppColors.Color2,
@@ -464,7 +464,8 @@ private fun FilterSectionHeader(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 15.sp,
             color = AppColors.Black
         )
@@ -523,7 +524,8 @@ private fun DateRangeField(
     ) {
         Text(
             text = formatFilterDateRangeDisplay(startDate, endDate),
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 12.sp,
             lineHeight = 14.sp,
             color = if (startDate != null || endDate != null) AppColors.Color2 else AppColors.Color1,
@@ -606,7 +608,8 @@ private fun FilterActionChip(
         ) {
             Text(
                 text = text,
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = textSize,
                 lineHeight = textSize,
                 letterSpacing = 0.1.sp,

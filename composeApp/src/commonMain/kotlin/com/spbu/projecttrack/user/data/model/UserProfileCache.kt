@@ -2,14 +2,9 @@ package com.spbu.projecttrack.user.data.model
 
 import com.spbu.projecttrack.core.time.PlatformTime
 
-/**
- * Простой in-memory кэш профиля пользователя.
- * Живёт пока живёт приложение — переживает переключения вкладок.
- * TTL: 5 минут. Инвалидируется при логауте через [invalidate].
- */
+/** In-memory profile cache that lives for the app session and expires after 5 minutes. */
 object UserProfileCache {
-
-    private const val TTL_MS = 5 * 60 * 1000L // 5 минут
+    private const val TTL_MS = 5 * 60 * 1000L
 
     private var cachedProfile: UserProfileResponse? = null
     private var cachedAt: Long = 0L

@@ -70,7 +70,6 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-// Custom TabBar colors
 private val TabBarBackground = Color(0xFF9F2D20)
 private val TabBarBorder = Color(0xFFCF3F2F)
 private val UnselectedTabColor = Color(0xFFA6A6A6)
@@ -160,8 +159,7 @@ fun MainScreen(
     )
     val requestFailedMessage = localizedString("Попробуйте позже.", "Please try again later.")
 
-    // Когда уходим с вкладки настроек — сбрасываем флаг, чтобы при возврате
-    // первый кадр уже рисовался с правильными insets (без прыжка верстки).
+    // Reset root flags when leaving nested tabs so the first frame on return uses the correct insets.
     LaunchedEffect(selectedTab) {
         if (selectedTab != 2) isSettingsRoot = true
         if (selectedTab != 1) isRankingRoot = true
@@ -280,7 +278,7 @@ private fun MainScreenContent(
         }
     }
 
-    // "Мой проект" — перезагружается при смене авторизации и при возврате на вкладку 0
+    // Refresh "My project" after auth changes and whenever the user comes back to the first tab.
     var cachedMyProject by remember { mutableStateOf<Project?>(null) }
     var myProjectRefreshKey by remember { mutableStateOf(0) }
     LaunchedEffect(isAuthorized, isPreview, myProjectRefreshKey) {
@@ -302,7 +300,6 @@ private fun MainScreenContent(
         prevTab = selectedTab
     }
 
-    // Pager для первой вкладки: 0 = Все проекты, 1 = Мой проект
     val projectsPagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
     BackHandler(enabled = selectedTab == 0 && projectsPagerState.currentPage == 1) {
@@ -471,7 +468,7 @@ private fun MainTabPage(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = projectsTitle,
-                                fontFamily = AppFonts.OpenSansBold,
+                                fontFamily = AppFonts.OpenSans,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 40.sp,
                                 color = appPalette().title
@@ -577,8 +574,6 @@ private fun Project.toProjectDetail(): ProjectDetail {
     )
 }
 
-// ==================== Сегментный контрол "Все проекты / Мой проект" ====================
-
 @Composable
 private fun ProjectsSegmentedControl(
     selectedPage: Int,
@@ -619,7 +614,6 @@ private fun ProjectsSegmentedControl(
                 )
             }
         }
-        // Вертикальный разделитель по центру
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -647,7 +641,7 @@ private fun ProjectsSegmentText(
 
     Text(
         text = text,
-        fontFamily = AppFonts.OpenSansRegular,
+        fontFamily = AppFonts.OpenSans,
         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
         fontSize = 20.sp,
         color = if (selected) palette.primaryText else palette.secondaryText,
@@ -660,8 +654,6 @@ private fun ProjectsSegmentText(
             ),
     )
 }
-
-// ==================== Страница "Мой проект" ====================
 
 @Composable
 private fun MyProjectPage(
@@ -753,7 +745,8 @@ private fun MyProjectUnauthorizedState(modifier: Modifier = Modifier) {
     ) {
         Text(
             text = loginToSeeProjectLabel,
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 18.sp,
             color = appPalette().primaryText,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -780,7 +773,8 @@ private fun MyProjectEmptyState(
     ) {
         Text(
             text = noPersonalProjectLabel,
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 20.sp,
             color = appPalette().primaryText,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -831,17 +825,16 @@ internal fun CustomTabBar(
         modifier = modifier
             .fillMaxWidth()
             .height(60.dp)
-            .offset(y = (-30).dp), // Поднимаем таббар на 30dp вверх
+            .offset(y = (-30).dp),
         contentAlignment = Alignment.Center
     ) {
-        // Main TabBar container
         Box(
             modifier = Modifier
                 .width(TabBarWidth)
                 .height(60.dp)
                 .shadow(
                     elevation = 8.dp,
-                    shape = RoundedCornerShape(30.dp), // Скругление 30dp
+                    shape = RoundedCornerShape(30.dp),
                     ambientColor = Color.Black.copy(alpha = 0.55f),
                     spotColor = Color.Black.copy(alpha = 0.55f),
                     clip = false
@@ -849,11 +842,11 @@ internal fun CustomTabBar(
                 .border(
                     width = 2.dp,
                     color = TabBarBorder,
-                    shape = RoundedCornerShape(30.dp) // Скругление 30dp
+                    shape = RoundedCornerShape(30.dp)
                 )
                 .background(
                     color = TabBarBackground,
-                    shape = RoundedCornerShape(30.dp) // Скругление 30dp
+                    shape = RoundedCornerShape(30.dp)
                 )
                 .pointerInput(indicatorOffsetsPx) {
                     awaitEachGesture {
@@ -920,7 +913,6 @@ internal fun CustomTabBar(
                     }
                 }
         ) {
-            // Animated selection indicator with drag support
             Box(
                 modifier = Modifier
                     .offset(x = indicatorOffsetX, y = TabBarIndicatorTopInset)
@@ -944,13 +936,11 @@ internal fun CustomTabBar(
                     )
             )
 
-            // Tab items
             Row(
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Tab 1: Projects (SPbU logo)
                 TabItem(
                     icon = Res.drawable.spbu_tab_logo,
                     iconSize = Pair(33.dp, 41.dp),
@@ -958,7 +948,6 @@ internal fun CustomTabBar(
                     onClick = { onTabSelected(0) }
                 )
 
-                // Tab 2: Statistics
                 TabItem(
                     icon = Res.drawable.stats_tab_logo,
                     iconSize = Pair(30.dp, 27.5.dp),
@@ -966,7 +955,6 @@ internal fun CustomTabBar(
                     onClick = { onTabSelected(1) }
                 )
 
-                // Tab 3: Settings
                 TabItem(
                     icon = Res.drawable.settings_tab_logo,
                     iconSize = Pair(30.dp, 30.dp),

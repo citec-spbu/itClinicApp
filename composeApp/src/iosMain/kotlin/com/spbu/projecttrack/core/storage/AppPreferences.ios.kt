@@ -113,7 +113,6 @@ class AppPreferencesImpl : AppPreferences {
     }
 }
 
-// Singleton для iOS
 private val instance: AppPreferences by lazy { AppPreferencesImpl() }
 
 actual fun createAppPreferences(): AppPreferences {

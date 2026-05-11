@@ -105,9 +105,8 @@ class RankingRepository(
             ProjectRankingEntry(
                 project = project,
                 detail = detail,
-                // Only fall back to the API grade when there is no metric detail at all.
-                // If detail exists but calculated score is null the project has no real
-                // activity — show "—" rather than a potentially stale/wrong API grade.
+                // Fall back to the API grade only when metrics never loaded.
+                // If metrics exist but produce no score, show "—" instead of stale API data.
                 score = calculatedScore ?: if (detail == null) fallbackProjectScore(project) else null,
             )
         }
@@ -322,8 +321,6 @@ class RankingRepository(
 
         val usersById = detail.users.orEmpty().associateBy { it.id }
         val repoOwner = extractGithubOwner(githubUrl)
-        val shouldUseOwnerFallback = members.size == 1
-
         return members.mapNotNull { member ->
             val resolvedName = resolveMemberName(member, usersById)
             if (resolvedName.isNullOrBlank()) return@mapNotNull null
@@ -340,7 +337,6 @@ class RankingRepository(
                 resolvedName = resolvedName,
                 usersById = usersById,
                 repoOwner = repoOwner,
-                useOwnerFallback = shouldUseOwnerFallback,
             )
 
             RatingSyncMember(
@@ -367,16 +363,23 @@ class RankingRepository(
         resolvedName: String,
         usersById: Map<String, User>,
         repoOwner: String?,
-        useOwnerFallback: Boolean,
     ): RatingSyncIdentifier? {
-        val userName = member.user?.toString()
-            ?.let { userId -> usersById[userId]?.name }
+        val user = member.user?.toString()
+            ?.let { userId -> usersById[userId] }
+        val userName = user?.name?.trim()
+        val explicitGithubLogin = user?.githubLogin
             ?.trim()
+            ?.takeIf { isValidGithubLogin(it) }
 
-        val githubLogin = listOf(member.name, resolvedName, userName)
-            .mapNotNull(::extractGithubLogin)
+        val githubLogin = listOfNotNull(explicitGithubLogin)
+            .plus(listOf(member.name, resolvedName, userName).mapNotNull(::extractGithubLogin))
             .firstOrNull()
-            ?: if (useOwnerFallback) repoOwner else null
+            ?: repoOwner?.takeIf {
+                shouldUseRepoOwnerAsIdentifier(
+                    repoOwner = it,
+                    candidates = listOfNotNull(resolvedName, userName, explicitGithubLogin),
+                )
+            }
 
         return githubLogin?.let { login ->
             RatingSyncIdentifier(
@@ -428,6 +431,26 @@ class RankingRepository(
         if (candidate.length > 39) return false
         if (candidate.startsWith('-') || candidate.endsWith('-')) return false
         return candidate.matches(Regex("^[A-Za-z0-9-]+$"))
+    }
+
+    private fun shouldUseRepoOwnerAsIdentifier(
+        repoOwner: String,
+        candidates: List<String>,
+    ): Boolean {
+        val ownerKey = githubKey(repoOwner) ?: return false
+        return candidates.any { candidate ->
+            val candidateKey = githubKey(candidate) ?: return@any false
+            candidateKey == ownerKey ||
+                candidateKey.startsWith(ownerKey) ||
+                ownerKey.startsWith(candidateKey)
+        }
+    }
+
+    private fun githubKey(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val normalized = raw.lowercase()
+            .filter { it.isLetterOrDigit() }
+        return normalized.takeIf { it.isNotBlank() }
     }
 
     private suspend fun loadMetricProjectDetails(

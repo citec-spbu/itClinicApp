@@ -15,7 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
@@ -41,11 +41,9 @@ internal fun StatsDropdownMenu(
     offset: DpOffset = DpOffset(0.dp, 6.dp),
     selectedKey: String? = null,
     selectedLabel: String? = null,
-    itemFontFamily: FontFamily? = null,
-    selectedItemFontFamily: FontFamily? = null,
+    itemFontWeight: FontWeight = FontWeight.Normal,
+    selectedItemFontWeight: FontWeight = FontWeight.SemiBold,
 ) {
-    val resolvedItemFontFamily = itemFontFamily ?: AppFonts.OpenSansRegular
-    val resolvedSelectedItemFontFamily = selectedItemFontFamily ?: AppFonts.OpenSansSemiBold
 
     DropdownMenu(
         expanded = expanded,
@@ -82,11 +80,8 @@ internal fun StatsDropdownMenu(
                 text = {
                     Text(
                         text = value,
-                        fontFamily = if (isSelected) {
-                            resolvedSelectedItemFontFamily
-                        } else {
-                            resolvedItemFontFamily
-                        },
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = if (isSelected) selectedItemFontWeight else itemFontWeight,
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
                         color = if (isSelected) AppColors.Color3 else AppColors.Color2,

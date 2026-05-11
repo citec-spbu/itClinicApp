@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.theme.AppColors
+import com.spbu.projecttrack.core.theme.AppFonts
 import com.spbu.projecttrack.core.theme.appPalette
 import com.spbu.projecttrack.core.theme.subtleBorder
 import com.spbu.projecttrack.projects.data.model.*
@@ -53,19 +54,6 @@ import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.*
 
-// ==================== Font Helper ====================
-
-@Composable
-private fun openSansFamily(): FontFamily {
-    return FontFamily(
-        Font(Res.font.opensans_regular, weight = FontWeight.Normal),
-        Font(Res.font.opensans_medium, weight = FontWeight.Medium),
-        Font(Res.font.opensans_semibold, weight = FontWeight.SemiBold),
-        Font(Res.font.opensans_bold, weight = FontWeight.Bold)
-    )
-}
-
-// ==================== Back Arrow Icon ====================
 
 @Composable
 private fun BackArrowIcon(
@@ -78,14 +66,12 @@ private fun BackArrowIcon(
     )
 }
 
-// ==================== Requirement Tag Chip ====================
-
 @Composable
 private fun RequirementTagChip(
     text: String,
     modifier: Modifier = Modifier
 ) {
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
 
     Surface(
@@ -113,14 +99,12 @@ private fun RequirementTagChip(
     }
 }
 
-// ==================== Project Tag Chip ====================
-
 @Composable
 private fun ProjectTagChip(
     tag: Tag,
     modifier: Modifier = Modifier
 ) {
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
 
     Surface(
@@ -141,15 +125,13 @@ private fun ProjectTagChip(
     }
 }
 
-// ==================== Info Card Component ====================
-
 @Composable
 private fun InfoCard(
     label: String,
     value: String,
     modifier: Modifier = Modifier
 ) {
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
 
     Surface(
@@ -188,8 +170,6 @@ private fun InfoCard(
     }
 }
 
-// ==================== Contact + Client Block ====================
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ContactClientBlock(
@@ -223,14 +203,12 @@ private fun ContactClientBlock(
     }
 }
 
-// ==================== Status Card Component ====================
-
 @Composable
 private fun StatusCard(
     status: String,
     modifier: Modifier = Modifier
 ) {
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
 
     Surface(
@@ -266,15 +244,13 @@ private fun StatusCard(
     }
 }
 
-// ==================== Header Date Block ====================
-
 @Composable
 private fun HeaderDateBlock(
     title: String,
     date: String,
     modifier: Modifier = Modifier
 ) {
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
 
     Surface(
         modifier = modifier
@@ -322,8 +298,6 @@ private fun HeaderDateBlock(
     }
 }
 
-// ==================== Header Card with Gradient ====================
-
 @Composable
 private fun ProjectHeaderCard(
     project: ProjectDetail,
@@ -331,7 +305,7 @@ private fun ProjectHeaderCard(
 ) {
     val enrollmentLabel = localizedString("Срок записи", "Enrollment")
     val durationLabel = localizedString("Срок реализации", "Duration")
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     
     Surface(
         modifier = modifier
@@ -359,13 +333,11 @@ private fun ProjectHeaderCard(
                 .padding(13.dp)
         ) {
             Column {
-                // Верхняя часть: дата + название
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp) // Увеличенное расстояние между датой и титулом
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Дата слева
                     Column(
                         modifier = Modifier.width(50.dp),
                         horizontalAlignment = Alignment.Start
@@ -391,7 +363,6 @@ private fun ProjectHeaderCard(
                         }
                     }
                     
-                    // Название проекта (динамическая высота)
                     Text(
                         text = project.name,
                         fontFamily = fontFamily,
@@ -405,7 +376,6 @@ private fun ProjectHeaderCard(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Нижняя часть: 2 блока с датами
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -426,14 +396,12 @@ private fun ProjectHeaderCard(
     }
 }
 
-// ==================== Section Title ====================
-
 @Composable
 private fun SectionTitle(
     text: String,
     modifier: Modifier = Modifier
 ) {
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
 
     Text(
@@ -446,19 +414,16 @@ private fun SectionTitle(
     )
 }
 
-// ==================== Requirement Item ====================
-
 @Composable
 private fun RequirementItem(
     number: Int,
     text: String,
     modifier: Modifier = Modifier
 ) {
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // Разделитель сверху
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -491,8 +456,6 @@ private fun RequirementItem(
         }
     }
 }
-
-// ==================== Date Formatting ====================
 
 private fun formatDateForCard(dateString: String): List<String> {
     if (dateString.isEmpty()) return emptyList()
@@ -528,8 +491,6 @@ private fun formatDateDots(dateString: String?): String {
         "${parts[2]}.${parts[1]}.${parts[0]}"
     } else s
 }
-
-// ==================== Main Screen ====================
 
 @Composable
 fun ProjectDetailScreen(
@@ -590,7 +551,7 @@ internal fun ProjectDetailScreenContent(
     val loadingErrorLabel = localizedString("Ошибка загрузки", "Loading error")
     val retryLabel = localizedString("Повторить", "Retry")
     val resolvedTitle = title ?: localizedString("Проекты", "Projects")
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val uriHandler = LocalUriHandler.current
     val projectDetail = (uiState as? ProjectDetailUiState.Success)?.project
     val githubUrl = remember(projectDetail) { extractGithubUrl(projectDetail) }
@@ -624,7 +585,6 @@ internal fun ProjectDetailScreenContent(
                         WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
                     )
             ) {
-                // Хедер с кнопкой назад и титулом
                 if (showTitle || showBackButton) {
                     Box(
                         modifier = Modifier
@@ -632,7 +592,6 @@ internal fun ProjectDetailScreenContent(
                             .background(palette.background)
                             .padding(horizontal = 16.dp, vertical = 0.dp)
                     ) {
-                        // Кнопка назад
                         if (showBackButton) {
                             val backInteractionSource = remember {
                                 androidx.compose.foundation.interaction.MutableInteractionSource()
@@ -659,7 +618,6 @@ internal fun ProjectDetailScreenContent(
                             }
                         }
 
-                        // Титул
                         if (showTitle) {
                             Text(
                                 text = resolvedTitle,
@@ -672,8 +630,6 @@ internal fun ProjectDetailScreenContent(
                         }
                     }
                 }
-
-                // Контент
                 Box(modifier = Modifier.weight(1f)) {
                     when (uiState) {
                         is ProjectDetailUiState.Loading -> {
@@ -733,7 +689,7 @@ private fun ErrorContent(
 ) {
     val loadingErrorLabel = localizedString("Ошибка загрузки", "Loading error")
     val retryLabel = localizedString("Повторить", "Retry")
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
 
     Box(
@@ -848,7 +804,7 @@ private fun ProjectDetailContent(
     )
     val githubLabel = localizedString("GitHub", "GitHub")
     val projectStatsLabel = localizedString("Статистика проекта", "Project stats")
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
     val scrollState = rememberScrollState()
     val projectTags = tags.filter { tag -> project.tags?.contains(tag.id) == true }
@@ -866,10 +822,8 @@ private fun ProjectDetailContent(
         label = "detail_bottom_fade"
     )
     
-    // Требования проекта: из поля requirements или парсим из описания
     val requirements = project.requirements ?: emptyList()
     
-    // Требования для исполнителей
     val executorRequirements = project.executorRequirements ?: emptyList()
     
     Box(
@@ -884,10 +838,8 @@ private fun ProjectDetailContent(
                 .padding(top = topPadding, bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Главная карточка с градиентом
             ProjectHeaderCard(project = project)
             
-            // Статус команды (во всю ширину)
             if (statusText.isNotBlank()) {
                 StatusCard(
                     status = statusText,
@@ -895,13 +847,11 @@ private fun ProjectDetailContent(
                 )
             }
             
-            // Контакты + заказчик
             ContactClientBlock(
                 contact = project.contact,
                 client = project.client
             )
             
-            // Теги проекта
             if (projectTags.isNotEmpty()) {
                 FlowRow(
                     modifier = Modifier
@@ -916,7 +866,6 @@ private fun ProjectDetailContent(
                 }
             }
             
-            // Описание проекта
             if (!project.description.isNullOrBlank()) {
                 SectionTitle(text = descriptionTitle)
                 Text(
@@ -929,7 +878,6 @@ private fun ProjectDetailContent(
                 )
             }
             
-            // Требования проекта (если есть)
             if (requirements.isNotEmpty()) {
                 SectionTitle(text = requirementsTitle)
                 
@@ -941,9 +889,7 @@ private fun ProjectDetailContent(
                 }
             }
             
-            // Только для авторизованных пользователей
             if (isAuthorized) {
-                // Требования для исполнителей (теги)
                 if (executorRequirements.isNotEmpty()) {
                     SectionTitle(text = performerRequirementsTitle)
                     
@@ -960,7 +906,6 @@ private fun ProjectDetailContent(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Команда
                 if (members.isNotEmpty()) {
                     ProjectTeamCard(
                         members = members,
@@ -973,7 +918,6 @@ private fun ProjectDetailContent(
                 }
             }
 
-            // Кнопки "Мой проект": GitHub и Статистика в скролле
             if (showMyProjectActions) {
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -1005,7 +949,6 @@ private fun ProjectDetailContent(
             }
         }
 
-        // Верхний градиент — плавно появляется при скролле вниз
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1022,7 +965,6 @@ private fun ProjectDetailContent(
                 )
         )
 
-        // Нижний градиент — плавно исчезает когда дошли до конца
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1049,7 +991,7 @@ private fun MyProjectActionButton(
     onClick: () -> Unit,
     showBottomDivider: Boolean = true
 ) {
-    val fontFamily = openSansFamily()
+    val fontFamily = AppFonts.OpenSans
     val palette = appPalette()
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1096,8 +1038,6 @@ private fun MyProjectActionButton(
         }
     }
 }
-
-// ==================== Preview Functions ====================
 
 @Suppress("UNCHECKED_CAST")
 private fun createPreviewViewModel(state: ProjectDetailUiState): ProjectDetailViewModel {

@@ -64,6 +64,7 @@ import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.arrow_back
 import projecttrack.composeapp.generated.resources.stats_dropdown_chevron
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.text.font.FontWeight
 
 private val CalendarDialogShape = RoundedCornerShape(16.dp)
 private val CalendarRangeFill = AppColors.Color3
@@ -337,7 +338,8 @@ private fun CalendarSelectionControl(
             ) {
                 Text(
                     text = label,
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     color = CalendarOnBackground,
@@ -362,8 +364,8 @@ private fun CalendarSelectionControl(
                 maxHeight = 240.dp,
                 offset = DpOffset(0.dp, 6.dp),
                 selectedLabel = label,
-                itemFontFamily = AppFonts.OpenSansMedium,
-                selectedItemFontFamily = AppFonts.OpenSansSemiBold,
+                itemFontWeight = FontWeight.Medium,
+                selectedItemFontWeight = FontWeight.SemiBold,
             )
         }
         CalendarNavigationButton(
@@ -436,7 +438,8 @@ private fun CalendarWeekHeader() {
             ) {
                 Text(
                     text = label,
-                    fontFamily = AppFonts.OpenSansRegular,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 16.sp,
                     lineHeight = 24.sp,
                     letterSpacing = 0.5.sp,
@@ -608,7 +611,8 @@ private fun CalendarDayCell(
             ) {
                 Text(
                     text = day.date.dayOfMonth.toString(),
-                    fontFamily = AppFonts.OpenSansRegular,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 16.sp,
                     lineHeight = 24.sp,
                     letterSpacing = 0.5.sp,
@@ -660,7 +664,8 @@ private fun CalendarActionTextButton(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
             lineHeight = 20.sp,
             letterSpacing = 0.1.sp,

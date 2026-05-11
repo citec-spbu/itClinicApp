@@ -241,7 +241,6 @@ fun SettingsTabScreen(
     val mobileAuthApi = remember { DependencyContainer.provideMobileAuthApi() }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    // Используем .value как initial — избегаем один ложный кадр "незалогинен"
     val isAuthorized by AuthManager.isAuthorized.collectAsState()
 
     var destination by rememberSaveable { mutableStateOf(SettingsDestination.Home) }
@@ -249,7 +248,9 @@ fun SettingsTabScreen(
     var isFeedbackSending by rememberSaveable { mutableStateOf(false) }
     var isProfileLoading by rememberSaveable { mutableStateOf(false) }
     var isProfileSaving by rememberSaveable { mutableStateOf(false) }
-    var profile by remember { mutableStateOf<UserProfileResponse?>(null) }
+    var profile by remember(isAuthorized) {
+        mutableStateOf(if (isAuthorized) UserProfileCache.get() else null)
+    }
     var profileError by rememberSaveable { mutableStateOf<String?>(null) }
     var editProfileForm by remember { mutableStateOf<EditableProfileForm?>(null) }
     var showLogoutDialog by rememberSaveable { mutableStateOf(false) }
@@ -275,13 +276,14 @@ fun SettingsTabScreen(
 
     fun loadProfile(forceRefresh: Boolean = false) {
         if (!isAuthorized) {
+            isProfileLoading = false
             profile = null
             profileError = null
             resetToHomeIfNeeded()
             return
         }
 
-        // Отдаём кэш сразу, чтобы не было пустого экрана
+        // Reuse the in-memory cache first so reopening the screen does not flash an empty state.
         if (!forceRefresh) {
             val cached = UserProfileCache.get()
             if (cached != null) {
@@ -299,7 +301,6 @@ fun SettingsTabScreen(
                 profile = loaded
                 loaded?.let { UserProfileCache.set(it) }
             } else {
-                profile = null
                 profileError = strings.profileLoadError
                 snackbarHostState.showSnackbar(strings.profileLoadError)
             }
@@ -319,9 +320,7 @@ fun SettingsTabScreen(
         }
     }
 
-    // Синхронный хелпер: устанавливает destination И сообщает родителю об isRoot
-    // в одном handler-е, чтобы Compose применил оба изменения за один кадр.
-    // Это устраняет визуальный прыжок верстки при переходе субэкран → главная.
+    // Update the destination and root-state flag in the same handler to avoid a one-frame layout jump.
     fun navigate(dest: SettingsDestination) {
         destination = dest
         onRootDestinationChange(dest == SettingsDestination.Home)
@@ -731,7 +730,8 @@ private fun SettingsPolicyScreen(
                 Text(
                     text = strings.policyBody,
                     color = palette.secondaryText,
-                    fontFamily = AppFonts.OpenSansRegular,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 16.sp,
                     lineHeight = 24.sp,
                 )
@@ -766,9 +766,7 @@ private fun SettingsFeedbackScreen(
         onBackClick = onBackClick,
         titleLineHeight = 35.sp,
     ) {
-        // Весь Box — кликабельный: тап в любом пустом месте скрывает клавиатуру.
-        // BasicTextField поглощает тапы внутри себя, поэтому фокус при вводе
-        // не сбрасывается. ActionButton обрабатывает свои тапы независимо.
+        // Let taps on the empty background dismiss the keyboard without stealing focus from the text field.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -787,14 +785,16 @@ private fun SettingsFeedbackScreen(
                 Text(
                     text = strings.helpUsTitle,
                     color = palette.primaryText,
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = strings.feedbackDescription,
                     color = palette.primaryText,
-                    fontFamily = AppFonts.OpenSansRegular,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                 )
@@ -959,7 +959,8 @@ private fun SettingsProfileScreen(
             Text(
                 text = strings.continueWithoutAuth,
                 color = palette.secondaryText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 16.sp,
             )
             return@SettingsSubScreen
@@ -979,7 +980,8 @@ private fun SettingsProfileScreen(
             Text(
                 text = it,
                 color = palette.secondaryText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 14.sp,
             )
             Spacer(modifier = Modifier.height(18.dp))
@@ -1107,14 +1109,16 @@ private fun ProfilePrimaryCard(
                 Text(
                     text = fullName,
                     color = palette.primaryText,
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     lineHeight = 22.sp,
                 )
                 Text(
                     text = email,
                     color = palette.secondaryText,
-                    fontFamily = AppFonts.OpenSansRegular,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1122,7 +1126,8 @@ private fun ProfilePrimaryCard(
                 Text(
                     text = phone,
                     color = palette.secondaryText,
-                    fontFamily = AppFonts.OpenSansRegular,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1186,7 +1191,8 @@ private fun ProfileTeamSection(
             Text(
                 text = teamTitle,
                 color = palette.primaryText,
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 20.sp,
                 lineHeight = 20.sp,
             )
@@ -1214,7 +1220,8 @@ private fun ProfileTeamSection(
                     Text(
                         text = noTeamLabel,
                         color = palette.secondaryText,
-                        fontFamily = AppFonts.OpenSansRegular,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Normal,
                         fontSize = 12.sp,
                         lineHeight = 20.sp,
                     )
@@ -1279,7 +1286,8 @@ private fun ProfileTeamSection(
                         Text(
                             text = it,
                             color = Color(0xFFD32F2F),
-                            fontFamily = AppFonts.OpenSansRegular,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Normal,
                             fontSize = 12.sp,
                             lineHeight = 18.sp,
                         )
@@ -1312,7 +1320,8 @@ private fun ProfileTeamMemberCard(
         pushStyle(
             SpanStyle(
                 color = palette.secondaryText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 12.sp,
             )
         )
@@ -1322,7 +1331,8 @@ private fun ProfileTeamMemberCard(
         pushStyle(
             SpanStyle(
                 color = palette.secondaryText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 10.sp,
             )
         )
@@ -1340,7 +1350,8 @@ private fun ProfileTeamMemberCard(
         Text(
             text = rowLabel,
             color = palette.secondaryText,
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 12.sp,
             lineHeight = 20.sp,
             modifier = Modifier.weight(1f),
@@ -1406,7 +1417,8 @@ private fun ProfileTeamMemberCard(
                         text = {
                             Text(
                                 text = clearRoleLabel,
-                                fontFamily = if (clearSelected) AppFonts.OpenSansSemiBold else AppFonts.OpenSansRegular,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = if (clearSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                                 color = if (clearSelected) palette.accent else palette.secondaryText,
@@ -1424,7 +1436,8 @@ private fun ProfileTeamMemberCard(
                             text = {
                                 Text(
                                     text = noRoleOptionsLabel,
-                                    fontFamily = AppFonts.OpenSansRegular,
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = FontWeight.Normal,
                                     fontSize = 13.sp,
                                 )
                             },
@@ -1452,7 +1465,8 @@ private fun ProfileTeamMemberCard(
                                     ) {
                                         Text(
                                             text = localizedRoleLabel(option),
-                                            fontFamily = if (isSelected) AppFonts.OpenSansSemiBold else AppFonts.OpenSansRegular,
+                                            fontFamily = AppFonts.OpenSans,
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                             fontSize = 14.sp,
                                             lineHeight = 20.sp,
                                             color = if (isSelected) palette.accent else palette.secondaryText,
@@ -1501,7 +1515,8 @@ private fun ProfileProjectCard(
             Text(
                 text = projectTitle,
                 color = palette.primaryText,
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 20.sp,
                 lineHeight = 20.sp,
             )
@@ -1511,7 +1526,8 @@ private fun ProfileProjectCard(
             Text(
                 text = projectName,
                 color = palette.secondaryText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 12.sp,
                 lineHeight = 20.sp,
             )
@@ -1546,7 +1562,8 @@ private fun LogoutActionButton(
         Text(
             text = text,
             color = palette.secondaryText,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 16.sp,
             lineHeight = 20.sp,
         )
@@ -1580,8 +1597,7 @@ private fun SettingsSubScreen(
                 contentDescription = null,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    // Колонка имеет padding(horizontal = 30.dp), сдвигаем на −9dp
-                    // чтобы кнопка встала на стандартные 21dp от края экрана
+                    // Offset the icon to compensate for the parent padding and keep the visual edge alignment.
                     .offset(x = (-9).dp)
                     .size(26.dp)
                     .pressableClickable(
@@ -1594,7 +1610,8 @@ private fun SettingsSubScreen(
             Text(
                 text = title,
                 color = palette.title,
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = titleFontSize,
                 lineHeight = titleLineHeight,
                 textAlign = TextAlign.Center,
@@ -1613,7 +1630,8 @@ private fun SettingsTitle(text: String) {
     Text(
         text = text,
         color = palette.title,
-        fontFamily = AppFonts.OpenSansBold,
+        fontFamily = AppFonts.OpenSans,
+        fontWeight = FontWeight.Bold,
         fontSize = 40.sp,
         lineHeight = 40.sp,
         modifier = Modifier.fillMaxWidth(),
@@ -1667,7 +1685,8 @@ private fun ProfileSummaryCard(
                     Text(
                         text = displayName,
                         color = palette.primaryText,
-                        fontFamily = AppFonts.OpenSansSemiBold,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1676,7 +1695,8 @@ private fun ProfileSummaryCard(
                     Text(
                         text = if (isLoading) "..." else email,
                         color = palette.secondaryText,
-                        fontFamily = AppFonts.OpenSansRegular,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Normal,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1703,13 +1723,15 @@ private fun ProfileSummaryCard(
                 Text(
                     text = "${strings.projectLabel}: ",
                     color = palette.primaryText,
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                 )
                 Text(
                     text = projectName,
                     color = palette.secondaryText,
-                    fontFamily = AppFonts.OpenSansRegular,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Normal,
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1783,7 +1805,8 @@ private fun LoginChip(
             Text(
                 text = strings.loginWithGithub,
                 color = contentColor,
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 12.sp,
                 lineHeight = 14.sp,
             )
@@ -1821,7 +1844,8 @@ private fun SettingsMenuRow(
         Text(
             text = label,
             color = palette.secondaryText,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 16.sp,
         )
     }
@@ -1874,7 +1898,8 @@ private fun SettingsDropdownValueRow(
         Text(
             text = label,
             color = palette.secondaryText,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 16.sp,
             modifier = Modifier.weight(1f),
         )
@@ -1887,7 +1912,8 @@ private fun SettingsDropdownValueRow(
                 Text(
                     text = value,
                     color = palette.secondaryText,
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                 )
                 if (showChevron) {
@@ -1931,11 +1957,8 @@ private fun SettingsDropdownValueRow(
                             text = {
                                 Text(
                                     text = option.label,
-                                    fontFamily = if (isSelected) {
-                                        AppFonts.OpenSansSemiBold
-                                    } else {
-                                        AppFonts.OpenSansRegular
-                                    },
+                                    fontFamily = AppFonts.OpenSans,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                     fontSize = 14.sp,
                                     lineHeight = 20.sp,
                                     color = if (isSelected) palette.accent else palette.secondaryText,
@@ -1967,14 +1990,16 @@ private fun ProfileInfoRow(
         Text(
             text = label,
             color = palette.secondaryText,
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 12.sp,
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = value,
             color = palette.primaryText,
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 16.sp,
         )
         Spacer(modifier = Modifier.height(4.dp))
@@ -2006,7 +2031,8 @@ private fun AvatarBadge(
         Text(
             text = initial,
             color = palette.buttonText,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 18.sp,
         )
     }
@@ -2037,7 +2063,8 @@ private fun ProfileAvatar(
         Text(
             text = profileInitials(label),
             color = palette.buttonText,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 20.sp,
         )
         avatarUrl?.let { url ->
@@ -2071,7 +2098,8 @@ private fun ProjectHighlightChip(
         Text(
             text = projectName,
             color = palette.buttonText,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
             lineHeight = 18.sp,
             maxLines = 2,
@@ -2100,7 +2128,8 @@ private fun MultiLineField(
             Text(
                 text = placeholder,
                 color = palette.border,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 12.sp,
                 lineHeight = 20.sp,
             )
@@ -2112,7 +2141,8 @@ private fun MultiLineField(
             modifier = Modifier.fillMaxSize(),
             textStyle = TextStyle(
                 color = palette.primaryText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
             ),
@@ -2138,7 +2168,8 @@ private fun LineField(
             singleLine = true,
             textStyle = TextStyle(
                 color = palette.primaryText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
             ),
@@ -2153,7 +2184,8 @@ private fun LineField(
                         Text(
                             text = placeholder,
                             color = palette.border.copy(alpha = 0.55f),
-                            fontFamily = AppFonts.OpenSansRegular,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Normal,
                             fontSize = 12.sp,
                         )
                     }
@@ -2191,8 +2223,7 @@ private fun ActionButton(
 
     Box(
         modifier = modifier
-            // graphicsLayer первым — масштабирует всю кнопку целиком,
-            // включая фон и скруглённые углы
+            // Apply scaling before clipping so the pressed state shrinks the whole button, not only the content.
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(10.dp))
             .background(background)
@@ -2215,7 +2246,8 @@ private fun ActionButton(
         Text(
             text = text,
             color = palette.buttonText,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 20.sp,
         )
     }
@@ -2284,7 +2316,8 @@ private fun EditProfileDialog(
                         Text(
                             text = strings.editLabel,
                             color = palette.secondaryText,
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 24.sp,
                         )
                         Box(
@@ -2302,6 +2335,7 @@ private fun EditProfileDialog(
                                 text = "×",
                                 color = palette.accent,
                                 fontSize = 28.sp,
+                                fontFamily = AppFonts.OpenSans,
                                 fontWeight = FontWeight.Light,
                             )
                         }
@@ -2355,7 +2389,8 @@ private fun EditProfileDialog(
                         Text(
                             text = strings.notificationsLabel,
                             color = palette.secondaryText,
-                            fontFamily = AppFonts.OpenSansRegular,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Normal,
                             fontSize = 12.sp,
                             lineHeight = 18.sp,
                             modifier = Modifier.weight(1f),
@@ -2415,7 +2450,8 @@ private fun CompactCheckbox(
             Text(
                 text = "✓",
                 color = palette.buttonText,
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
                 lineHeight = 14.sp,
             )
@@ -2477,7 +2513,8 @@ private fun LogoutDialog(
                     Text(
                         text = strings.logoutQuestion,
                         color = palette.secondaryText,
-                        fontFamily = AppFonts.OpenSansBold,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 24.sp,
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
@@ -2566,7 +2603,8 @@ private fun ThanksDialog(
                         Text(
                             text = strings.thanksTitle,
                             color = palette.secondaryText,
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 24.sp,
                             modifier = Modifier.padding(horizontal = 36.dp),
                         )
@@ -2586,6 +2624,7 @@ private fun ThanksDialog(
                                 text = "×",
                                 color = palette.accent,
                                 fontSize = 28.sp,
+                                fontFamily = AppFonts.OpenSans,
                                 fontWeight = FontWeight.Light,
                             )
                         }
@@ -2594,7 +2633,8 @@ private fun ThanksDialog(
                     Text(
                         text = strings.thanksMessage,
                         color = palette.secondaryText,
-                        fontFamily = AppFonts.OpenSansRegular,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Normal,
                         fontSize = 12.sp,
                         lineHeight = 20.sp,
                         textAlign = TextAlign.Center,
@@ -2642,9 +2682,8 @@ private fun Member.belongsToProfile(
     }
     if (currentUserId != null && user == currentUserId) return true
     val normalizedFull = normalize(fullName)
-    // Сравниваем по member.name
     if (normalize(name) == normalizedFull) return true
-    // Запасной вариант: берём имя из списка users по member.user ID (формат совпадает с fullName)
+    // Fall back to the linked user record because some team payloads keep only the raw member name.
     val teamUserName = teamUsers.firstOrNull { it.id == user?.toString() }?.name ?: return false
     return normalize(teamUserName) == normalizedFull
 }

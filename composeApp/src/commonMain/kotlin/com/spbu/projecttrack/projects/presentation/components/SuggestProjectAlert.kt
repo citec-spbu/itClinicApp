@@ -46,6 +46,7 @@ import org.jetbrains.compose.resources.painterResource
 import projecttrack.composeapp.generated.resources.Res
 import projecttrack.composeapp.generated.resources.close_icon
 import projecttrack.composeapp.generated.resources.spbu_logo
+import androidx.compose.ui.text.font.FontWeight
 
 @Composable
 fun SuggestProjectAlert(
@@ -110,7 +111,8 @@ fun SuggestProjectAlert(
             Box(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = customersTitle,
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 24.sp,
                     color = AppColors.Color2,
                     modifier = Modifier.align(Alignment.Center)
@@ -143,7 +145,8 @@ fun SuggestProjectAlert(
 
             Text(
                 text = descriptionText,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 12.sp,
                 lineHeight = 13.sp,
                 color = AppColors.Color1,
@@ -208,7 +211,8 @@ fun SuggestProjectAlert(
             ) {
                 Text(
                     text = sendLabel,
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
                     color = AppColors.White
                 )
@@ -233,7 +237,8 @@ private fun CenteredTextField(
                 .fillMaxWidth(),
             singleLine = true,
             textStyle = TextStyle(
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 12.sp,
                 color = if (value.isEmpty()) AppColors.Color1 else AppColors.Color2,
                 textAlign = TextAlign.Center
@@ -248,7 +253,8 @@ private fun CenteredTextField(
                     if (value.isEmpty()) {
                         Text(
                             text = placeholder,
-                            fontFamily = AppFonts.OpenSansRegular,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Normal,
                             fontSize = 12.sp,
                             color = AppColors.Color1,
                             textAlign = TextAlign.Center,

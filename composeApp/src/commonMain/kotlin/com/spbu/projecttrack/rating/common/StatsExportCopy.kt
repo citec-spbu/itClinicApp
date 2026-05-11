@@ -2,13 +2,25 @@ package com.spbu.projecttrack.rating.common
 
 import com.spbu.projecttrack.core.settings.localizePluralRuntime
 import com.spbu.projecttrack.core.settings.localizeRuntime
+import com.spbu.projecttrack.core.time.PlatformTime
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 /**
  * Localized strings for stats PDF/CSV export and shared stats UI copy.
  * Uses [com.spbu.projecttrack.core.settings.AppRuntimeLocalization] (updated from theme).
  */
 object StatsExportCopy {
-    fun now(): String = localizeRuntime("Сейчас", "Now")
+    fun now(): String {
+        val instant = Instant.fromEpochMilliseconds(PlatformTime.currentTimeMillis())
+        val dt = instant.toLocalDateTime(TimeZone.currentSystemDefault())
+        val day = dt.dayOfMonth.toString().padStart(2, '0')
+        val month = dt.monthNumber.toString().padStart(2, '0')
+        val hour = dt.hour.toString().padStart(2, '0')
+        val minute = dt.minute.toString().padStart(2, '0')
+        return "$day.$month.${dt.year} $hour:$minute"
+    }
     fun total(): String = localizeRuntime("всего", "total")
     fun commits(): String = localizeRuntime("Коммиты", "Commits")
     fun issues(): String = localizeRuntime("Issue", "Issue")

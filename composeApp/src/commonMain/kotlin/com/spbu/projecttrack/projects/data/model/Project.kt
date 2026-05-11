@@ -34,7 +34,7 @@ data class Project(
     val dateEnd: String? = null,
     val slug: String? = null,
     val tags: List<Int>? = null,
-    val client: String? = null, // Заказчик
+    val client: String? = null,
     val links: List<ProjectLink> = emptyList(),
     val teams: List<Int>? = null,
     val teamLimit: Int? = null,
@@ -54,16 +54,16 @@ data class ProjectDetail(
     val status: String? = null,
     @SerialName("teamLimit")
     val teamLimit: Int? = null,
-    val client: String? = null, // Заказчик
+    val client: String? = null,
 
     @SerialName("clientContact")
-    val contact: String? = null, // Контактное лицо
+    val contact: String? = null,
 
     @SerialName("projectRequirements")
-    val requirements: List<String>? = null, // Требования проекта
+    val requirements: List<String>? = null,
 
     @SerialName("developerRequirements")
-    val executorRequirements: List<String>? = null, // Требования для исполнителей
+    val executorRequirements: List<String>? = null,
     val links: List<ProjectLink> = emptyList(),
 )
 
@@ -114,5 +114,6 @@ data class Member(
 @Serializable
 data class User(
     val id: String,
-    val name: String? = null
+    val name: String? = null,
+    val githubLogin: String? = null,
 )

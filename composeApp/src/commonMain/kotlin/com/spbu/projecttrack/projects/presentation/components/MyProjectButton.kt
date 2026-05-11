@@ -50,7 +50,8 @@ fun MyProjectButton(
     ) {
         Text(
             text = myProjectLabel,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 14.sp,
             color = AppColors.White
         )

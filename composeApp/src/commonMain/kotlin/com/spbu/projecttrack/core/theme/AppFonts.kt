@@ -13,31 +13,6 @@ import projecttrack.composeapp.generated.resources.opensans_semibold
 import projecttrack.composeapp.generated.resources.philosopher_bold
 
 object AppFonts {
-    val OpenSansLight: FontFamily
-        @Composable get() = FontFamily(
-            Font(Res.font.opensans_light)
-        )
-
-    val OpenSansRegular: FontFamily
-        @Composable get() = FontFamily(
-            Font(Res.font.opensans_regular)
-        )
-
-    val OpenSansMedium: FontFamily
-        @Composable get() = FontFamily(
-            Font(Res.font.opensans_medium)
-        )
-
-    val OpenSansSemiBold: FontFamily
-        @Composable get() = FontFamily(
-            Font(Res.font.opensans_semibold)
-        )
-
-    val OpenSansBold: FontFamily
-        @Composable get() = FontFamily(
-            Font(Res.font.opensans_bold)
-        )
-
     val OpenSans: FontFamily
         @Composable get() = FontFamily(
             Font(Res.font.opensans_light, weight = FontWeight.Light),

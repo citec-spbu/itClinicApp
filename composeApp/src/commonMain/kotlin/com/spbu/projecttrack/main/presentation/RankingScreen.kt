@@ -75,7 +75,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -119,6 +118,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.di.DependencyContainer
+import com.spbu.projecttrack.core.search.searchScore
 import com.spbu.projecttrack.core.settings.LocalAppUiSettingsController
 import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.settings.localizeRuntime
@@ -183,19 +183,16 @@ private const val RankingPageSize = 10
 
 private fun rankingAccentGradientBottom(accent: Color): Color = lerp(accent, Color.Black, 0.25f)
 
-/** Max vertical scale at full pull / refresh (stretch from top, same on all platforms). */
 private const val RankingPullContentStretchMax = 0.022f
 
 private val RankingPullIndicatorRestOffset = (-20).dp
 
 private val RankingPullIndicatorTravel = 42.dp
 
-/** Align filter/sort glyphs and chip LazyRow vertically (tap size matches icon raster). */
 private val RankingFiltersToolbarHeight = 36.dp
 
 private val RankingFilterLaneIconTap = 32.dp
 
-/** Horizontal fade strip — same dp as LazyColumn top edge on project rows. */
 private val RankingFiltersScrollFadeWidth = 32.dp
 
 private fun rankingTabForPage(page: Int): RankingTab {
@@ -219,8 +216,7 @@ fun RankingScreen(
         pageCount = { RankingTab.entries.size },
     )
 
-    // Список проектов и список студентов — создаём здесь, чтобы контролировать
-    // начальную позицию скролла и сохранять её при уходе со вкладки.
+    // Build the list states here so tab switches can restore the last scroll position.
     val projectsListState = rememberLazyListState(
         initialFirstVisibleItemIndex = viewModel.savedProjectsScrollIndex,
         initialFirstVisibleItemScrollOffset = viewModel.savedProjectsScrollOffset,
@@ -230,14 +226,25 @@ fun RankingScreen(
         initialFirstVisibleItemScrollOffset = viewModel.savedStudentsScrollOffset,
     )
 
-    // Сохраняем позицию при уходе с экрана рейтинга
-    DisposableEffect(Unit) {
-        onDispose {
-            viewModel.savedPage = pagerState.currentPage
-            viewModel.savedProjectsScrollIndex = projectsListState.firstVisibleItemIndex
-            viewModel.savedProjectsScrollOffset = projectsListState.firstVisibleItemScrollOffset
-            viewModel.savedStudentsScrollIndex = studentsListState.firstVisibleItemIndex
-            viewModel.savedStudentsScrollOffset = studentsListState.firstVisibleItemScrollOffset
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            viewModel.savedPage = page
+        }
+    }
+    LaunchedEffect(projectsListState) {
+        snapshotFlow {
+            projectsListState.firstVisibleItemIndex to projectsListState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            viewModel.savedProjectsScrollIndex = index
+            viewModel.savedProjectsScrollOffset = offset
+        }
+    }
+    LaunchedEffect(studentsListState) {
+        snapshotFlow {
+            studentsListState.firstVisibleItemIndex to studentsListState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            viewModel.savedStudentsScrollIndex = index
+            viewModel.savedStudentsScrollOffset = offset
         }
     }
     val coroutineScope = rememberCoroutineScope()
@@ -267,7 +274,6 @@ fun RankingScreen(
     val templates = remember(customTemplates) { listOf(noneTemplate) + customTemplates }
     val selectedTab = rankingTabForPage(pagerState.currentPage)
 
-    // Hide/show tab bar in sync with the filter overlay.
     LaunchedEffect(showFiltersScreen) {
         onRootDestinationChange(!showFiltersScreen)
     }
@@ -330,8 +336,6 @@ fun RankingScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Logo — first child, z=0, behind everything.
-        // Same pattern as OnboardingScreen: Image as first child of the same Box as all content.
         RankingBackgroundLogo()
 
         Box(
@@ -377,8 +381,7 @@ fun RankingScreen(
                             focusManager.clearFocus()
                             isSearchFocused = false
                             draftFilters = appliedFilters
-                            // Always start fresh – a template selected in the previous
-                            // session but not applied should not appear highlighted.
+                            // Reopening filters should not keep a previously selected but unapplied template highlighted.
                             selectedTemplateId = "none"
                             showFiltersScreen = true
                         },
@@ -451,6 +454,18 @@ fun RankingScreen(
                                             pinnedRank = pinnedRank,
                                             resetKey = "${tab.name}|${searchText.trim()}|${sortOrder.name}|${appliedFilters.hashCode()}",
                                             listState = if (tab == RankingTab.Projects) projectsListState else studentsListState,
+                                            initialStickyHeightPx = if (tab == RankingTab.Projects) {
+                                                viewModel.savedProjectsStickyHeightPx
+                                            } else {
+                                                viewModel.savedStudentsStickyHeightPx
+                                            },
+                                            onStickyHeightChanged = { height ->
+                                                if (tab == RankingTab.Projects) {
+                                                    viewModel.savedProjectsStickyHeightPx = height
+                                                } else {
+                                                    viewModel.savedStudentsStickyHeightPx = height
+                                                }
+                                            },
                                             emptyText = if (tab == RankingTab.Projects) {
                                                 localizedString("Нет данных по проектам", "No project data")
                                             } else {
@@ -614,7 +629,8 @@ private fun RankingTitle() {
     ) {
         Text(
             text = localizedString("Рейтинг", "Rating"),
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 40.sp,
             color = appPalette().title,
             letterSpacing = 0.4.sp,
@@ -686,7 +702,7 @@ private fun RankingTabText(
 
     Text(
         text = text,
-        fontFamily = AppFonts.OpenSansRegular,
+        fontFamily = AppFonts.OpenSans,
         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
         fontSize = 20.sp,
         color = if (selected) palette.primaryText else palette.secondaryText,
@@ -742,7 +758,8 @@ private fun RankingSearchField(
                 },
             singleLine = true,
             textStyle = TextStyle(
-                fontFamily = AppFonts.OpenSansSemiBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 color = palette.primaryText,
                 letterSpacing = 0.16.sp,
@@ -761,7 +778,8 @@ private fun RankingSearchField(
                 if (searchText.isBlank()) {
                     Text(
                         text = localizedString("Поиск", "Search"),
-                        fontFamily = AppFonts.OpenSansSemiBold,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp,
                         color = palette.dimText,
                         letterSpacing = 0.16.sp,
@@ -964,7 +982,8 @@ private fun RankingAppliedFilterChip(
     ) {
         Text(
             text = label,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 15.sp,
             color = palette.buttonText,
             lineHeight = 10.sp,
@@ -987,7 +1006,8 @@ private fun RankingUnauthorizedState() {
     ) {
         Text(
             text = localizedString("Рейтинг недоступен", "Rating unavailable"),
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 22.sp,
             color = palette.title,
             modifier = Modifier.fillMaxWidth(),
@@ -996,7 +1016,8 @@ private fun RankingUnauthorizedState() {
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = localizedString("Авторизуйтесь, чтобы увидеть рейтинг проектов и студентов.", "Sign in to view project and student rankings."),
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 16.sp,
             color = palette.secondaryText,
             modifier = Modifier.fillMaxWidth(),
@@ -1059,7 +1080,8 @@ private fun LoadingContent(
             CircularProgressIndicator(color = palette.accent)
             Text(
                 text = localizedString("Загрузка рейтинга...", "Loading..."),
-                fontFamily = AppFonts.OpenSansMedium,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Medium,
                 fontSize = 14.sp,
                 color = palette.secondaryText,
             )
@@ -1085,13 +1107,15 @@ private fun ErrorContent(
         ) {
             Text(
                 text = localizedString("Ошибка загрузки", "Load error"),
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
                 color = palette.accent,
             )
             Text(
                 text = message,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 14.sp,
                 color = palette.secondaryText,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1099,7 +1123,8 @@ private fun ErrorContent(
             Button(onClick = onRetry) {
                 Text(
                     text = localizedString("Повторить", "Retry"),
-                    fontFamily = AppFonts.OpenSansMedium,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Medium,
                 )
             }
         }
@@ -1112,6 +1137,8 @@ private fun RankingList(
     tab: RankingTab,
     resetKey: String,
     listState: LazyListState,
+    initialStickyHeightPx: Int,
+    onStickyHeightChanged: (Int) -> Unit,
     emptyText: String,
     pinnedItem: RankingItem? = null,
     pinnedRank: Int = -1,
@@ -1126,7 +1153,8 @@ private fun RankingList(
         ) {
             Text(
                 text = emptyText,
-                fontFamily = AppFonts.OpenSansMedium,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Medium,
                 fontSize = 14.sp,
                 color = appPalette().secondaryText,
             )
@@ -1138,8 +1166,7 @@ private fun RankingList(
         mutableStateOf(minOf(RankingPageSize, items.size))
     }
 
-    // Флаг: пропускаем скролл при первой композиции (восстановление позиции),
-    // но скроллим в начало когда resetKey реально меняется (поиск/фильтр/сортировка).
+    // Skip the first auto-scroll so restored tab state survives recomposition, but reset on real query/filter/sort changes.
     var isFirstComposition by remember { mutableStateOf(true) }
 
     LaunchedEffect(resetKey) {
@@ -1166,52 +1193,37 @@ private fun RankingList(
         }
     }
 
-    // Position of the pinned item within the displayed (possibly search-filtered) list.
-    // -1 means the item is not in the current filtered results.
     val pinnedItemIndexInList = remember(items, pinnedItem) {
         if (pinnedItem == null) -1
         else items.indexOfFirst { it.key == pinnedItem.key }
     }
 
-    // Measured height of the sticky header (px). Updated once on first layout via onSizeChanged.
-    var stickyHeightPx by remember { mutableStateOf(0) }
+    var stickyHeightPx by remember(pinnedItem?.key, initialStickyHeightPx) {
+        mutableStateOf(initialStickyHeightPx.coerceAtLeast(0))
+    }
     val density = LocalDensity.current
 
-    // stickyFraction: 0..1, driven by the scroll progress of the item that precedes the pinned one.
-    //
-    // WHY NOT pinnedItem.offset:
-    //   contentPadding.top affects item offsets → reading offset → setting padding → circular shaking.
-    //
-    // CORRECT APPROACH:
-    //   - The LazyColumn is shifted+clipped via Modifier.padding(top = stickyHeight) — FIXED, never
-    //     changes during scroll, so no feedback loop.
-    //   - stickyFraction is derived only from FVI / FVO (logical scroll state), which is completely
-    //     independent of layout padding.
-    //   - Transition fires as the item just before the pinned one scrolls off the top of the list:
-    //       FVO = 0            → item before pinned at top  → fraction = 1 (sticky fully visible)
-    //       FVO = itemHeight   → item before pinned gone    → fraction = 0 (sticky gone)
-    //   - Special case: pinned item IS item[0] → fade as the pinned item itself scrolls off.
+    // Drive sticky visibility from logical scroll state rather than measured item offsets.
+    // Using offsets here would couple the animation to content padding and create a feedback loop.
     val stickyFraction by remember {
         derivedStateOf {
             if (pinnedItem == null) return@derivedStateOf 0f
-            if (pinnedItemIndexInList < 0) return@derivedStateOf 1f // filtered out — always show
+            if (pinnedItemIndexInList < 0) return@derivedStateOf 1f
             val sh = stickyHeightPx
-            if (sh <= 0) return@derivedStateOf 1f // not yet measured
+            if (sh <= 0) return@derivedStateOf 1f
 
             val fvi = listState.firstVisibleItemIndex
             val fvo = listState.firstVisibleItemScrollOffset.toFloat()
 
             when {
-                // Special case: pinned item is item[0] — fade as it scrolls off the top.
+                // When the pinned item is first, fade it using its own scroll-out progress.
                 pinnedItemIndexInList == 0 -> {
                     if (fvi == 0) (1f - fvo / sh.toFloat()).coerceIn(0f, 1f) else 0f
                 }
 
-                // Pinned item is at the top of the viewport (or scrolled above) — sticky gone.
-                // NOTE: >= (not >) to prevent a jump-to-1 when FVI transitions from N-1 to N.
+                // `>=` avoids a jump back to 1 when the leading item index advances.
                 fvi >= pinnedItemIndexInList -> 0f
 
-                // The item just before pinned is at the top and scrolling off — fade proportionally.
                 fvi == pinnedItemIndexInList - 1 -> {
                     val itemInfo = listState.layoutInfo.visibleItemsInfo
                         .firstOrNull { it.index == fvi }
@@ -1220,15 +1232,11 @@ private fun RankingList(
                     if (itemHeight <= 0f) 1f else (1f - fvo / itemHeight).coerceIn(0f, 1f)
                 }
 
-                // Pinned item is still well below the viewport — always show sticky.
                 else -> 1f
             }
         }
     }
 
-    // Padding is driven by stickyFraction (which is driven by user scroll), so the top boundary
-    // and the scroll position always move at the same rate — no independent post-fade animation
-    // that would cause items to drift upward on their own.
     val stickyTopPaddingDp = with(density) { (stickyHeightPx * stickyFraction).toDp() }
 
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
@@ -1250,15 +1258,10 @@ private fun RankingList(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = stickyTopPaddingDp)
-                // Offscreen layer so DstIn works against a transparent canvas —
-                // the mask only touches drawn pixels, transparent areas stay transparent.
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
 
-                    // Top edge: gradient alpha mask — items fade out pixel-by-pixel
-                    // over 32dp so there's no hard clip. The gradient top color animates
-                    // 0→1 opacity via topFadeAlpha so the fade only appears while scrolling.
                     drawRect(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -1271,7 +1274,6 @@ private fun RankingList(
                         blendMode = BlendMode.DstIn,
                     )
 
-                    // Bottom edge: same idea, opposite direction.
                     drawRect(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -1290,8 +1292,6 @@ private fun RankingList(
                 bottom = 188.dp,
             ),
         ) {
-            // The pinned item appears only at its natural rank position — no duplicate at the top.
-            // Display its real rank (pinnedRank from the full sorted list) when shown in the list.
             itemsIndexed(
                 items = items.take(visibleCount),
                 key = { _, item -> item.key },
@@ -1306,21 +1306,24 @@ private fun RankingList(
             }
         }
 
-        // Sticky pinned header overlay — sits above the LazyColumn.
-        // The DstIn fade on the LazyColumn does not affect this overlay because
-        // it is a sibling composable drawn after the LazyColumn, not a child of it.
         if (pinnedItem != null) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopStart)
-                    .onSizeChanged { size -> if (size.height > 0) stickyHeightPx = size.height }
+                    .onSizeChanged { size ->
+                        if (size.height > 0 && size.height != stickyHeightPx) {
+                            stickyHeightPx = size.height
+                            onStickyHeightChanged(size.height)
+                        }
+                    }
                     .alpha(stickyFraction)
                     .padding(start = 17.dp, end = 20.dp),
             ) {
                 Text(
                     text = if (tab == RankingTab.Projects) localizedString("Ваш проект", "Your project") else localizedString("Ваша позиция", "Your position"),
-                    fontFamily = AppFonts.OpenSansSemiBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 11.sp,
                     color = appPalette().accent,
                     letterSpacing = 0.4.sp,
@@ -1407,7 +1410,8 @@ private fun RankingRow(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = item.scoreText,
-                        fontFamily = AppFonts.OpenSansBold,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 20.sp,
                         color = scoreGradientColor(
                             item.score,
@@ -1450,7 +1454,8 @@ private fun RankingPositionIndicator(
     ) {
         Text(
             text = position.toString(),
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 24.sp,
             color = palette.secondaryText,
             lineHeight = 20.sp,
@@ -1495,7 +1500,8 @@ private fun RankingTitleText(
 
     Text(
         text = titleText,
-        fontFamily = AppFonts.OpenSansBold,
+        fontFamily = AppFonts.OpenSans,
+        fontWeight = FontWeight.Bold,
         fontSize = 16.sp,
         color = appPalette().primaryText,
         lineHeight = 20.sp,
@@ -1515,7 +1521,8 @@ private fun ProjectRankingBody(
     Column {
         Text(
             text = item.description?.takeIf { it.isNotBlank() } ?: localizedString("Описание проекта пока недоступно", "Project description not yet available"),
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 10.sp,
             color = palette.secondaryText,
             lineHeight = 10.sp,
@@ -1545,7 +1552,8 @@ private fun StudentRankingBody(
     val projectText = buildAnnotatedString {
         withStyle(
             SpanStyle(
-                fontFamily = AppFonts.OpenSansBold,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Bold,
                 color = palette.primaryText,
             ),
         ) {
@@ -1557,7 +1565,8 @@ private fun StudentRankingBody(
 
     Text(
         text = projectText,
-        fontFamily = AppFonts.OpenSansRegular,
+        fontFamily = AppFonts.OpenSans,
+        fontWeight = FontWeight.Normal,
         fontSize = 10.sp,
         color = palette.secondaryText,
         lineHeight = 10.sp,
@@ -1576,7 +1585,8 @@ private fun RankingTagChip(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 10.sp,
             color = palette.secondaryText,
             lineHeight = 10.sp,
@@ -1627,7 +1637,8 @@ private fun RankingActionButton(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
             color = appPalette().buttonText,
             letterSpacing = 0.16.sp,
@@ -1635,7 +1646,6 @@ private fun RankingActionButton(
     }
 }
 
-// Save button used exclusively in SaveTemplateDialog — matches Figma node 632:1827.
 @Composable
 private fun SaveDialogButton(
     text: String,
@@ -1682,7 +1692,8 @@ private fun SaveDialogButton(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 15.sp,
             color = palette.buttonText,
             letterSpacing = 0.15.sp,
@@ -1714,7 +1725,6 @@ private fun RankingFiltersScreen(
     val onBg = MaterialTheme.colorScheme.onBackground
     val palette = appPalette()
 
-    // Scroll fade helpers
     val canScrollUp by remember { derivedStateOf { scrollState.value > 0 } }
     val canScrollDown by remember { derivedStateOf { scrollState.value < scrollState.maxValue } }
     val topFadeAlpha by animateFloatAsState(
@@ -1728,7 +1738,6 @@ private fun RankingFiltersScreen(
         label = "filtersScrollBottomFade",
     )
 
-    // Back button animation
     val backInteraction = remember { MutableInteractionSource() }
     val isBackPressed by backInteraction.collectIsPressedAsState()
     val backScale by animateFloatAsState(
@@ -1742,7 +1751,7 @@ private fun RankingFiltersScreen(
             .fillMaxSize()
             .background(screenBg)
             .imePadding()
-            // Consume all taps so they don't fall through to the screen behind.
+            // Consume background taps so the overlay blocks interaction with the screen underneath.
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -1779,7 +1788,8 @@ private fun RankingFiltersScreen(
                 )
                 Text(
                     text = localizedString("Фильтры", "Filters"),
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 40.sp,
                     color = palette.title,
                     letterSpacing = 0.4.sp,
@@ -1795,7 +1805,6 @@ private fun RankingFiltersScreen(
                     .drawWithContent {
                         drawContent()
                         val fadeH = RankingFiltersScrollFadeWidth.toPx()
-                        // top fade
                         drawRect(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
@@ -1807,7 +1816,6 @@ private fun RankingFiltersScreen(
                             ),
                             blendMode = BlendMode.DstIn,
                         )
-                        // bottom fade
                         drawRect(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
@@ -1829,11 +1837,11 @@ private fun RankingFiltersScreen(
                 ) {
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Templates section – only shown when user has saved templates
                     if (templates.isNotEmpty()) {
                         Text(
                             text = localizedString("Шаблоны", "Templates"),
-                            fontFamily = AppFonts.OpenSansSemiBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
                             color = onBg,
                         )
@@ -1851,15 +1859,11 @@ private fun RankingFiltersScreen(
                             animationSpec = tween(200),
                             label = "tmplRightFade",
                         )
-                        // No Offscreen compositing so the dropShadow on each chip can
-                        // draw outside its own bounds without being clipped by the bitmap.
-                        // Scroll fades are white-gradient overlays instead of DstIn.
+                        // Avoid offscreen compositing here so chip shadows can render outside their bounds.
                         Box(modifier = Modifier.fillMaxWidth()) {
                             LazyRow(
                                 state = templateListState,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                // 8 dp start/end so the first/last chip's shadow is never
-                                // clipped by the LazyRow's left/right edge.
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
@@ -1871,7 +1875,6 @@ private fun RankingFiltersScreen(
                                     )
                                 }
                             }
-                            // Left fade overlay – matches filter-screen background
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
@@ -1884,7 +1887,6 @@ private fun RankingFiltersScreen(
                                         )
                                     ),
                             )
-                            // Right fade overlay
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.CenterEnd)
@@ -1907,7 +1909,8 @@ private fun RankingFiltersScreen(
                     ) {
                         Text(
                             text = localizedString("Метрики", "Metrics"),
-                            fontFamily = AppFonts.OpenSansSemiBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
                             color = onBg,
                         )
@@ -1919,7 +1922,8 @@ private fun RankingFiltersScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = localizedString("Выберите метрики, по которым будет составляться общая оценка:", "Select the metrics to use for the overall score:"),
-                        fontFamily = AppFonts.OpenSansMedium,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
                         color = palette.secondaryText,
                         lineHeight = 16.sp,
@@ -1948,7 +1952,8 @@ private fun RankingFiltersScreen(
                     ) {
                         Text(
                             text = localizedString("Диапазон дат", "Date range"),
-                            fontFamily = AppFonts.OpenSansSemiBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
                             color = onBg,
                         )
@@ -2047,7 +2052,8 @@ private fun RankingTemplateChip(
     ) {
         Text(
             text = title,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 13.sp,
             color = palette.buttonText,
             letterSpacing = 0.15.sp,
@@ -2070,7 +2076,6 @@ private fun RankingMetricRow(
     var showThresholdPicker by remember { mutableStateOf(false) }
     var showWeekDayMenu by remember { mutableStateOf(false) }
 
-    // Checkbox (24dp) + Spacer (2dp) = 26dp → sub-chip start offset
     val subFieldStartPadding = 26.dp
     val palette = appPalette()
 
@@ -2086,7 +2091,8 @@ private fun RankingMetricRow(
             Spacer(modifier = Modifier.width(2.dp))
             Text(
                 text = metricKey.title,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 15.sp,
                 color = palette.primaryText,
                 lineHeight = 10.sp,
@@ -2095,7 +2101,6 @@ private fun RankingMetricRow(
             RankingInfoBadge(onClick = onInfoClick)
         }
 
-        // Period picker chip (Commits, Issues, Pull Requests, PerformanceGrade)
         AnimatedVisibility(
             visible = metricKey.supportsPeriod && metricFilter.enabled,
             enter = expandVertically(animationSpec = spring(stiffness = 600f)) + fadeIn(tween(180)),
@@ -2112,7 +2117,6 @@ private fun RankingMetricRow(
             }
         }
 
-        // Threshold picker chip (RapidPullRequests)
         AnimatedVisibility(
             visible = metricKey.supportsThreshold && metricFilter.enabled,
             enter = expandVertically(animationSpec = spring(stiffness = 600f)) + fadeIn(tween(180)),
@@ -2129,7 +2133,6 @@ private fun RankingMetricRow(
             }
         }
 
-        // Week day dropdown chip (DominantWeekDay)
         AnimatedVisibility(
             visible = metricKey.supportsWeekDay && metricFilter.enabled,
             enter = expandVertically(animationSpec = spring(stiffness = 600f)) + fadeIn(tween(180)),
@@ -2186,7 +2189,6 @@ private fun RankingMetricRow(
     }
 }
 
-/** Simple chip button used for sub-fields (period, threshold, weekday). */
 @Composable
 private fun RankingSubFieldChip(
     text: String,
@@ -2216,7 +2218,8 @@ private fun RankingSubFieldChip(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
             color = palette.secondaryText,
             lineHeight = 10.sp,
@@ -2234,16 +2237,14 @@ private fun RankingWheelPickerDialog(
 ) {
     val itemHeightDp = 48.dp
     val visibleCount = 5
-    val paddingCount = visibleCount / 2  // 2 blank rows top + bottom so every option can reach centre
+    val paddingCount = visibleCount / 2
 
     val density = LocalDensity.current
     val itemHeightPx = with(density) { itemHeightDp.toPx() }
 
     val clampedSelected = selectedIndex.coerceIn(0, (options.size - 1).coerceAtLeast(0))
-    // scroll = optionIndex * itemHeightPx keeps the chosen option centred in the viewport
     val scrollState = rememberScrollState(initial = (clampedSelected * itemHeightPx).toInt())
 
-    // Derive selected index from scroll position (nearest item)
     val pickedIndex by remember {
         derivedStateOf {
             ((scrollState.value.toFloat() / itemHeightPx) + 0.5f)
@@ -2256,7 +2257,6 @@ private fun RankingWheelPickerDialog(
     val palette = appPalette()
     val dialogSurface = MaterialTheme.colorScheme.surface
 
-    // After every scroll-stop, animate to the exact snap position
     LaunchedEffect(scrollState) {
         snapshotFlow { scrollState.isScrollInProgress }
             .collect { scrolling ->
@@ -2304,19 +2304,18 @@ private fun RankingWheelPickerDialog(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = title,
-                        fontFamily = AppFonts.OpenSansBold,
+                        fontFamily = AppFonts.OpenSans,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                         color = palette.primaryText,
                     )
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Wheel viewport
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(itemHeightDp * visibleCount),
                     ) {
-                        // Scrollable column: paddingCount blank rows + real options + paddingCount blank rows
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -2335,7 +2334,8 @@ private fun RankingWheelPickerDialog(
                                     val isCenter = index == pickedIndex
                                     Text(
                                         text = option,
-                                        fontFamily = if (isCenter) AppFonts.OpenSansBold else AppFonts.OpenSansRegular,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
                                         fontSize = if (isCenter) 17.sp else 14.sp,
                                         color = if (isCenter) palette.accent else palette.secondaryText,
                                         maxLines = 1,
@@ -2346,7 +2346,6 @@ private fun RankingWheelPickerDialog(
                                 Spacer(modifier = Modifier.height(itemHeightDp))
                             }
                         }
-                        // Top fade (surface gradient masks items scrolling away at the top)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2358,7 +2357,6 @@ private fun RankingWheelPickerDialog(
                                     )
                                 ),
                         )
-                        // Bottom fade
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2370,7 +2368,6 @@ private fun RankingWheelPickerDialog(
                                     )
                                 ),
                         )
-                        // Selection indicator frame at the vertical centre
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2451,7 +2448,8 @@ private fun RankingCheckbox(
             if (checked) {
                 Text(
                     text = "✓",
-                    fontFamily = AppFonts.OpenSansBold,
+                    fontFamily = AppFonts.OpenSans,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     color = palette.buttonText,
                     lineHeight = 13.sp,
@@ -2487,7 +2485,8 @@ private fun RankingInfoBadge(
     ) {
         Text(
             text = "i",
-            fontFamily = AppFonts.OpenSansRegular,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Normal,
             fontSize = 12.sp,
             color = palette.secondaryText,
             lineHeight = 10.sp,
@@ -2524,7 +2523,8 @@ private fun RankingDateRangeField(
     ) {
         Text(
             text = formatDateRangeField(dateRange),
-            fontFamily = AppFonts.OpenSansMedium,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.Medium,
             fontSize = 12.sp,
             color = palette.secondaryText,
             modifier = Modifier.weight(1f),
@@ -2570,7 +2570,8 @@ private fun SmallPillButton(
     ) {
         Text(
             text = text,
-            fontFamily = AppFonts.OpenSansSemiBold,
+            fontFamily = AppFonts.OpenSans,
+            fontWeight = FontWeight.SemiBold,
             fontSize = 10.sp,
             color = palette.buttonText,
             lineHeight = 10.sp,
@@ -2592,7 +2593,6 @@ private fun SaveTemplateDialog(
     val dialogSurface = MaterialTheme.colorScheme.surface
     LaunchedEffect(Unit) { visible = true }
 
-    // Close-button press animation
     val closeInteraction = remember { MutableInteractionSource() }
     val closePressed by closeInteraction.collectIsPressedAsState()
     val closeScale by animateFloatAsState(
@@ -2624,10 +2624,8 @@ private fun SaveTemplateDialog(
                     .widthIn(max = 350.dp)
                     .background(dialogSurface, RoundedCornerShape(20.dp))
                     .border(1.dp, palette.subtleBorder, RoundedCornerShape(20.dp))
-                    // No padding here — logo fills the full Box, clipped by rounded corners
                     .clip(RoundedCornerShape(20.dp)),
             ) {
-                // Logo fills the entire dialog background independently of content padding
                 Image(
                     painter = painterResource(Res.drawable.spbu_logo),
                     contentDescription = null,
@@ -2640,11 +2638,11 @@ private fun SaveTemplateDialog(
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // Title row with animated close button
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text = localizedString("Сохранить шаблон", "Save template"),
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 24.sp,
                             color = palette.primaryText,
                             modifier = Modifier.align(Alignment.Center),
@@ -2664,7 +2662,6 @@ private fun SaveTemplateDialog(
                         )
                     }
                     Spacer(modifier = Modifier.height(18.dp))
-                    // Text field with 50-char limit, text centered
                     BasicTextField(
                         value = templateName,
                         onValueChange = { if (it.length <= maxNameLength) templateName = it },
@@ -2673,7 +2670,8 @@ private fun SaveTemplateDialog(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }),
                         textStyle = TextStyle(
-                            fontFamily = AppFonts.OpenSansRegular,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Normal,
                             fontSize = 12.sp,
                             color = palette.primaryText,
                             textAlign = TextAlign.Center,
@@ -2688,7 +2686,8 @@ private fun SaveTemplateDialog(
                                 if (templateName.isBlank()) {
                                     Text(
                                         text = localizedString("Введите название шаблона", "Enter template name"),
-                                        fontFamily = AppFonts.OpenSansRegular,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Normal,
                                         fontSize = 12.sp,
                                         color = palette.dimText,
                                         textAlign = TextAlign.Center,
@@ -2706,11 +2705,11 @@ private fun SaveTemplateDialog(
                                 .height(1.dp)
                                 .background(palette.subtleBorder),
                         )
-                        // Character counter — appears when user starts typing
                         if (templateName.isNotEmpty()) {
                             Text(
                                 text = "${templateName.length}/$maxNameLength",
-                                fontFamily = AppFonts.OpenSansRegular,
+                                fontFamily = AppFonts.OpenSans,
+                                fontWeight = FontWeight.Normal,
                                 fontSize = 10.sp,
                                 color = if (templateName.length >= maxNameLength) palette.accent else palette.dimText,
                                 modifier = Modifier
@@ -2782,7 +2781,8 @@ private fun MetricInfoDialog(
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text = info.title,
-                            fontFamily = AppFonts.OpenSansBold,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
                             color = onBg,
                             modifier = Modifier.align(Alignment.CenterStart),
@@ -2818,7 +2818,8 @@ private fun MetricInfoDialog(
                             text = buildAnnotatedString {
                                 withStyle(
                                     SpanStyle(
-                                        fontFamily = AppFonts.OpenSansBold,
+                                        fontFamily = AppFonts.OpenSans,
+                                        fontWeight = FontWeight.Bold,
                                         color = palette.secondaryText,
                                     )
                                 ) {
@@ -2827,7 +2828,8 @@ private fun MetricInfoDialog(
                                 append(" ")
                                 append(note)
                             },
-                            fontFamily = AppFonts.OpenSansRegular,
+                            fontFamily = AppFonts.OpenSans,
+                            fontWeight = FontWeight.Normal,
                             fontSize = 12.sp,
                             color = palette.secondaryText,
                             lineHeight = 12.sp,
@@ -2847,7 +2849,8 @@ private fun MetricInfoSection(
     val palette = appPalette()
     Text(
         text = title,
-        fontFamily = AppFonts.OpenSansBold,
+        fontFamily = AppFonts.OpenSans,
+        fontWeight = FontWeight.Bold,
         fontSize = 12.sp,
         color = palette.secondaryText,
         lineHeight = 12.sp,
@@ -2857,7 +2860,8 @@ private fun MetricInfoSection(
         lines.forEach { line ->
             Text(
                 text = line,
-                fontFamily = AppFonts.OpenSansRegular,
+                fontFamily = AppFonts.OpenSans,
+                fontWeight = FontWeight.Normal,
                 fontSize = 12.sp,
                 color = palette.secondaryText,
                 lineHeight = 12.sp,
@@ -3142,7 +3146,6 @@ private fun rankingIsoDateToMillis(iso: String): Long? {
     val month = parts[1].toIntOrNull() ?: return null
     val day = parts[2].toIntOrNull() ?: return null
     if (month < 1 || month > 12 || day < 1 || day > 31) return null
-    // Julian Day Number
     val a = (14 - month) / 12
     val y = year + 4800 - a
     val m2 = month + 12 * a - 3
@@ -3158,61 +3161,27 @@ private fun formatDate(epochMillis: Long): String {
     return "$day.$month.${date.year}"
 }
 
-private fun fuzzyMatchScore(text: String, query: String): Double {
-    if (query.isBlank()) return 1.0
-    if (text.isBlank()) return 0.0
-
-    val normalizedText = text.lowercase()
-    val normalizedQuery = query.lowercase()
-    if (normalizedText.contains(normalizedQuery)) return 1.0
-
-    val queryBigrams = mutableSetOf<String>()
-    for (index in 0 until normalizedQuery.length - 1) {
-        queryBigrams += normalizedQuery.substring(index, index + 2)
-    }
-    if (queryBigrams.isEmpty()) {
-        return if (normalizedText.contains(normalizedQuery.first())) 0.5 else 0.0
-    }
-
-    val textBigrams = mutableSetOf<String>()
-    for (index in 0 until normalizedText.length - 1) {
-        textBigrams += normalizedText.substring(index, index + 2)
-    }
-
-    val matches = queryBigrams.intersect(textBigrams).size
-    return matches.toDouble() / queryBigrams.size.toDouble()
-}
-
 private fun searchRankingItems(
     items: List<RankingItem>,
     query: String,
-    threshold: Double = 0.3,
+    threshold: Double = 0.72,
 ): List<RankingItem> {
     if (query.isBlank()) return items
 
     return items
-        .map { item -> item to fuzzyMatchScore(rankingSearchText(item), query) }
+        .map { item ->
+            item to searchScore(
+                query = query,
+                texts = listOf(
+                    item.title,
+                    item.description.orEmpty(),
+                    item.projectName.orEmpty(),
+                ) + item.tags,
+            )
+        }
         .filter { (_, score) -> score >= threshold }
         .sortedByDescending { (_, score) -> score }
         .map { (item, _) -> item }
-}
-
-private fun rankingSearchText(item: RankingItem): String {
-    return buildString {
-        append(item.title)
-        item.description?.takeIf { it.isNotBlank() }?.let {
-            append(' ')
-            append(it)
-        }
-        item.projectName?.takeIf { it.isNotBlank() }?.let {
-            append(' ')
-            append(it)
-        }
-        if (item.tags.isNotEmpty()) {
-            append(' ')
-            append(item.tags.joinToString(" "))
-        }
-    }
 }
 
 private fun sortRankingItems(

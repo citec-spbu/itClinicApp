@@ -99,11 +99,12 @@ class RankingViewModel(
         _uiState.value = RankingUiState.Idle
     }
 
-    // Сохранение UI-состояния между переключениями вкладок таббара.
-    // Поля намеренно var — пишутся из composable при уходе (DisposableEffect).
+    // These are mutable on purpose: the composable persists tab/page scroll state on dispose.
     var savedPage: Int = 0
     var savedProjectsScrollIndex: Int = 0
     var savedProjectsScrollOffset: Int = 0
     var savedStudentsScrollIndex: Int = 0
     var savedStudentsScrollOffset: Int = 0
+    var savedProjectsStickyHeightPx: Int = 0
+    var savedStudentsStickyHeightPx: Int = 0
 }
