@@ -31,14 +31,14 @@ class RankingRepository(
     private val api: MetricApi,
     private val projectsApi: ProjectsApi,
     private val userProfileApi: UserProfileApi,
-) {
+) : IRankingRepository {
     private var hasSynced = false
     private var cachedProjectCatalog: ProjectCatalog? = null
     private var cachedSource: RankingSource? = null
 
-    suspend fun loadRatings(
+    override suspend fun loadRatings(
         filters: RankingFilters,
-        forceRefresh: Boolean = false,
+        forceRefresh: Boolean,
     ): Result<RankingData> {
         return runCatching {
             val source = getSource(forceRefresh).getOrThrow()

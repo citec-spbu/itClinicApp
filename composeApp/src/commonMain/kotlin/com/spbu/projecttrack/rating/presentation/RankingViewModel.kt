@@ -6,7 +6,7 @@ import com.spbu.projecttrack.core.network.toShortMessage
 import com.spbu.projecttrack.rating.data.model.RankingData
 import com.spbu.projecttrack.rating.data.model.RankingFilters
 import com.spbu.projecttrack.rating.data.model.rankingDefaultFilters
-import com.spbu.projecttrack.rating.data.repository.RankingRepository
+import com.spbu.projecttrack.rating.data.repository.IRankingRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,7 +20,7 @@ sealed class RankingUiState {
 }
 
 class RankingViewModel(
-    private val repository: RankingRepository
+    private val repository: IRankingRepository
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<RankingUiState>(RankingUiState.Idle)
     val uiState: StateFlow<RankingUiState> = _uiState.asStateFlow()
