@@ -4,10 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.spbu.projecttrack.core.network.toShortMessage
 import com.spbu.projecttrack.rating.data.model.ProjectStatsUiModel
-import com.spbu.projecttrack.rating.data.repository.ProjectStatsRepository
+import com.spbu.projecttrack.rating.data.repository.IProjectStatsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -19,8 +20,9 @@ sealed class ProjectStatsUiState {
 }
 
 class ProjectStatsViewModel(
-    private val repository: ProjectStatsRepository,
-    private val projectId: String
+    private val repository: IProjectStatsRepository,
+    private val projectId: String,
+    private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<ProjectStatsUiState>(ProjectStatsUiState.Loading)
     val uiState: StateFlow<ProjectStatsUiState> = _uiState.asStateFlow()
@@ -100,7 +102,7 @@ class ProjectStatsViewModel(
                 _uiState.value = ProjectStatsUiState.Loading
             }
 
-            val result = withContext(Dispatchers.Default) {
+            val result = withContext(computationDispatcher) {
                 repository.loadProjectStats(
                     projectId = projectId,
                     selectedRepositoryId = selectedRepositoryId,

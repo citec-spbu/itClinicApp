@@ -4,9 +4,9 @@ import com.spbu.projecttrack.projects.data.api.ProjectsApi
 import com.spbu.projecttrack.projects.data.model.ProjectsResponse
 import com.spbu.projecttrack.projects.data.model.ProjectDetailResponse
 
-class ProjectsRepository(private val api: ProjectsApi) {
+class ProjectsRepository(private val api: ProjectsApi) : IProjectsRepository {
     
-    suspend fun getProjects(page: Int = 1): Result<ProjectsResponse> {
+    override suspend fun getProjects(page: Int): Result<ProjectsResponse> {
         return api.getProjects(page)
     }
     

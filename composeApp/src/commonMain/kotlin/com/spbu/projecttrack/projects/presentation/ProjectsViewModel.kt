@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.spbu.projecttrack.core.network.toShortMessage
 import com.spbu.projecttrack.projects.data.model.Project
 import com.spbu.projecttrack.projects.data.model.Tag
-import com.spbu.projecttrack.projects.data.repository.ProjectsRepository
+import com.spbu.projecttrack.projects.data.repository.IProjectsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +23,7 @@ sealed class ProjectsUiState {
 }
 
 class ProjectsViewModel(
-    private val repository: ProjectsRepository
+    private val repository: IProjectsRepository
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow<ProjectsUiState>(ProjectsUiState.Loading)

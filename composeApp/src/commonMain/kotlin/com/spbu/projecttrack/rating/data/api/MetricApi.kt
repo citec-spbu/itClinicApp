@@ -17,11 +17,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 
 class MetricApi(
-    private val client: HttpClient
+    private val client: HttpClient,
+    private val baseUrl: String = MetricApiConfig.baseUrl
 ) {
     suspend fun getProjects(): Result<List<MetricProjectInList>> {
         return try {
-            val response = client.get("${MetricApiConfig.baseUrl}/project")
+            val response = client.get("$baseUrl/project")
             if (!response.status.isSuccess()) {
                 return Result.failure(RuntimeException("HTTP ${response.status}"))
             }
@@ -47,7 +48,7 @@ class MetricApi(
 
     suspend fun getStudentRatings(): Result<List<MetricRankingItem>> {
         return try {
-            val response = client.get("${MetricApiConfig.baseUrl}/rating/students")
+            val response = client.get("$baseUrl/rating/students")
             if (!response.status.isSuccess()) {
                 return Result.failure(RuntimeException("HTTP ${response.status}"))
             }
@@ -59,7 +60,7 @@ class MetricApi(
 
     suspend fun getProjectDetail(id: String): Result<MetricProjectDetail> {
         return try {
-            val response = client.get("${MetricApiConfig.baseUrl}/project/$id")
+            val response = client.get("$baseUrl/project/$id")
             if (!response.status.isSuccess()) {
                 return Result.failure(RuntimeException("HTTP ${response.status}"))
             }
@@ -73,7 +74,7 @@ class MetricApi(
         if (projects.isEmpty()) return Result.success(Unit)
 
         return try {
-            val response = client.post("${MetricApiConfig.baseUrl}/rating/sync") {
+            val response = client.post("$baseUrl/rating/sync") {
                 header(HttpHeaders.ContentType, ContentType.Application.Json)
                 setBody(RatingSyncRequest(projects = projects))
             }

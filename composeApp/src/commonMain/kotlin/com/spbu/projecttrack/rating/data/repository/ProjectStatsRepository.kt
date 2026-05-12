@@ -62,7 +62,7 @@ class ProjectStatsRepository(
     private val metricApi: MetricApi,
     private val projectsApi: ProjectsApi,
     private val userProfileApi: UserProfileApi,
-) {
+) : IProjectStatsRepository {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -71,13 +71,13 @@ class ProjectStatsRepository(
     private var cachedKey: String? = null
     private var cachedModel: ProjectStatsUiModel? = null
 
-    suspend fun loadProjectStats(
+    override suspend fun loadProjectStats(
         projectId: String,
-        selectedRepositoryId: String? = null,
-        selectedStartDate: String? = null,
-        selectedEndDate: String? = null,
-        selectedRapidThresholdMinutes: Int? = null,
-        forceRefresh: Boolean = false,
+        selectedRepositoryId: String?,
+        selectedStartDate: String?,
+        selectedEndDate: String?,
+        selectedRapidThresholdMinutes: Int?,
+        forceRefresh: Boolean,
     ): Result<ProjectStatsUiModel> {
         val requestKey = buildRequestKey(
             projectId = projectId,
