@@ -2,7 +2,7 @@ const config = {
   title: "CiteC Docs",
   tagline: "Актуальная документация по мобильному клиенту CiteC",
   url: "https://citec-spbu.github.io",
-  baseUrl: "/itClinicApp/",
+  baseUrl: "/CiteC/",
   onBrokenLinks: "throw",
   onBrokenAnchors: "warn",
   markdown: {
