@@ -1,15 +1,15 @@
 {
   "channel": "beta",
-  "versionCode": 104,
-  "versionName": "main.104-c6f74f1",
+  "versionCode": 105,
+  "versionName": "main.105-348b8fe",
   "minSupportedVersionCode": 0,
   "forceUpdate": false,
-  "releaseTag": "android-main-104",
-  "apkUrl": "https://github.com/citec-spbu/CiteC/releases/download/android-main-104/itclinicapp-release.apk",
-  "sha256": "7c374b264a55c5f33be771096b8978b244962e476312e4697ef623c9c906d536",
-  "sizeBytes": 19411435,
-  "releasePageUrl": "https://github.com/citec-spbu/CiteC/releases/tag/android-main-104",
+  "releaseTag": "android-main-105",
+  "apkUrl": "https://github.com/citec-spbu/CiteC/releases/download/android-main-105/itclinicapp-release.apk",
+  "sha256": "bde8ebac1934767d27724f9eb30755e0b8abb860e28459e40d00c9984c0a6764",
+  "sizeBytes": 19411431,
+  "releasePageUrl": "https://github.com/citec-spbu/CiteC/releases/tag/android-main-105",
   "changelog": [],
-  "commitSha": "c6f74f18a86148e774fdfad0277b43ff85be7805",
-  "generatedAt": "2026-05-14T15:52:44Z"
+  "commitSha": "348b8fe067a57e2240c18acc53ff7250bee6435a",
+  "generatedAt": "2026-05-14T15:56:26Z"
 }
