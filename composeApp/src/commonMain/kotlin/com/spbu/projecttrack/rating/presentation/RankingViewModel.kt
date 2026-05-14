@@ -7,6 +7,8 @@ import com.spbu.projecttrack.rating.data.model.RankingData
 import com.spbu.projecttrack.rating.data.model.RankingFilters
 import com.spbu.projecttrack.rating.data.model.rankingDefaultFilters
 import com.spbu.projecttrack.rating.data.repository.IRankingRepository
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,7 +22,8 @@ sealed class RankingUiState {
 }
 
 class RankingViewModel(
-    private val repository: IRankingRepository
+    private val repository: IRankingRepository,
+    private val uiDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<RankingUiState>(RankingUiState.Idle)
     val uiState: StateFlow<RankingUiState> = _uiState.asStateFlow()
@@ -36,7 +39,7 @@ class RankingViewModel(
     ) {
         if (hasLoaded && !force) return
         currentFilters = filters
-        viewModelScope.launch {
+        viewModelScope.launch(uiDispatcher) {
             _uiState.value = RankingUiState.Loading
             val result = repository.loadRatings(
                 filters = currentFilters,
@@ -59,7 +62,7 @@ class RankingViewModel(
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        viewModelScope.launch(uiDispatcher) {
             _isRefreshing.value = true
             val result = repository.loadRatings(
                 filters = currentFilters,
@@ -79,7 +82,7 @@ class RankingViewModel(
 
     fun applyFilters(filters: RankingFilters) {
         currentFilters = filters
-        viewModelScope.launch {
+        viewModelScope.launch(uiDispatcher) {
             val result = repository.loadRatings(filters = currentFilters)
             if (result.isSuccess) {
                 hasLoaded = true

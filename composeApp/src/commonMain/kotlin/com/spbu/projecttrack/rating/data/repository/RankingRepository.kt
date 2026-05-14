@@ -19,6 +19,7 @@ import com.spbu.projecttrack.rating.data.model.RatingSyncIdentifier
 import com.spbu.projecttrack.rating.data.model.RatingSyncMember
 import com.spbu.projecttrack.rating.data.model.RatingSyncProject
 import com.spbu.projecttrack.user.data.api.UserProfileApi
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -31,6 +32,7 @@ class RankingRepository(
     private val api: MetricApi,
     private val projectsApi: ProjectsApi,
     private val userProfileApi: UserProfileApi,
+    private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : IRankingRepository {
     private var hasSynced = false
     private var cachedProjectCatalog: ProjectCatalog? = null
@@ -44,7 +46,7 @@ class RankingRepository(
             val source = getSource(forceRefresh).getOrThrow()
             // buildRankingData is pure CPU work — run it on Default to avoid blocking
             // the Main thread (which would freeze animations on cached re-entry).
-            withContext(Dispatchers.Default) {
+            withContext(computationDispatcher) {
                 buildRankingData(source, filters)
             }
         }

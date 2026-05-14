@@ -1,1 +1,0 @@
-![Схема экранов](images/scheme.svg)

@@ -1,0 +1,32 @@
+{
+  "homepage.card.overview.description": {
+    "message": "What the app is, what is already implemented, and how the repository is organized."
+  },
+  "homepage.card.userGuide.description": {
+    "message": "Authentication, projects, ranking, statistics, profile, and feedback."
+  },
+  "homepage.card.screens.description": {
+    "message": "Detailed screen descriptions: design, states, data, and requests."
+  },
+  "homepage.card.developerGuide.description": {
+    "message": "Local setup, configuration, Docker stack, Android/iOS, and CI/CD."
+  },
+  "homepage.card.architecture.description": {
+    "message": "Client architecture, auth flow, networking, and statistics."
+  },
+  "homepage.meta.description": {
+    "message": "Up-to-date documentation for the CiteC mobile client"
+  },
+  "homepage.hero.kicker": {
+    "message": "Internal documentation"
+  },
+  "homepage.hero.description": {
+    "message": "Documentation for the CiteC mobile client focused on real user scenarios, screen flows, code, networking, CI/CD, and operations."
+  },
+  "homepage.hero.primaryCta": {
+    "message": "Open documentation"
+  },
+  "homepage.hero.secondaryCta": {
+    "message": "Quick start"
+  }
+}

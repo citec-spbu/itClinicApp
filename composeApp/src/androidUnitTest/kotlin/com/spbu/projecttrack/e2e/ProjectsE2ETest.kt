@@ -13,20 +13,23 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 /**
  * End-to-end tests for the Projects feature.
@@ -39,6 +42,11 @@ import kotlin.test.assertTrue
 class ProjectsE2ETest {
 
     private val testDispatcher = UnconfinedTestDispatcher()
+    private val immediateDispatcher = object : CoroutineDispatcher() {
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            block.run()
+        }
+    }
     private val jsonHeaders = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
 
     // ─────────────────────────────────────────────
@@ -111,7 +119,10 @@ class ProjectsE2ETest {
      * [responses] are JSON response bodies returned in order.
      * The last response is repeated for any subsequent requests.
      */
-    private fun buildVm(vararg responses: String): ProjectsViewModel {
+    private fun buildVm(
+        vararg responses: String,
+        uiDispatcher: CoroutineDispatcher,
+    ): ProjectsViewModel {
         var index = 0
         val engine = MockEngine { _ ->
             val body = responses.getOrElse(index) { responses.last() }
@@ -119,7 +130,8 @@ class ProjectsE2ETest {
             respond(body, HttpStatusCode.OK, jsonHeaders)
         }
         return ProjectsViewModel(
-            repository = ProjectsRepository(ProjectsApi(httpClient(engine)))
+            repository = ProjectsRepository(ProjectsApi(httpClient(engine))),
+            uiDispatcher = uiDispatcher,
         )
     }
 
@@ -131,6 +143,7 @@ class ProjectsE2ETest {
         failCount: Int = 1,
         errorCode: HttpStatusCode = HttpStatusCode.InternalServerError,
         successBody: String = page1SmallJson,
+        uiDispatcher: CoroutineDispatcher,
     ): ProjectsViewModel {
         var callCount = 0
         val engine = MockEngine { _ ->
@@ -142,8 +155,22 @@ class ProjectsE2ETest {
             }
         }
         return ProjectsViewModel(
-            repository = ProjectsRepository(ProjectsApi(httpClient(engine)))
+            repository = ProjectsRepository(ProjectsApi(httpClient(engine))),
+            uiDispatcher = uiDispatcher,
         )
+    }
+
+    private fun ProjectsViewModel.awaitState(
+        timeoutMs: Long = 1_000,
+        predicate: (ProjectsUiState) -> Boolean,
+    ): ProjectsUiState {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val state = uiState.value
+            if (predicate(state)) return state
+            Thread.sleep(10)
+        }
+        fail("Timed out waiting for state. Last state: ${uiState.value}")
     }
 
     // ─────────────────────────────────────────────
@@ -157,10 +184,10 @@ class ProjectsE2ETest {
      * Stack: MockEngine → ProjectsApi.getProjects() → ProjectsRepository → ProjectsViewModel
      */
     @Test
-    fun fullStack_loadProjects_setsSuccessStateWithCorrectProjectCount() = runTest {
-        val vm = buildVm(page1SmallJson)
+    fun fullStack_loadProjects_setsSuccessStateWithCorrectProjectCount() {
+        val vm = buildVm(page1SmallJson, uiDispatcher = immediateDispatcher)
 
-        val state = assertIs<ProjectsUiState.Success>(vm.uiState.value)
+        val state = assertIs<ProjectsUiState.Success>(vm.awaitState { it is ProjectsUiState.Success })
         assertEquals(3, state.projects.size)
         assertEquals("p1", state.projects[0].id)
         assertEquals("Проект 1", state.projects[0].name)
@@ -175,17 +202,18 @@ class ProjectsE2ETest {
      * Stack: MockEngine(500) → ProjectsApi → ProjectsRepository → ProjectsViewModel
      */
     @Test
-    fun fullStack_httpError_setsErrorStateInViewModel() = runTest {
+    fun fullStack_httpError_setsErrorStateInViewModel() {
         var callCount = 0
         val engine = MockEngine { _ ->
             callCount++
             respond("Internal Server Error", HttpStatusCode.InternalServerError, jsonHeaders)
         }
         val vm = ProjectsViewModel(
-            repository = ProjectsRepository(ProjectsApi(httpClient(engine)))
+            repository = ProjectsRepository(ProjectsApi(httpClient(engine))),
+            uiDispatcher = immediateDispatcher,
         )
 
-        assertIs<ProjectsUiState.Error>(vm.uiState.value)
+        assertIs<ProjectsUiState.Error>(vm.awaitState { it is ProjectsUiState.Error })
         assertEquals(1, callCount) // exactly one request was made
     }
 
@@ -196,18 +224,26 @@ class ProjectsE2ETest {
      * Stack: MockEngine(page1 + page2) → ProjectsApi → ProjectsRepository → ProjectsViewModel
      */
     @Test
-    fun fullStack_loadMoreProjects_appendsSecondPageToList() = runTest {
-        val vm = buildVm(page1FullJson, page2Json)
+    fun fullStack_loadMoreProjects_appendsSecondPageToList() {
+        val vm = buildVm(page1FullJson, page2Json, uiDispatcher = immediateDispatcher)
 
         // After init: 5 projects, hasMorePages = true
-        val afterInit = assertIs<ProjectsUiState.Success>(vm.uiState.value)
+        val afterInit = assertIs<ProjectsUiState.Success>(
+            vm.awaitState { state ->
+                state is ProjectsUiState.Success && state.projects.size == 5
+            }
+        )
         assertEquals(5, afterInit.projects.size)
         assertTrue(afterInit.hasMorePages)
 
         vm.loadMoreProjects()
 
         // After load-more: 5 + 2 = 7 projects, tags merged
-        val afterMore = assertIs<ProjectsUiState.Success>(vm.uiState.value)
+        val afterMore = assertIs<ProjectsUiState.Success>(
+            vm.awaitState { state ->
+                state is ProjectsUiState.Success && state.projects.size == 7
+            }
+        )
         assertEquals(7, afterMore.projects.size)
         assertEquals("p6", afterMore.projects[5].id)
         assertFalse(afterMore.hasMorePages)
@@ -222,16 +258,24 @@ class ProjectsE2ETest {
      * Stack: MockEngine(500 → 200) → ProjectsApi → ProjectsRepository → ProjectsViewModel
      */
     @Test
-    fun fullStack_retryAfterNetworkError_recoversToSuccessState() = runTest {
-        val vm = buildVmWithInitialFailure(failCount = 1, successBody = page1SmallJson)
+    fun fullStack_retryAfterNetworkError_recoversToSuccessState() {
+        val vm = buildVmWithInitialFailure(
+            failCount = 1,
+            successBody = page1SmallJson,
+            uiDispatcher = immediateDispatcher,
+        )
 
         // init: first request fails → Error
-        assertIs<ProjectsUiState.Error>(vm.uiState.value)
+        assertIs<ProjectsUiState.Error>(vm.awaitState { it is ProjectsUiState.Error })
 
         vm.retry()
 
         // retry: second request succeeds → Success
-        val state = assertIs<ProjectsUiState.Success>(vm.uiState.value)
+        val state = assertIs<ProjectsUiState.Success>(
+            vm.awaitState { state ->
+                state is ProjectsUiState.Success && state.projects.size == 3
+            }
+        )
         assertEquals(3, state.projects.size)
     }
 }

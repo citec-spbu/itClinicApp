@@ -1,0 +1,110 @@
+:root {
+  --ifm-color-primary: #9f2d20;
+  --ifm-color-primary-dark: #8d281d;
+  --ifm-color-primary-darker: #85261b;
+  --ifm-color-primary-darkest: #6d1f16;
+  --ifm-color-primary-light: #b13223;
+  --ifm-color-primary-lighter: #ba3525;
+  --ifm-color-primary-lightest: #d34733;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-code-font-size: 95%;
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #e36e60;
+  --ifm-background-color: #131314;
+  --ifm-background-surface-color: #1a1b1e;
+}
+
+.heroMain {
+  min-height: calc(100vh - 60px);
+  background:
+    radial-gradient(circle at top left, rgba(159, 45, 32, 0.12), transparent 36%),
+    linear-gradient(180deg, #f7f4f2 0%, #ffffff 42%, #f5f1ee 100%);
+}
+
+[data-theme="dark"] .heroMain {
+  background:
+    radial-gradient(circle at top left, rgba(227, 110, 96, 0.18), transparent 36%),
+    linear-gradient(180deg, #17181b 0%, #131314 42%, #18191d 100%);
+}
+
+.heroBlock {
+  padding: 5rem 0 3rem;
+}
+
+.heroCopy {
+  max-width: 52rem;
+}
+
+.heroKicker {
+  display: inline-block;
+  margin-bottom: 1rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(159, 45, 32, 0.25);
+  border-radius: 999px;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.heroCopy h1 {
+  margin-bottom: 1rem;
+  font-size: clamp(2.8rem, 5vw, 4.6rem);
+  line-height: 0.95;
+}
+
+.heroCopy p {
+  max-width: 42rem;
+  margin-bottom: 1.5rem;
+  font-size: 1.1rem;
+}
+
+.heroActions {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.cardsSection {
+  padding-bottom: 4rem;
+}
+
+.cardsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.docCard {
+  display: block;
+  min-height: 100%;
+  padding: 1.25rem;
+  color: inherit;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  text-decoration: none !important;
+  box-shadow: 0 14px 36px rgba(28, 20, 18, 0.06);
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.docCard:hover {
+  transform: translateY(-3px);
+  border-color: rgba(159, 45, 32, 0.28);
+  box-shadow: 0 18px 40px rgba(28, 20, 18, 0.1);
+}
+
+.docCard h3 {
+  margin-bottom: 0.7rem;
+}
+
+.docCard p {
+  margin-bottom: 0;
+}
+
+[data-theme="dark"] .docCard {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(24, 25, 29, 0.92);
+  box-shadow: none;
+}

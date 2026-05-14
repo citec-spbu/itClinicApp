@@ -6,6 +6,8 @@ import com.spbu.projecttrack.core.network.toShortMessage
 import com.spbu.projecttrack.projects.data.model.Project
 import com.spbu.projecttrack.projects.data.model.Tag
 import com.spbu.projecttrack.projects.data.repository.IProjectsRepository
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +25,8 @@ sealed class ProjectsUiState {
 }
 
 class ProjectsViewModel(
-    private val repository: IProjectsRepository
+    private val repository: IProjectsRepository,
+    private val uiDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow<ProjectsUiState>(ProjectsUiState.Loading)
@@ -37,7 +40,7 @@ class ProjectsViewModel(
     }
     
     fun loadProjects() {
-        viewModelScope.launch {
+        viewModelScope.launch(uiDispatcher) {
             _uiState.value = ProjectsUiState.Loading
             currentPage = 1
             
@@ -69,7 +72,7 @@ class ProjectsViewModel(
         isLoadingMore = true
         _uiState.value = currentState.copy(isLoadingMore = true)
         
-        viewModelScope.launch {
+        viewModelScope.launch(uiDispatcher) {
             currentPage++
             
             repository.getProjects(page = currentPage)
