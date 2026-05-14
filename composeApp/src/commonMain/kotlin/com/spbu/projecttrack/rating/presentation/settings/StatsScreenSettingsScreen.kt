@@ -130,6 +130,7 @@ fun StatsScreenSettingsScreen(
     activeSectionIds: List<String>,
     onActiveSectionIdsChange: (List<String>) -> Unit,
     onBackClick: () -> Unit,
+    analyticsProjectId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val settingsTitle = localizedString("Настройки", "Settings")
@@ -143,6 +144,7 @@ fun StatsScreenSettingsScreen(
     )
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val initialSectionIds = remember { activeSectionIds }
     var localActiveSectionIds by remember { mutableStateOf(activeSectionIds) }
     var draggingSectionId by remember { mutableStateOf<String?>(null) }
     var draggingOffsetPx by remember { mutableStateOf(0f) }
@@ -228,6 +230,13 @@ fun StatsScreenSettingsScreen(
                 onClick = {},
             ),
     ) {
+        TrackStatsScreenSettingsClose(
+            target = target,
+            initialSectionIds = initialSectionIds,
+            currentSectionIds = activeSectionIds,
+            analyticsProjectId = analyticsProjectId,
+        )
+
         Image(
             painter = painterResource(Res.drawable.spbu_logo),
             contentDescription = null,

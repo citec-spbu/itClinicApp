@@ -26,5 +26,15 @@ interface AppPreferences {
 
     fun getUserStatsScreenSettingsJson(): String?
     fun saveUserStatsScreenSettingsJson(json: String)
+
+    // Analytics session storage
+    fun getAnalyticsSessionId(): String?
+    fun saveAnalyticsSessionId(id: String?)
+    fun getAnalyticsSessionTimestamp(): Long?
+    fun saveAnalyticsSessionTimestamp(ts: Long?)
+    fun getAnalyticsUserId(): String?
+    fun saveAnalyticsUserId(userId: String?)
+    fun getAnalyticsAnonymousId(): String?
+    fun saveAnalyticsAnonymousId(id: String?)
 }
 expect fun createAppPreferences(): AppPreferences

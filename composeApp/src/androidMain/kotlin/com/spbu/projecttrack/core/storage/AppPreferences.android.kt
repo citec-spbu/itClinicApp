@@ -112,6 +112,44 @@ class AppPreferencesImpl(context: Context) : AppPreferences {
         private const val KEY_RANKING_FILTER_TEMPLATES = "ranking_filter_templates_json"
         private const val KEY_PROJECT_STATS_SCREEN_SETTINGS = "project_stats_screen_settings_json"
         private const val KEY_USER_STATS_SCREEN_SETTINGS = "user_stats_screen_settings_json"
+        private const val KEY_ANALYTICS_SESSION_ID = "analytics_session_id"
+        private const val KEY_ANALYTICS_SESSION_TS = "analytics_session_ts"
+        private const val KEY_ANALYTICS_USER_ID    = "analytics_user_id"
+        private const val KEY_ANALYTICS_ANON_ID    = "analytics_anonymous_id"
+    }
+
+    override fun getAnalyticsSessionId(): String? =
+        prefs.getString(KEY_ANALYTICS_SESSION_ID, null)
+
+    override fun saveAnalyticsSessionId(id: String?) {
+        if (id == null) prefs.edit().remove(KEY_ANALYTICS_SESSION_ID).apply()
+        else prefs.edit().putString(KEY_ANALYTICS_SESSION_ID, id).apply()
+    }
+
+    override fun getAnalyticsSessionTimestamp(): Long? {
+        val v = prefs.getLong(KEY_ANALYTICS_SESSION_TS, -1L)
+        return if (v == -1L) null else v
+    }
+
+    override fun saveAnalyticsSessionTimestamp(ts: Long?) {
+        if (ts == null) prefs.edit().remove(KEY_ANALYTICS_SESSION_TS).apply()
+        else prefs.edit().putLong(KEY_ANALYTICS_SESSION_TS, ts).apply()
+    }
+
+    override fun getAnalyticsUserId(): String? =
+        prefs.getString(KEY_ANALYTICS_USER_ID, null)
+
+    override fun saveAnalyticsUserId(userId: String?) {
+        if (userId == null) prefs.edit().remove(KEY_ANALYTICS_USER_ID).apply()
+        else prefs.edit().putString(KEY_ANALYTICS_USER_ID, userId).apply()
+    }
+
+    override fun getAnalyticsAnonymousId(): String? =
+        prefs.getString(KEY_ANALYTICS_ANON_ID, null)
+
+    override fun saveAnalyticsAnonymousId(id: String?) {
+        if (id == null) prefs.edit().remove(KEY_ANALYTICS_ANON_ID).apply()
+        else prefs.edit().putString(KEY_ANALYTICS_ANON_ID, id).apply()
     }
 }
 

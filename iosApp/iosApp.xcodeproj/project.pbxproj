@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4F3A0A9C2F614001A1000001 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 4F3A0A9C2F614001A1000004 /* FirebaseAnalytics */; };
+		4F3A0A9C2F614001A1000002 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4F3A0A9C2F614001A1000005 /* FirebaseCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		CCB830B3849FD3D8D3BC4FEF /* ProjectTrack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ProjectTrack.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -41,6 +46,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4F3A0A9C2F614001A1000001 /* FirebaseAnalytics in Frameworks */,
+				4F3A0A9C2F614001A1000002 /* FirebaseCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -85,6 +92,8 @@
 			);
 			name = iosApp;
 			packageProductDependencies = (
+				4F3A0A9C2F614001A1000004 /* FirebaseAnalytics */,
+				4F3A0A9C2F614001A1000005 /* FirebaseCore */,
 			);
 			productName = iosApp;
 			productReference = CCB830B3849FD3D8D3BC4FEF /* ProjectTrack.app */;
@@ -114,6 +123,9 @@
 			);
 			mainGroup = 8B45C808B6175CD14A463745;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4F3A0A9C2F614001A1000003 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 78F3FE5C7943CADA1B79E226 /* Products */;
 			projectDirPath = "";
@@ -165,6 +177,17 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4F3A0A9C2F614001A1000003 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCBuildConfiguration section */
 		60EED84340C3F1E050237F7F /* Release */ = {
@@ -347,6 +370,19 @@
 			name = Debug;
 		};
 /* End XCBuildConfiguration section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4F3A0A9C2F614001A1000004 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4F3A0A9C2F614001A1000003 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		4F3A0A9C2F614001A1000005 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4F3A0A9C2F614001A1000003 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCConfigurationList section */
 		4CB9CF33EC9EA98AEB6C1B4B /* Build configuration list for PBXNativeTarget "iosApp" */ = {
