@@ -16,6 +16,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.runtime.CompositionLocalProvider
+import com.spbu.projecttrack.analytics.compose.BindAnalyticsIdentity
+import com.spbu.projecttrack.analytics.compose.LocalAnalyticsSession
+import com.spbu.projecttrack.analytics.compose.LocalAnalyticsTracker
 import com.spbu.projecttrack.core.auth.AuthDeepLinkBridge
 import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.auth.MobileAuthSession
@@ -68,7 +75,9 @@ actual fun App(onLaunchReady: () -> Unit) {
     val scope = rememberCoroutineScope()
     val customHostIp by NetworkSettings.customHostIP.collectAsState()
     val authToken by AuthManager.authToken.collectAsState()
+    val currentUserId by AuthManager.currentUserId.collectAsState()
     val storedCustomHostIp = remember { preferences.getCustomHostIP() }
+    val lifecycleOwner = LocalLifecycleOwner.current
     var appLanguage by remember {
         mutableStateOf(AppLanguage.fromStorage(preferences.getAppLanguage()))
     }
@@ -191,6 +200,28 @@ actual fun App(onLaunchReady: () -> Unit) {
         preferences.saveAppThemeMode(appThemeMode.storageValue)
     }
 
+    BindAnalyticsIdentity(
+        rawUserId = currentUserId?.toString(),
+        analyticsTracker = DependencyContainer.analyticsTracker,
+        analyticsSession = DependencyContainer.analyticsSession,
+    )
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> DependencyContainer.analyticsSession.refreshSession()
+                Lifecycle.Event.ON_STOP -> scope.launch {
+                    DependencyContainer.analyticsTracker.flush()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     var availableAndroidUpdate by remember { mutableStateOf<AndroidAppUpdate?>(null) }
     var isInstallingAndroidUpdate by remember { mutableStateOf(false) }
     var mainSelectedTab by rememberSaveable { mutableStateOf(0) }
@@ -221,6 +252,10 @@ actual fun App(onLaunchReady: () -> Unit) {
         popScreen()
     }
 
+    CompositionLocalProvider(
+        LocalAnalyticsTracker provides DependencyContainer.analyticsTracker,
+        LocalAnalyticsSession provides DependencyContainer.analyticsSession,
+    ) {
     ITClinicTheme(
         language = appLanguage,
         themeMode = appThemeMode,
@@ -404,4 +439,5 @@ actual fun App(onLaunchReady: () -> Unit) {
             )
         }
     }
+    } // CompositionLocalProvider
 }

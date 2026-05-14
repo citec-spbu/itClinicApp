@@ -5,11 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_DIR="$ROOT_DIR/composeApp/src/commonMain/kotlin/com/spbu/projecttrack"
 BUILD_CONFIG_FILE="$CONFIG_DIR/BuildConfig.kt"
 MAIL_CONFIG_FILE="$CONFIG_DIR/MailConfig.kt"
+ANALYTICS_CONFIG_FILE="$CONFIG_DIR/AnalyticsConfig.kt"
 
 mkdir -p "$CONFIG_DIR"
 
 if [[ "${CI:-}" != "true" && "${FORCE_CI_STUBS:-0}" != "1" ]]; then
-  if [[ -f "$BUILD_CONFIG_FILE" || -f "$MAIL_CONFIG_FILE" ]]; then
+  if [[ -f "$BUILD_CONFIG_FILE" || -f "$MAIL_CONFIG_FILE" || -f "$ANALYTICS_CONFIG_FILE" ]]; then
     echo "Refusing to overwrite local config files outside CI."
     echo "Use FORCE_CI_STUBS=1 only from scripted ephemeral flows."
     exit 1
@@ -75,5 +76,26 @@ object MailConfig {
     const val SMTP_FROM_NAME = "$mail_smtp_from_name"
     const val FEEDBACK_TO_EMAIL = "$mail_feedback_to_email"
     const val FEEDBACK_SUBJECT = "$mail_feedback_subject"
+}
+EOF
+
+# --- AnalyticsConfig ---
+posthog_api_key="$(escape_kotlin_string "${CI_POSTHOG_API_KEY:-}")"
+posthog_host="$(escape_kotlin_string "${CI_POSTHOG_HOST:-https://eu.i.posthog.com}")"
+analytics_enabled="${CI_ANALYTICS_ENABLED:-true}"
+
+cat > "$ANALYTICS_CONFIG_FILE" <<EOF
+package com.spbu.projecttrack
+
+/**
+ * CI-generated PostHog analytics configuration.
+ *
+ * Set CI_POSTHOG_API_KEY secret in GitHub → Settings → Secrets and variables → Actions.
+ * Secret name: CI_POSTHOG_API_KEY
+ */
+object AnalyticsConfig {
+    const val POSTHOG_API_KEY   = "$posthog_api_key"
+    const val POSTHOG_HOST      = "$posthog_host"
+    const val ANALYTICS_ENABLED = $analytics_enabled
 }
 EOF

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1055326206930",
+    "project_id": "projecttrack-d55fe4a4",
+    "storage_bucket": "projecttrack-d55fe4a4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1055326206930:android:59af0a22fa731eb1a8e60b",
+        "android_client_info": {
+          "package_name": "com.spbu.projecttrack"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzOSZnG3crwIJgEK1c9i9y-x1QMEI2m20"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

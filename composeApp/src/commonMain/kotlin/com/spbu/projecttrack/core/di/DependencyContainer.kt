@@ -1,7 +1,15 @@
 package com.spbu.projecttrack.core.di
 
+import com.spbu.projecttrack.AnalyticsConfig
+import com.spbu.projecttrack.analytics.AnalyticsTracker
+import com.spbu.projecttrack.analytics.CompositeAnalyticsTracker
+import com.spbu.projecttrack.analytics.firebase.FirebaseAnalyticsTracker
+import com.spbu.projecttrack.analytics.LoggingAnalyticsTracker
+import com.spbu.projecttrack.analytics.PostHogAnalyticsTracker
+import com.spbu.projecttrack.analytics.session.AnalyticsSession
 import com.spbu.projecttrack.core.network.HttpClientFactory
 import com.spbu.projecttrack.core.auth.MobileAuthApi
+import com.spbu.projecttrack.core.storage.createAppPreferences
 import com.spbu.projecttrack.projects.data.api.ContactRequestApi
 import com.spbu.projecttrack.projects.data.api.MemberApi
 import com.spbu.projecttrack.projects.data.api.ProjectsApi
@@ -19,8 +27,33 @@ import com.spbu.projecttrack.rating.presentation.projectstats.ProjectStatsViewMo
 import com.spbu.projecttrack.rating.presentation.userstats.UserStatsViewModel
 
 object DependencyContainer {
-    
+
     private val httpClient by lazy { HttpClientFactory.create() }
+
+    // --- Analytics ---
+
+    val analyticsSession: AnalyticsSession by lazy {
+        AnalyticsSession(createAppPreferences()).also { it.refreshSession() }
+    }
+
+    val analyticsTracker: AnalyticsTracker by lazy {
+        val trackers = buildList {
+            add(LoggingAnalyticsTracker())
+            if (AnalyticsConfig.ANALYTICS_ENABLED && AnalyticsConfig.POSTHOG_API_KEY.isNotBlank()) {
+                add(
+                    PostHogAnalyticsTracker(
+                        apiKey = AnalyticsConfig.POSTHOG_API_KEY,
+                        host = AnalyticsConfig.POSTHOG_HOST,
+                        httpClient = httpClient,
+                    )
+                )
+            }
+            if (AnalyticsConfig.ANALYTICS_ENABLED) {
+                add(FirebaseAnalyticsTracker())
+            }
+        }
+        CompositeAnalyticsTracker(trackers)
+    }
     
     private val projectsApi by lazy { ProjectsApi(httpClient) }
     private val contactRequestApi by lazy { ContactRequestApi(httpClient) }

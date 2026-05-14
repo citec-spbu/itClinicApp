@@ -1,6 +1,5 @@
 package com.spbu.projecttrack.main.presentation
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -30,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -136,28 +134,6 @@ fun MainScreen(
     var draggedMainTabPosition by remember { mutableStateOf<Float?>(null) }
     var settlingMainTab by remember { mutableStateOf<Int?>(null) }
     val isAuthorized by AuthManager.isAuthorized.collectAsState()
-    val projectsTitle = localizedString("Проекты", "Projects")
-    val suggestProjectLabel = localizedString("Предложить проект", "Suggest a project")
-    val allProjectsLabel = localizedString("Все проекты", "All projects")
-    val myProjectLabel = localizedString("Мой проект", "My project")
-    val loginToSeeProjectLabel = localizedString(
-        "Войдите, чтобы увидеть свой проект",
-        "Sign in to see your project",
-    )
-    val noPersonalProjectLabel = localizedString(
-        "У вас еще нет личного проекта",
-        "You do not have a personal project yet",
-    )
-    val requestSentTitle = localizedString("Заявка отправлена", "Request sent")
-    val requestSentMessage = localizedString(
-        "Мы свяжемся с вами в ближайшее время.",
-        "We will contact you soon.",
-    )
-    val requestFailedTitle = localizedString(
-        "Не удалось отправить заявку",
-        "Failed to send request",
-    )
-    val requestFailedMessage = localizedString("Попробуйте позже.", "Please try again later.")
 
     // Reset root flags when leaving nested tabs so the first frame on return uses the correct insets.
     LaunchedEffect(selectedTab) {
@@ -978,7 +954,7 @@ private fun TabItem(
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 1.15f else 1f, // Увеличение на 15% при нажатии
+        targetValue = if (isPressed) 1.15f else 1f,
         animationSpec = tween(durationMillis = 150)
     )
 
@@ -988,7 +964,7 @@ private fun TabItem(
             .height(TabBarIndicatorHeight)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null, // Убираем стандартное затемнение
+                indication = null,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center

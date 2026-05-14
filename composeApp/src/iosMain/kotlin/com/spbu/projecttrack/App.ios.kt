@@ -14,6 +14,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.CompositionLocalProvider
+import com.spbu.projecttrack.analytics.compose.BindAnalyticsIdentity
+import com.spbu.projecttrack.analytics.compose.LocalAnalyticsSession
+import com.spbu.projecttrack.analytics.compose.LocalAnalyticsTracker
 import com.spbu.projecttrack.core.auth.AuthDeepLinkBridge
 import com.spbu.projecttrack.core.auth.AuthManager
 import com.spbu.projecttrack.core.auth.MobileAuthSession
@@ -37,6 +41,10 @@ import com.spbu.projecttrack.rating.presentation.projectstats.ProjectStatsScreen
 import com.spbu.projecttrack.rating.presentation.userstats.UserStatsScreen
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import platform.Foundation.NSNotificationCenter
+import platform.UIKit.UIApplicationDidEnterBackgroundNotification
+import platform.UIKit.UIApplicationWillEnterForegroundNotification
+import platform.UIKit.UIApplicationWillTerminateNotification
 
 sealed class Screen {
     data object Onboarding : Screen()
@@ -59,6 +67,7 @@ actual fun App(onLaunchReady: () -> Unit) {
     val scope = rememberCoroutineScope()
     val customHostIp by NetworkSettings.customHostIP.collectAsState()
     val authToken by AuthManager.authToken.collectAsState()
+    val currentUserId by AuthManager.currentUserId.collectAsState()
     val storedCustomHostIp = remember { preferences.getCustomHostIP() }
     var appLanguage by remember {
         mutableStateOf(AppLanguage.fromStorage(preferences.getAppLanguage()))
@@ -176,6 +185,46 @@ actual fun App(onLaunchReady: () -> Unit) {
         preferences.saveAppThemeMode(appThemeMode.storageValue)
     }
 
+    BindAnalyticsIdentity(
+        rawUserId = currentUserId?.toString(),
+        analyticsTracker = DependencyContainer.analyticsTracker,
+        analyticsSession = DependencyContainer.analyticsSession,
+    )
+
+    DisposableEffect(Unit) {
+        val notificationCenter = NSNotificationCenter.defaultCenter
+        val backgroundObserver = notificationCenter.addObserverForName(
+            name = UIApplicationDidEnterBackgroundNotification,
+            `object` = null,
+            queue = null,
+        ) {
+            scope.launch {
+                DependencyContainer.analyticsTracker.flush()
+            }
+        }
+        val foregroundObserver = notificationCenter.addObserverForName(
+            name = UIApplicationWillEnterForegroundNotification,
+            `object` = null,
+            queue = null,
+        ) {
+            DependencyContainer.analyticsSession.refreshSession()
+        }
+        val terminateObserver = notificationCenter.addObserverForName(
+            name = UIApplicationWillTerminateNotification,
+            `object` = null,
+            queue = null,
+        ) {
+            scope.launch {
+                DependencyContainer.analyticsTracker.flush()
+            }
+        }
+        onDispose {
+            notificationCenter.removeObserver(backgroundObserver)
+            notificationCenter.removeObserver(foregroundObserver)
+            notificationCenter.removeObserver(terminateObserver)
+        }
+    }
+
     var mainSelectedTab by rememberSaveable { mutableStateOf(0) }
     val screenStack = remember { mutableStateListOf<Screen>() }
 
@@ -189,6 +238,10 @@ actual fun App(onLaunchReady: () -> Unit) {
         }
     }
 
+    CompositionLocalProvider(
+        LocalAnalyticsTracker provides DependencyContainer.analyticsTracker,
+        LocalAnalyticsSession provides DependencyContainer.analyticsSession,
+    ) {
     ITClinicTheme(
         language = appLanguage,
         themeMode = appThemeMode,
@@ -332,4 +385,5 @@ actual fun App(onLaunchReady: () -> Unit) {
             )
         }
     }
+    } // CompositionLocalProvider
 }

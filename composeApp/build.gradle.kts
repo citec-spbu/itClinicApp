@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -7,6 +8,35 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinx.serialization)
+    id("com.google.gms.google-services")
+}
+
+dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:34.13.0"))
+    implementation("com.google.firebase:firebase-analytics")
+}
+
+// Auto-generate AnalyticsConfig.kt from local.properties (for local dev).
+// On CI the file is written by prepare_ci_stubs.sh before Gradle runs.
+run {
+    val configFile = file("src/commonMain/kotlin/com/spbu/projecttrack/AnalyticsConfig.kt")
+    if (!configFile.exists()) {
+        val localProps = Properties()
+        val localPropsFile = rootProject.file("local.properties")
+        if (localPropsFile.exists()) localProps.load(localPropsFile.inputStream())
+        val posthogKey      = localProps.getProperty("posthog_api_key") ?: ""
+        val posthogHost     = localProps.getProperty("posthog_host") ?: "https://eu.i.posthog.com"
+        // В local.properties по умолчанию false — не засоряем PostHog дебаг-данными
+        val analyticsEnabled = localProps.getProperty("analytics_enabled") ?: "false"
+        configFile.writeText(
+            "package com.spbu.projecttrack\n\n" +
+            "object AnalyticsConfig {\n" +
+            "    const val POSTHOG_API_KEY   = \"$posthogKey\"\n" +
+            "    const val POSTHOG_HOST      = \"$posthogHost\"\n" +
+            "    const val ANALYTICS_ENABLED = $analyticsEnabled\n" +
+            "}\n"
+        )
+    }
 }
 
 val gitCommitCount: Int by lazy {

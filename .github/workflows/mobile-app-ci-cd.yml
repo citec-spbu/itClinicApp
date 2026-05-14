@@ -108,6 +108,8 @@ jobs:
           CI_SMTP_FROM_NAME: ${{ secrets.CI_SMTP_FROM_NAME }}
           CI_FEEDBACK_TO_EMAIL: ${{ secrets.CI_FEEDBACK_TO_EMAIL }}
           CI_FEEDBACK_SUBJECT: ${{ secrets.CI_FEEDBACK_SUBJECT }}
+          CI_POSTHOG_API_KEY: ${{ secrets.CI_POSTHOG_API_KEY }}
+          CI_POSTHOG_HOST: ${{ secrets.CI_POSTHOG_HOST }}
         run: bash scripts/prepare_ci_stubs.sh
 
       - name: Prepare Android release signing
@@ -148,6 +150,8 @@ jobs:
           CI_SMTP_FROM_NAME: ${{ secrets.CI_SMTP_FROM_NAME }}
           CI_FEEDBACK_TO_EMAIL: ${{ secrets.CI_FEEDBACK_TO_EMAIL }}
           CI_FEEDBACK_SUBJECT: ${{ secrets.CI_FEEDBACK_SUBJECT }}
+          CI_POSTHOG_API_KEY: ${{ secrets.CI_POSTHOG_API_KEY }}
+          CI_POSTHOG_HOST: ${{ secrets.CI_POSTHOG_HOST }}
         run: bash scripts/prepare_mobile_showcase.sh
 
       - name: Generate Android update manifest
@@ -217,6 +221,8 @@ jobs:
           CI_SMTP_FROM_NAME: ${{ secrets.CI_SMTP_FROM_NAME }}
           CI_FEEDBACK_TO_EMAIL: ${{ secrets.CI_FEEDBACK_TO_EMAIL }}
           CI_FEEDBACK_SUBJECT: ${{ secrets.CI_FEEDBACK_SUBJECT }}
+          CI_POSTHOG_API_KEY: ${{ secrets.CI_POSTHOG_API_KEY }}
+          CI_POSTHOG_HOST: ${{ secrets.CI_POSTHOG_HOST }}
         run: bash scripts/prepare_ci_stubs.sh
 
       - name: Compile iOS Kotlin target

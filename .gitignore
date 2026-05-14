@@ -23,6 +23,7 @@ node_modules/
 BuildConfig.kt
 composeApp/src/commonMain/kotlin/com/spbu/projecttrack/BuildConfig.kt
 composeApp/src/commonMain/kotlin/com/spbu/projecttrack/MailConfig.kt
+composeApp/src/commonMain/kotlin/com/spbu/projecttrack/AnalyticsConfig.kt
 
 # Environment variables
 .env

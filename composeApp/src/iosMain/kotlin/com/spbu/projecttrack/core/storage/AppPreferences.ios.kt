@@ -110,6 +110,44 @@ class AppPreferencesImpl : AppPreferences {
         private const val KEY_RANKING_FILTER_TEMPLATES = "ranking_filter_templates_json"
         private const val KEY_PROJECT_STATS_SCREEN_SETTINGS = "project_stats_screen_settings_json"
         private const val KEY_USER_STATS_SCREEN_SETTINGS = "user_stats_screen_settings_json"
+        private const val KEY_ANALYTICS_SESSION_ID = "analytics_session_id"
+        private const val KEY_ANALYTICS_SESSION_TS = "analytics_session_ts"
+        private const val KEY_ANALYTICS_USER_ID    = "analytics_user_id"
+        private const val KEY_ANALYTICS_ANON_ID    = "analytics_anonymous_id"
+    }
+
+    override fun getAnalyticsSessionId(): String? =
+        userDefaults.stringForKey(KEY_ANALYTICS_SESSION_ID)
+
+    override fun saveAnalyticsSessionId(id: String?) {
+        if (id == null) userDefaults.removeObjectForKey(KEY_ANALYTICS_SESSION_ID)
+        else userDefaults.setObject(id, KEY_ANALYTICS_SESSION_ID)
+    }
+
+    override fun getAnalyticsSessionTimestamp(): Long? {
+        if (userDefaults.objectForKey(KEY_ANALYTICS_SESSION_TS) == null) return null
+        return userDefaults.doubleForKey(KEY_ANALYTICS_SESSION_TS).toLong()
+    }
+
+    override fun saveAnalyticsSessionTimestamp(ts: Long?) {
+        if (ts == null) userDefaults.removeObjectForKey(KEY_ANALYTICS_SESSION_TS)
+        else userDefaults.setDouble(ts.toDouble(), KEY_ANALYTICS_SESSION_TS)
+    }
+
+    override fun getAnalyticsUserId(): String? =
+        userDefaults.stringForKey(KEY_ANALYTICS_USER_ID)
+
+    override fun saveAnalyticsUserId(userId: String?) {
+        if (userId == null) userDefaults.removeObjectForKey(KEY_ANALYTICS_USER_ID)
+        else userDefaults.setObject(userId, KEY_ANALYTICS_USER_ID)
+    }
+
+    override fun getAnalyticsAnonymousId(): String? =
+        userDefaults.stringForKey(KEY_ANALYTICS_ANON_ID)
+
+    override fun saveAnalyticsAnonymousId(id: String?) {
+        if (id == null) userDefaults.removeObjectForKey(KEY_ANALYTICS_ANON_ID)
+        else userDefaults.setObject(id, KEY_ANALYTICS_ANON_ID)
     }
 }
 

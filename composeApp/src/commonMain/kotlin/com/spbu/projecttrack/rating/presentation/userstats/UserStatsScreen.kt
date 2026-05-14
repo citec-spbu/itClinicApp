@@ -65,6 +65,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spbu.projecttrack.analytics.compose.TrackScreen
+import com.spbu.projecttrack.analytics.compose.TrackScrollDepth
+import com.spbu.projecttrack.analytics.compose.TrackVisibility
+import com.spbu.projecttrack.analytics.compose.rememberAnalyticsContext
+import com.spbu.projecttrack.analytics.compose.trackTap
+import com.spbu.projecttrack.analytics.model.BlockType
 import com.spbu.projecttrack.core.settings.localizeRuntime
 import com.spbu.projecttrack.core.settings.localizedString
 import com.spbu.projecttrack.core.storage.createAppPreferences
@@ -140,6 +146,7 @@ fun UserStatsScreen(
 ) {
     val logTag = "UserStatsScreen"
     val uiState by viewModel.uiState.collectAsState()
+    val analytics = rememberAnalyticsContext()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val exporter = rememberProjectStatsExporter()
@@ -156,6 +163,18 @@ fun UserStatsScreen(
     }
     val activeSections = remember(activeSectionIds) { statsScreenSectionsFromIds(activeSectionIds) }
     val detailTransitionState = remember { MutableTransitionState(false) }
+    val successModel = (uiState as? UserStatsUiState.Success)?.data
+    val screenAnalyticsSession = if (successModel != null) {
+        rememberUserStatsAnalyticsSession(
+            analyticsContext = analytics,
+            projectId = successModel.projectId,
+            subjectUserId = successModel.userId,
+            initialRepositoryId = successModel.selectedRepositoryId,
+            initialStartIsoDate = successModel.visibleRange.startIsoDate,
+            initialEndIsoDate = successModel.visibleRange.endIsoDate,
+            initialRapidThresholdMinutes = successModel.rapidThreshold.totalMinutes,
+        )
+    } else null
     val palette = appPalette()
     val dispatchBack = rememberStatsBackDispatcher(logTag) {
         "settingsVisible=$showSettingsScreen detailSection=${activeDetailSection?.id ?: "none"}"
@@ -233,52 +252,78 @@ fun UserStatsScreen(
                 }
 
                 is UserStatsUiState.Success -> {
-                    UserStatsContent(
-                        model = state.data,
-                        visibleSections = activeSections,
-                        onBackClick = { dispatchBack("stats_top_bar") { onBackClick() } },
-                        onProjectClick = onProjectClick,
-                        onRepositorySelected = viewModel::selectRepository,
-                        onDateRangeSelected = viewModel::selectDateRange,
-                        onRapidThresholdChanged = viewModel::updateRapidThreshold,
-                        onDetailsClick = { section ->
-                            AppLog.d(logTag, "openDetail section=${section.id}")
-                            activeDetailSection = section
-                        },
-                        onSettingsClick = {
-                            AppLog.d(logTag, "openSettings")
-                            showSettingsScreen = true
-                        },
-                        onExportPdfClick = {
-                            scope.launch {
-                                val payload = state.data.toExportPayload()
-                                val result = exporter.exportPdf(payload)
-                                val message = result.getOrNull()?.let { export ->
-                                    StatsExportCopy.pdfSaved(export.fileName)
-                                } ?: StatsExportCopy.exportPdfFailed()
-                                snackbarHostState.showSnackbar(message)
+                    if (screenAnalyticsSession != null) {
+                        val analyticsSession = screenAnalyticsSession
+                        UserStatsContent(
+                            model = state.data,
+                            analyticsContext = analytics,
+                            analyticsSession = analyticsSession,
+                            visibleSections = activeSections,
+                            onBackClick = { dispatchBack("stats_top_bar") { onBackClick() } },
+                            onProjectClick = onProjectClick,
+                            onRepositorySelected = { repositoryId ->
+                                analyticsSession.onRepositorySelected(repositoryId)
+                                viewModel.selectRepository(repositoryId)
+                            },
+                            onDateRangeSelected = { startIsoDate, endIsoDate ->
+                                analyticsSession.onDateRangeSelected(startIsoDate, endIsoDate)
+                                viewModel.selectDateRange(startIsoDate, endIsoDate)
+                            },
+                            onRapidThresholdChanged = { days, hours, minutes ->
+                                analyticsSession.onRapidThresholdChanged(days, hours, minutes)
+                                viewModel.updateRapidThreshold(days, hours, minutes)
+                            },
+                            onDetailsClick = { section ->
+                                analyticsSession.onDetailsOpened(section)
+                                AppLog.d(logTag, "openDetail section=${section.id}")
+                                activeDetailSection = section
+                            },
+                            onSettingsClick = {
+                                analyticsSession.onSettingsOpened()
+                                AppLog.d(logTag, "openSettings")
+                                showSettingsScreen = true
+                            },
+                            onExportPdfClick = {
+                                analyticsSession.onExportRequested(
+                                    format = "pdf",
+                                    scope = "screen",
+                                )
+                                scope.launch {
+                                    val payload = state.data.toExportPayload()
+                                    val result = exporter.exportPdf(payload)
+                                    val message = result.getOrNull()?.let { export ->
+                                        StatsExportCopy.pdfSaved(export.fileName)
+                                    } ?: StatsExportCopy.exportPdfFailed()
+                                    snackbarHostState.showSnackbar(message)
+                                }
+                            },
+                            onExportExcelClick = {
+                                analyticsSession.onExportRequested(
+                                    format = "csv",
+                                    scope = "screen",
+                                )
+                                scope.launch {
+                                    val payload = state.data.toExportPayload()
+                                    val result = exporter.exportExcelCsv(payload)
+                                    val message = result.getOrNull()?.let { export ->
+                                        StatsExportCopy.csvSaved(export.fileName)
+                                    } ?: StatsExportCopy.exportExcelFailed()
+                                    snackbarHostState.showSnackbar(message)
+                                }
                             }
-                        },
-                        onExportExcelClick = {
-                            scope.launch {
-                                val payload = state.data.toExportPayload()
-                                val result = exporter.exportExcelCsv(payload)
-                                val message = result.getOrNull()?.let { export ->
-                                    StatsExportCopy.csvSaved(export.fileName)
-                                } ?: StatsExportCopy.exportExcelFailed()
-                                snackbarHostState.showSnackbar(message)
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
             }
 
             if (showSettingsScreen) {
+                val settingsProjectId = (uiState as? UserStatsUiState.Success)?.data?.projectId
                 StatsScreenSettingsScreen(
                     target = StatsScreenSettingsTarget.User,
                     activeSectionIds = activeSectionIds,
                     onActiveSectionIdsChange = { activeSectionIds = it },
                     onBackClick = { dispatchBack("settings_top_bar") { showSettingsScreen = false } },
+                    analyticsProjectId = settingsProjectId,
                 )
             }
 
@@ -291,64 +336,88 @@ fun UserStatsScreen(
                 val detailSection = renderedDetailSection
                 if (detailSection != null && uiState is UserStatsUiState.Success) {
                     val model = (uiState as UserStatsUiState.Success).data
-                    StatsDetailScreen(
-                        section = detailSection,
-                        repositories = model.repositories,
-                        selectedRepositoryId = model.selectedRepositoryId,
-                        visibleRange = model.visibleRange,
-                        rapidThreshold = model.rapidThreshold,
-                        details = model.details,
-                        allowParticipantFilter = false,
-                        initialParticipantId = model.details.defaultParticipantId,
-                        overallRank = when (detailSection) {
-                            StatsScreenSection.Commits -> model.commits.rank
-                            StatsScreenSection.Issues -> model.issues.rank
-                            StatsScreenSection.PullRequests -> model.pullRequests.rank
-                            StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.rank
-                            StatsScreenSection.CodeChurn -> model.codeChurn.rank
-                            StatsScreenSection.CodeOwnership -> model.codeOwnership.rank
-                            StatsScreenSection.DominantWeekDay -> null
-                        },
-                        overallScore = when (detailSection) {
-                            StatsScreenSection.Commits -> model.commits.score
-                            StatsScreenSection.Issues -> model.issues.score
-                            StatsScreenSection.PullRequests -> model.pullRequests.score
-                            StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.score
-                            StatsScreenSection.CodeChurn -> model.codeChurn.score
-                            StatsScreenSection.CodeOwnership -> model.codeOwnership.score
-                            StatsScreenSection.DominantWeekDay -> model.dominantWeekDay.score
-                        },
-                        onBackClick = { dispatchBack("detail_top_bar") { activeDetailSection = null } },
-                        onRepositorySelected = viewModel::selectRepository,
-                        onDateRangeSelected = viewModel::selectDateRange,
-                        onRapidThresholdChanged = viewModel::updateRapidThreshold,
-                        onExportPdfClick = { participantId ->
-                            scope.launch {
-                                val payload = model.toSectionExportPayload(
-                                    section = detailSection,
+                    if (screenAnalyticsSession != null) {
+                        val analyticsSession = screenAnalyticsSession
+                        StatsDetailScreen(
+                            section = detailSection,
+                            repositories = model.repositories,
+                            selectedRepositoryId = model.selectedRepositoryId,
+                            visibleRange = model.visibleRange,
+                            rapidThreshold = model.rapidThreshold,
+                            details = model.details,
+                            allowParticipantFilter = false,
+                            initialParticipantId = model.details.defaultParticipantId,
+                            overallRank = when (detailSection) {
+                                StatsScreenSection.Commits -> model.commits.rank
+                                StatsScreenSection.Issues -> model.issues.rank
+                                StatsScreenSection.PullRequests -> model.pullRequests.rank
+                                StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.rank
+                                StatsScreenSection.CodeChurn -> model.codeChurn.rank
+                                StatsScreenSection.CodeOwnership -> model.codeOwnership.rank
+                                StatsScreenSection.DominantWeekDay -> null
+                            },
+                            overallScore = when (detailSection) {
+                                StatsScreenSection.Commits -> model.commits.score
+                                StatsScreenSection.Issues -> model.issues.score
+                                StatsScreenSection.PullRequests -> model.pullRequests.score
+                                StatsScreenSection.RapidPullRequests -> model.rapidPullRequests.score
+                                StatsScreenSection.CodeChurn -> model.codeChurn.score
+                                StatsScreenSection.CodeOwnership -> model.codeOwnership.score
+                                StatsScreenSection.DominantWeekDay -> model.dominantWeekDay.score
+                            },
+                            onBackClick = { dispatchBack("detail_top_bar") { activeDetailSection = null } },
+                            onRepositorySelected = { repositoryId ->
+                                analyticsSession.onRepositorySelected(repositoryId)
+                                viewModel.selectRepository(repositoryId)
+                            },
+                            onDateRangeSelected = { startIsoDate, endIsoDate ->
+                                analyticsSession.onDateRangeSelected(startIsoDate, endIsoDate)
+                                viewModel.selectDateRange(startIsoDate, endIsoDate)
+                            },
+                            onRapidThresholdChanged = { days, hours, minutes ->
+                                analyticsSession.onRapidThresholdChanged(days, hours, minutes)
+                                viewModel.updateRapidThreshold(days, hours, minutes)
+                            },
+                            onExportPdfClick = { participantId ->
+                                analyticsSession.onExportRequested(
+                                    format = "pdf",
+                                    scope = "detail",
+                                    sectionId = detailSection.id,
                                     participantId = participantId,
                                 )
-                                val result = exporter.exportPdf(payload)
-                                val message = result.getOrNull()?.let { export ->
-                                    StatsExportCopy.pdfSaved(export.fileName)
-                                } ?: StatsExportCopy.exportPdfFailed()
-                                snackbarHostState.showSnackbar(message)
-                            }
-                        },
-                        onExportExcelClick = { participantId ->
-                            scope.launch {
-                                val payload = model.toSectionExportPayload(
-                                    section = detailSection,
+                                scope.launch {
+                                    val payload = model.toSectionExportPayload(
+                                        section = detailSection,
+                                        participantId = participantId,
+                                    )
+                                    val result = exporter.exportPdf(payload)
+                                    val message = result.getOrNull()?.let { export ->
+                                        StatsExportCopy.pdfSaved(export.fileName)
+                                    } ?: StatsExportCopy.exportPdfFailed()
+                                    snackbarHostState.showSnackbar(message)
+                                }
+                            },
+                            onExportExcelClick = { participantId ->
+                                analyticsSession.onExportRequested(
+                                    format = "csv",
+                                    scope = "detail",
+                                    sectionId = detailSection.id,
                                     participantId = participantId,
                                 )
-                                val result = exporter.exportExcelCsv(payload)
-                                val message = result.getOrNull()?.let { export ->
-                                    StatsExportCopy.csvSaved(export.fileName)
-                                } ?: StatsExportCopy.exportExcelFailed()
-                                snackbarHostState.showSnackbar(message)
-                            }
-                        },
-                    )
+                                scope.launch {
+                                    val payload = model.toSectionExportPayload(
+                                        section = detailSection,
+                                        participantId = participantId,
+                                    )
+                                    val result = exporter.exportExcelCsv(payload)
+                                    val message = result.getOrNull()?.let { export ->
+                                        StatsExportCopy.csvSaved(export.fileName)
+                                    } ?: StatsExportCopy.exportExcelFailed()
+                                    snackbarHostState.showSnackbar(message)
+                                }
+                            },
+                        )
+                    }
                 }
             }
 
@@ -363,6 +432,8 @@ fun UserStatsScreen(
 @Composable
 private fun UserStatsContent(
     model: UserStatsUiModel,
+    analyticsContext: com.spbu.projecttrack.analytics.compose.AnalyticsContext,
+    analyticsSession: UserStatsAnalyticsSession,
     visibleSections: List<StatsScreenSection>,
     onBackClick: () -> Unit,
     onProjectClick: (String) -> Unit,
@@ -379,8 +450,17 @@ private fun UserStatsContent(
     val palette = appPalette()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val density = LocalDensity.current
+    val screenName = "user_stats_screen"
     var topBarHeight by remember { mutableStateOf(0.dp) }
     val topContentPadding = maxOf(topBarHeight, StatsTopBarTotalHeight) + 8.dp
+
+    TrackScreen(screenName, analyticsContext)
+    TrackScrollDepth(
+        screenName = screenName,
+        scrollState = listState,
+        analyticsContext = analyticsContext,
+        onDepthTracked = analyticsSession::onScrollTracked,
+    )
 
     Box(
         modifier = modifier.fillMaxSize()
@@ -402,95 +482,179 @@ private fun UserStatsContent(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
-                PersonalStatsSummary(
-                    userName = model.userName,
-                    role = model.role,
+                val blockSpec = MetricBlockSpec(
+                    blockId = "block_user_summary",
+                    blockType = BlockType.SUMMARY_HEADER,
+                    position = 1,
                 )
-            }
-            item {
-                AnimatedSection {
-                    ProjectLinkCard(
-                        projectTitle = model.projectTitle,
-                        onClick = { onProjectClick(model.projectId) }
+                TrackVisibility(
+                    blockId = blockSpec.blockId,
+                    blockType = blockSpec.blockType,
+                    screenName = screenName,
+                    analyticsContext = analyticsContext,
+                    onViewed = analyticsSession::onBlockViewed,
+                    onFocus = { analyticsSession.onBlockFocused(it, blockSpec.position) },
+                ) {
+                    PersonalStatsSummary(
+                        userName = model.userName,
+                        role = model.role,
                     )
                 }
             }
             item {
-                AnimatedSection {
-                    if (model.repositories.isEmpty()) {
-                        EmptyDetailedInfoCard()
-                    } else {
-                        RepositorySelectorCard(
-                            repositories = model.repositories,
-                            selectedId = model.selectedRepositoryId,
-                            visibleRange = model.visibleRange,
-                            onRepositorySelected = onRepositorySelected,
-                            onDateRangeClick = { showDateRangePicker = true }
+                val blockSpec = MetricBlockSpec(
+                    blockId = "block_project_link",
+                    blockType = BlockType.PROJECT_SECTION,
+                    position = 2,
+                )
+                TrackVisibility(
+                    blockId = blockSpec.blockId,
+                    blockType = blockSpec.blockType,
+                    screenName = screenName,
+                    analyticsContext = analyticsContext,
+                    onViewed = analyticsSession::onBlockViewed,
+                    onFocus = { analyticsSession.onBlockFocused(it, blockSpec.position) },
+                    modifier = Modifier.trackTap(
+                        blockId = blockSpec.blockId,
+                        blockType = blockSpec.blockType,
+                        screenName = screenName,
+                        analyticsContext = analyticsContext,
+                        onTapTracked = { analyticsSession.onBlockTapped(it, blockSpec.position) },
+                    ),
+                ) {
+                    AnimatedSection {
+                        ProjectLinkCard(
+                            projectTitle = model.projectTitle,
+                            onClick = { onProjectClick(model.projectId) }
                         )
                     }
                 }
             }
             item {
-                AnimatedSection {
-                    SingleMetricCard(
-                        value = model.teamRank?.toString() ?: "—",
-                        caption = localizedString("место в команде", "team rank")
-                    )
+                val blockSpec = MetricBlockSpec(
+                    blockId = "block_repo_selector",
+                    blockType = BlockType.FILTER_BAR,
+                    position = 3,
+                )
+                TrackVisibility(
+                    blockId = blockSpec.blockId,
+                    blockType = blockSpec.blockType,
+                    screenName = screenName,
+                    analyticsContext = analyticsContext,
+                    onViewed = analyticsSession::onBlockViewed,
+                    onFocus = { analyticsSession.onBlockFocused(it, blockSpec.position) },
+                ) {
+                    AnimatedSection {
+                        if (model.repositories.isEmpty()) {
+                            EmptyDetailedInfoCard()
+                        } else {
+                            RepositorySelectorCard(
+                                repositories = model.repositories,
+                                selectedId = model.selectedRepositoryId,
+                                visibleRange = model.visibleRange,
+                                onRepositorySelected = onRepositorySelected,
+                                onDateRangeClick = { showDateRangePicker = true }
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                val blockSpec = MetricBlockSpec(
+                    blockId = "block_team_rank",
+                    blockType = BlockType.KPI,
+                    position = 4,
+                )
+                TrackVisibility(
+                    blockId = blockSpec.blockId,
+                    blockType = blockSpec.blockType,
+                    screenName = screenName,
+                    analyticsContext = analyticsContext,
+                    onViewed = analyticsSession::onBlockViewed,
+                    onFocus = { analyticsSession.onBlockFocused(it, blockSpec.position) },
+                ) {
+                    AnimatedSection {
+                        SingleMetricCard(
+                            value = model.teamRank?.toString() ?: "—",
+                            caption = localizedString("место в команде", "team rank")
+                        )
+                    }
                 }
             }
             items(
                 items = visibleSections,
                 key = { it.id },
             ) { section ->
-                when (section) {
-                    StatsScreenSection.Commits -> AnimatedSection {
-                        PersonalMetricSection(
-                            section = model.commits,
-                            onDetailsClick = { onDetailsClick(StatsScreenSection.Commits) }
-                        )
-                    }
+                val blockSpec = MetricBlockSpec(
+                    blockId = "section_${section.id}",
+                    blockType = BlockType.CHART,
+                    position = visibleSections.indexOf(section) + 5,
+                )
+                TrackVisibility(
+                    blockId = blockSpec.blockId,
+                    blockType = blockSpec.blockType,
+                    screenName = screenName,
+                    analyticsContext = analyticsContext,
+                    onViewed = analyticsSession::onBlockViewed,
+                    onFocus = { analyticsSession.onBlockFocused(it, blockSpec.position) },
+                    modifier = Modifier.trackTap(
+                        blockId = blockSpec.blockId,
+                        blockType = blockSpec.blockType,
+                        screenName = screenName,
+                        analyticsContext = analyticsContext,
+                        onTapTracked = { analyticsSession.onBlockTapped(it, blockSpec.position) },
+                    ),
+                ) {
+                    when (section) {
+                        StatsScreenSection.Commits -> AnimatedSection {
+                            PersonalMetricSection(
+                                section = model.commits,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.Commits) }
+                            )
+                        }
 
-                    StatsScreenSection.Issues -> AnimatedSection {
-                        PersonalIssueSection(
-                            section = model.issues,
-                            onDetailsClick = { onDetailsClick(StatsScreenSection.Issues) }
-                        )
-                    }
+                        StatsScreenSection.Issues -> AnimatedSection {
+                            PersonalIssueSection(
+                                section = model.issues,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.Issues) }
+                            )
+                        }
 
-                    StatsScreenSection.PullRequests -> AnimatedSection {
-                        PersonalMetricSection(
-                            section = model.pullRequests,
-                            onDetailsClick = { onDetailsClick(StatsScreenSection.PullRequests) }
-                        )
-                    }
+                        StatsScreenSection.PullRequests -> AnimatedSection {
+                            PersonalMetricSection(
+                                section = model.pullRequests,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.PullRequests) }
+                            )
+                        }
 
-                    StatsScreenSection.RapidPullRequests -> AnimatedSection {
-                        PersonalRapidPullSection(
-                            section = model.rapidPullRequests,
-                            onRapidThresholdChanged = onRapidThresholdChanged,
-                            onDetailsClick = { onDetailsClick(StatsScreenSection.RapidPullRequests) }
-                        )
-                    }
+                        StatsScreenSection.RapidPullRequests -> AnimatedSection {
+                            PersonalRapidPullSection(
+                                section = model.rapidPullRequests,
+                                onRapidThresholdChanged = onRapidThresholdChanged,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.RapidPullRequests) }
+                            )
+                        }
 
-                    StatsScreenSection.CodeChurn -> AnimatedSection {
-                        PersonalCodeChurnSection(
-                            section = model.codeChurn,
-                            onDetailsClick = { onDetailsClick(StatsScreenSection.CodeChurn) }
-                        )
-                    }
+                        StatsScreenSection.CodeChurn -> AnimatedSection {
+                            PersonalCodeChurnSection(
+                                section = model.codeChurn,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.CodeChurn) }
+                            )
+                        }
 
-                    StatsScreenSection.CodeOwnership -> AnimatedSection {
-                        PersonalOwnershipSection(
-                            section = model.codeOwnership,
-                            onDetailsClick = { onDetailsClick(StatsScreenSection.CodeOwnership) }
-                        )
-                    }
+                        StatsScreenSection.CodeOwnership -> AnimatedSection {
+                            PersonalOwnershipSection(
+                                section = model.codeOwnership,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.CodeOwnership) }
+                            )
+                        }
 
-                    StatsScreenSection.DominantWeekDay -> AnimatedSection {
-                        DominantWeekDaySection(
-                            section = model.dominantWeekDay,
-                            onDetailsClick = { onDetailsClick(StatsScreenSection.DominantWeekDay) }
-                        )
+                        StatsScreenSection.DominantWeekDay -> AnimatedSection {
+                            DominantWeekDaySection(
+                                section = model.dominantWeekDay,
+                                onDetailsClick = { onDetailsClick(StatsScreenSection.DominantWeekDay) }
+                            )
+                        }
                     }
                 }
             }

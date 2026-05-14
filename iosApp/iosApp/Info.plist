@@ -24,6 +24,10 @@
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>CiteC</string>
+	<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
+	<false/>
+	<key>FirebaseAutomaticScreenReportingEnabled</key>
+	<false/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Philosopher-Bold.ttf</string>

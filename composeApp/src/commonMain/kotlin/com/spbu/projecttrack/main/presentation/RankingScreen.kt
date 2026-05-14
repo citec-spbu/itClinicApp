@@ -51,7 +51,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -64,7 +63,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.material3.pulltorefresh.pullToRefresh
@@ -89,8 +87,6 @@ import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.BlendMode
@@ -3213,70 +3209,4 @@ private fun scoreGradientColor(score: Double?, accentRed: Color, neutralGray: Co
         val t = (clamped - 3f) / 2f
         lerp(RankingYellow, RankingGreen, t)
     }
-}
-
-private fun previewRankingData(): RankingData {
-    return RankingData(
-        projects = listOf(
-            RankingItem(
-                key = "project-1",
-                title = "Анализ и прогнозирование манёвра космического аппарата (КА)",
-                score = 4.91,
-                scoreText = "4.91",
-                description = "В современном мире сложно переоценить важность актуальной информации. Каждая компания стремится показать клиенту свои достижения и скрыть недостатки.",
-                tags = listOf("Веб-разработка", "C++", "C#"),
-                previousPosition = 2,
-                positionDelta = 1,
-            ),
-            RankingItem(
-                key = "project-2",
-                title = "Разработка инструментов ГИС для построения цифрового двойника речной сети",
-                score = 3.65,
-                scoreText = "3.65",
-                description = "Предполагается создание ГИС инструментов построения границ естественной экосистемы, на которой она уже способна поддерживать необходимую полноводность.",
-                tags = listOf("AI", "Анализ данных", "Алгоритмы", "C++", "Python"),
-                markerLabel = "Текущий",
-                previousPosition = 1,
-                positionDelta = -1,
-            ),
-            RankingItem(
-                key = "project-3",
-                title = "Telegram-бот для сбора статистики и продвижения",
-                score = 1.82,
-                scoreText = "1.82",
-                description = "Разработка Telegram-бота для поиска и подбора книг, способствующего продвижению имиджа университета и увеличению числа подписчиков.",
-                tags = listOf("Backend-разработка", "Анализ текстов", "Python"),
-            ),
-        ),
-        students = listOf(
-            RankingItem(
-                key = "student-1",
-                title = "Семенов Семен Семеныч",
-                score = 4.91,
-                scoreText = "4.91",
-                projectName = "Анализ и прогнозирование манёвра космического аппарата (КА)",
-                previousPosition = 2,
-                positionDelta = 1,
-            ),
-            RankingItem(
-                key = "student-2",
-                title = "Борисов Борис Борисович",
-                score = 3.65,
-                scoreText = "3.65",
-                projectName = "Анализ и прогнозирование манёвра космического аппарата (КА)",
-                markerLabel = "Вы",
-                previousPosition = 1,
-                positionDelta = -1,
-            ),
-            RankingItem(
-                key = "student-3",
-                title = "Александров Александр Александрович",
-                score = 1.82,
-                scoreText = "1.82",
-                projectName = "Анализ и прогнозирование манёвра космического аппарата (КА)",
-            ),
-        ),
-        currentUserName = "Борисов Борис Борисович",
-        currentUserProjectName = "Анализ и прогнозирование манёвра космического аппарата (КА)",
-    )
 }
